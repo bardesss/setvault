@@ -116,3 +116,50 @@ async def test_non_admin_cannot_access_other_users_monitors(client):
             cfg = await get_config(s)
             cfg.monitors_allow_all_users = False
             await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_rip_discovery_marks_job_failed_when_enqueue_fails(authed_admin_client, monkeypatch):
+    """A queue outage while accepting a discovery must leave a visible, retryable
+    failed RipJob (like POST /api/url-rip), not one stuck at "queued" forever."""
+    from setvault_core.models.monitors import MonitorDiscovery
+    from setvault_core.models.url_rip import RipJob
+    from setvault_web.api import monitors as monitors_api
+
+    r = await authed_admin_client.post("/api/monitors", json={"kind": "query", "query_text": "q"})
+    assert r.status_code == 201, r.text
+    init_engine(os.environ["TEST_DATABASE_URL"])
+    async with session_factory()() as s:
+        d = MonitorDiscovery(
+            monitor_id=uuid.UUID(r.json()["id"]), source_kind="youtube",
+            external_id=uuid.uuid4().hex, title="t", webpage_url="https://example.test/v",
+            confidence="low", status="pending_review",
+        )
+        s.add(d)
+        await s.commit()
+        discovery_id = d.id
+
+    async def fake_submit(session, *, user_id, url):
+        job = RipJob(submitted_by=user_id, source_url=url, status="queued")
+        session.add(job)
+        await session.flush()
+        return job
+
+    class DownQueue:
+        def __init__(self, *_a, **_kw):
+            pass
+
+        def enqueue(self, *_a, **_kw):
+            raise ConnectionError("redis down")
+
+    monkeypatch.setattr(monitors_api, "submit_rip", fake_submit)
+    monkeypatch.setattr(monitors_api, "Queue", DownQueue)
+
+    r = await authed_admin_client.post(f"/api/me/discoveries/{discovery_id}/rip")
+    assert r.status_code == 204, r.text
+
+    async with session_factory()() as s:
+        d = await s.get(MonitorDiscovery, discovery_id)
+        job = await s.get(RipJob, d.url_rip_id)
+        assert job.status == "failed"
+        assert job.error_text == "failed to enqueue worker"

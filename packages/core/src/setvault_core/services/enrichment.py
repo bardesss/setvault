@@ -16,6 +16,9 @@ from setvault_core.services.crypto import Crypter
 
 _log = structlog.get_logger(__name__)
 
+# How long a provider *error* is cached (a genuine "not found" keeps 24 h).
+_ERROR_CACHE_TTL_SECONDS = 3600
+
 # ── config encryption ───────────────────────────────────────────────────────
 # ProviderConfig.encrypted_config is JSONB; we store a single Fernet token
 # string under "ciphertext". Crypter (services/crypto.py) is bytes-in/bytes-out
@@ -104,11 +107,19 @@ async def cached_call_provider(
                     for k, v in (data.get("fields") or {}).items()},
             raw_response=data.get("raw_response", {}),
         )
+    failed = False
     try:
         result = await provider.enrich_track(TrackRef(**track_ref_kwargs))
-    except Exception:  # cache the miss so a flaky provider is not retried hot
+    except Exception:
+        # Cache the miss so a flaky provider is not retried hot, but only
+        # briefly: a transient outage must not hide a track for a whole day.
+        _log.warning("provider_enrich_failed", provider=provider.kind, exc_info=True)
         result = None
-    ttl = result.cache_ttl_seconds if result else 24 * 3600
+        failed = True
+    if result:
+        ttl = result.cache_ttl_seconds
+    else:
+        ttl = _ERROR_CACHE_TTL_SECONDS if failed else 24 * 3600
     expires = now + timedelta(seconds=ttl)
     serialized = (
         {"fields": {k: {"value": v.value, "confidence": v.confidence}

@@ -55,3 +55,31 @@ async def test_locked_fields_skipped():
     )
     assert "title" not in fields
     assert fields["year"]["value"] == 1992
+
+
+class FailingProvider(StubProvider):
+    async def enrich_track(self, track):
+        raise ConnectionError("provider down")
+
+
+@pytest.mark.asyncio
+async def test_cached_call_provider_caches_errors_briefly(session):
+    """A provider error is cached (no hot retries) but for an hour, not the
+    24 h a genuine "not found" gets, so an outage doesn't hide tracks all day."""
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    from setvault_core.models.enrichment import ProviderResponse
+    from setvault_core.services.enrichment import cached_call_provider
+    from sqlalchemy import select
+
+    kind = f"down{uuid.uuid4().hex[:6]}"
+    result = await cached_call_provider(
+        session, FailingProvider(kind, {}), {"title": "Xtal", "primary_artist_name": "AFX"},
+    )
+    assert result is None
+
+    row = (await session.execute(
+        select(ProviderResponse).where(ProviderResponse.provider_kind == kind),
+    )).scalar_one()
+    assert row.expires_at - datetime.now(UTC) < timedelta(hours=2)
