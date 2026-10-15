@@ -36,6 +36,15 @@ async def test_create_then_list_watch_folder(authed_admin_client, seeded_live_se
     assert wf["host_path"] == str(tmp_path)
     assert wf["enabled"] is True
 
+    # Ingests from this folder are attributed to the admin who created it.
+    from setvault_core.db import session_factory
+    from setvault_core.models.identity import User
+    from setvault_core.models.watch_folder import WatchFolder
+    async with session_factory()() as s:
+        row = await s.get(WatchFolder, uuid.UUID(wf["id"]))
+        creator = await s.get(User, row.created_by)
+        assert creator.email == "admin@example.test"
+
     listing = await authed_admin_client.get("/api/admin/watch-folders")
     assert listing.status_code == 200
     items = listing.json()["items"]
