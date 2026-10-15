@@ -4,6 +4,14 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.2](https://github.com/bardesss/setvault/compare/v0.15.1...v0.15.2) (2026-10-15)
+
+
+### Bug Fixes
+
+* **pipeline:** fpcalc exit 3, stuck failed sets, LUFS parse; run audio tests in CI ([66d20e1](https://github.com/bardesss/setvault/commit/66d20e1e36b092b3c7d631346a0f5e9aff430c60))
+* **pipeline:** uploads no longer hang on fpcalc exit 3; real LUFS values ([8b1e38d](https://github.com/bardesss/setvault/commit/8b1e38d36d30cc04c30e57e6807cc42fcf22e494))
+
 ## [0.15.1](https://github.com/Bardesss/setvault/compare/v0.15.0...v0.15.1) (2026-06-18)
 
 
