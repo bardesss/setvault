@@ -11,6 +11,7 @@ from redis import Redis
 from rq import Queue
 from setvault_core.models.identity import User
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
+from setvault_core.models.url_rip import RipJob
 from setvault_core.schemas.monitors import (
     DiscoveriesListOut,
     DiscoveryOut,
@@ -38,17 +39,20 @@ def _owner_scope(user: User) -> uuid.UUID | None:
     return None if user.role == "admin" else user.id
 
 
-def _enqueue_rip(rip_job_id: uuid.UUID) -> None:
-    """Enqueue the url-rip job for a discovery the user accepted. Best-effort:
-    a Redis outage is logged but does not fail the request — the RipJob row is
-    already persisted and can be retried, mirroring api/url_rip.py."""
+def _enqueue_rip(job: RipJob) -> None:
+    """Enqueue the url-rip job for a discovery the user accepted. A Redis outage
+    does not fail the request: like api/url_rip.py, the RipJob is marked failed
+    so it shows up in Downloads and can be retried, instead of sitting at
+    "queued" forever."""
     try:
         redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
         Queue("default", connection=redis).enqueue(
-            "setvault_core.jobs.url_rip_job.run_rip_job", rip_job_id=str(rip_job_id),
+            "setvault_core.jobs.url_rip_job.run_rip_job", rip_job_id=str(job.id),
         )
     except Exception:
-        logger.exception("failed to enqueue rip job %s from discovery", rip_job_id)
+        logger.exception("failed to enqueue rip job %s from discovery", job.id)
+        job.status = "failed"
+        job.error_text = "failed to enqueue worker"
 
 
 def _monitor_out(m: Monitor) -> MonitorOut:
@@ -188,7 +192,7 @@ async def rip_discovery(
         try:
             job = await submit_rip(session, user_id=user.id, url=d.webpage_url)
             d.url_rip_id = job.id
-            _enqueue_rip(job.id)
+            _enqueue_rip(job)
         except DuplicateRipError as exc:
             d.url_rip_id = exc.existing.id
         d.status = "ingested"

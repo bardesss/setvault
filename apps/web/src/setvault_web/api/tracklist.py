@@ -303,7 +303,7 @@ async def import_tracklist(
         b64 = body.payload.get("image_b64", "")
         try:
             data = base64.b64decode(b64, validate=True)
-        except Exception as exc:
+        except (ValueError, TypeError) as exc:  # binascii.Error is a ValueError
             raise HTTPException(status_code=400, detail="invalid image_b64") from exc
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             tmp.write(data)
