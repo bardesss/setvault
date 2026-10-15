@@ -3,6 +3,8 @@
 # Expects CONTAINER (bundled container name) and BASE (its URL). Every script
 # signs in as the same admin, so they can run in any order against one
 # container: the first one through creates the admin via first-run setup.
+# The session cookie jar persists across scripts (SMOKE_JAR) because setup and
+# login share a 5-per-minute per-IP auth limit.
 set -euo pipefail
 
 BASE="${BASE:-http://localhost:1970}"
@@ -10,7 +12,7 @@ CONTAINER="${CONTAINER:-sv}"
 TIMEOUT="${TIMEOUT:-240}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
-JAR="${WORK}/cookies"
+JAR="${SMOKE_JAR:-${TMPDIR:-/tmp}/setvault-smoke-${CONTAINER}.cookies}"
 ADMIN_JSON='{"email":"smoke@example.com","password":"smoke-password-123"}'
 
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
@@ -23,6 +25,10 @@ sv_user() { echo "$(sv_env PUID 2>/dev/null || echo 1000):$(sv_env PGID 2>/dev/n
 
 sign_in() {
   local code
+  if [ -s "${JAR}" ] && curl -fsS -b "${JAR}" -o /dev/null "${BASE}/api/auth/me" 2>/dev/null; then
+    echo "reusing the existing admin session"
+    return 0
+  fi
   code="$(curl -sS -c "${JAR}" -o /dev/null -w '%{http_code}' \
     -H 'Content-Type: application/json' -d "${ADMIN_JSON}" "${BASE}/api/setup")"
   case "${code}" in
