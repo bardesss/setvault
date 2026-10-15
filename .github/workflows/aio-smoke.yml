@@ -41,6 +41,12 @@ jobs:
           echo "OPTIONS /uploads/ -> $code"
           test "$code" != "404"
 
+      - name: Upload a clip and wait for the pipeline to publish it
+        run: bash infra/docker/test/smoke_upload.sh
+        env:
+          CONTAINER: sv
+          BASE: http://localhost:1970
+
       - name: Dump logs on failure
         if: failure()
         run: docker logs sv || true

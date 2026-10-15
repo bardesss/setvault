@@ -20,6 +20,15 @@ jobs:
           --health-cmd="redis-cli ping" --health-interval=5s --health-retries=10
     steps:
       - uses: actions/checkout@v5
+      - name: Install audio tools (ffmpeg, audiowaveform, chromaprint)
+        run: |
+          sudo add-apt-repository -y ppa:chris-needham/ppa
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg audiowaveform libchromaprint-tools
+          ffmpeg -version | head -1
+          audiowaveform --version
+          fpcalc -version
       - uses: astral-sh/setup-uv@v3
       - run: uv sync --all-extras --all-groups
       - run: uv run ruff check .
@@ -28,6 +37,8 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://setvault:setvault@localhost:5432/setvault
           REDIS_URL: redis://localhost:6379/0
+          # Audio pipeline tests fail instead of skipping if a tool is missing.
+          SETVAULT_REQUIRE_AUDIO_TOOLS: "1"
 
   frontend:
     runs-on: ubuntu-24.04

@@ -22,7 +22,7 @@ json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 echo "--- generating clip inside the container (uses its ffmpeg)"
 docker exec "${CONTAINER}" ffmpeg -hide_banner -loglevel error -y \
   -f lavfi -i "sine=frequency=440:duration=5" -ac 2 /tmp/smoke.flac
-docker cp "${CONTAINER}:/tmp/smoke.flac" "${CLIP}"
+docker exec "${CONTAINER}" cat /tmp/smoke.flac >"${CLIP}"
 SIZE="$(wc -c <"${CLIP}" | tr -d ' ')"
 echo "clip: ${SIZE} bytes"
 
@@ -60,6 +60,11 @@ for _ in $(seq 1 $((TIMEOUT / 3))); do
 done
 test -n "${SLUG}" || { echo "set never published (pipeline failed or stalled)"; exit 1; }
 echo "published: ${SLUG}"
+
+echo "--- loudness measured (a -20 dBFS sine is ~-20 LUFS; -70 means a parse miss)"
+curl -fsS -b "${JAR}" "${BASE}/api/sets/${SLUG}" \
+  | json "d['normalized_lufs']" | { read -r lufs; echo "lufs: ${lufs}"; \
+    python3 -c "import sys; v=float(sys.argv[1]); sys.exit(0 if -40 < v < 0 else 1)" "${lufs}"; }
 
 echo "--- stream is Opus"
 curl -fsS -b "${JAR}" -o "${WORK}/stream" "${BASE}/api/sets/${SLUG}/stream"
