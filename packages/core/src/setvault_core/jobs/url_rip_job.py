@@ -28,7 +28,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.url_rip import RipJob
 
@@ -255,4 +255,4 @@ def run_rip_job(*, rip_job_id: str) -> None:
         async with session_factory()() as s:
             await _run_rip_job(s, uuid.UUID(rip_job_id))
 
-    asyncio.run(_main())
+    run_job(_main())

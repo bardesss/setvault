@@ -6,7 +6,6 @@ outbound HTTP off the request thread. Failures are logged to the row's
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import uuid
@@ -14,7 +13,7 @@ from datetime import UTC, datetime
 
 import httpx
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.library_webhook import LibraryWebhook
 
 logger = logging.getLogger(__name__)
@@ -90,7 +89,7 @@ def run_dispatch_webhook(
     set_id: str | None = None,
     title: str | None = None,
 ) -> dict:
-    return asyncio.run(dispatch_webhook(
+    return run_job(dispatch_webhook(
         webhook_id=webhook_id, event=event,
         set_slug=set_slug, set_id=set_id, title=title,
     ))

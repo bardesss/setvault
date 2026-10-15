@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.watch_folder import WatchFolder
 
 logger = logging.getLogger(__name__)
@@ -172,7 +172,7 @@ def main() -> None:
         level=os.environ.get("LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    asyncio.run(run_watcher())
+    run_job(run_watcher())
 
 
 if __name__ == "__main__":

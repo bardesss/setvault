@@ -1,10 +1,11 @@
 import asyncio
 import os
+import subprocess
 import uuid
 from pathlib import Path
 
 import pytest
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import engine, init_engine, run_job, session_factory
 from setvault_core.jobs.pipeline import run_pipeline
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
@@ -51,3 +52,84 @@ def test_failed_pipeline_marks_set_failed(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("SETVAULT_DB_NULLPOOL", "1")
     init_engine(url)
     assert asyncio.run(_status(sid)) == "failed"
+
+
+def _spy_engines(monkeypatch) -> list:
+    """Record every engine init_engine() builds while an event loop runs."""
+    import setvault_core.db as db
+
+    built: list = []
+    real = db.create_async_engine
+
+    def _spy(*a, **kw):
+        eng = real(*a, **kw)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return eng
+        built.append(eng)
+        return eng
+
+    monkeypatch.setattr(db, "create_async_engine", _spy)
+    return built
+
+
+def test_failed_pipeline_leaves_no_pooled_connections(tmp_path: Path, monkeypatch):
+    """Each sync entrypoint must dispose its pooled engine before its loop
+    closes; otherwise the pool keeps asyncpg connections bound to a dead loop.
+    Two back-to-back runs model a non-forking worker process."""
+    url = os.environ["TEST_DATABASE_URL"]
+    monkeypatch.setenv("SETVAULT_DB_NULLPOOL", "1")
+    init_engine(url)
+    sids = [asyncio.run(_make_set(tmp_path)) for _ in range(2)]
+
+    monkeypatch.delenv("SETVAULT_DB_NULLPOOL")
+    monkeypatch.setenv("DATABASE_URL", url)
+    for sid in sids:
+        with pytest.raises(Exception):  # noqa: B017
+            run_pipeline(str(sid))
+        assert engine().sync_engine.pool.checkedin() == 0
+
+    monkeypatch.setenv("SETVAULT_DB_NULLPOOL", "1")
+    init_engine(url)
+    assert [asyncio.run(_status(sid)) for sid in sids] == ["failed", "failed"]
+
+
+def test_pipeline_stages_share_one_engine(tmp_path: Path, monkeypatch, require_tools):
+    """Every stage calls init_engine(); within one run they must reuse a single
+    pooled engine rather than strand a pool per stage."""
+    require_tools("ffmpeg", "fpcalc", "audiowaveform")
+    url = os.environ["TEST_DATABASE_URL"]
+    monkeypatch.setenv("SETVAULT_DB_NULLPOOL", "1")
+    init_engine(url)
+    subprocess.run(  # noqa: S603
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3",  # noqa: S607
+         str(tmp_path / "missing.flac")],
+        check=True, capture_output=True,
+    )
+    sid = asyncio.run(_make_set(tmp_path))
+
+    monkeypatch.delenv("SETVAULT_DB_NULLPOOL")
+    monkeypatch.setenv("DATABASE_URL", url)
+    built = _spy_engines(monkeypatch)
+    run_pipeline(str(sid))
+
+    assert len(built) == 1
+    assert built[0].sync_engine.pool.checkedin() == 0
+
+    monkeypatch.setenv("SETVAULT_DB_NULLPOOL", "1")
+    init_engine(url)
+    assert asyncio.run(_status(sid)) == "published"
+
+
+def test_init_engine_reuses_engine_on_same_loop_only(monkeypatch):
+    url = os.environ["TEST_DATABASE_URL"]
+    monkeypatch.delenv("SETVAULT_DB_NULLPOOL", raising=False)
+
+    async def _twice():
+        return init_engine(url), init_engine(url)
+
+    a, b = run_job(_twice())
+    c, _ = run_job(_twice())
+    assert a is b
+    assert c is not a

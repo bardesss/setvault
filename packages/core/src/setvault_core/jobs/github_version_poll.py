@@ -11,14 +11,13 @@ caches the result on the SystemConfig singleton (§J16).
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from datetime import UTC, datetime
 
 import httpx
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.services.system_config import get_config
 
 logger = logging.getLogger(__name__)
@@ -110,4 +109,4 @@ async def poll_github_releases() -> dict:
 
 def run_poll_github_releases() -> dict:
     """RQ entry point."""
-    return asyncio.run(poll_github_releases())
+    return run_job(poll_github_releases())

@@ -6,7 +6,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.progress import ProgressEvent, publish
 
@@ -92,4 +92,4 @@ async def generate_waveform(live_set_id: str) -> None:
 
 
 def generate_waveform_sync(live_set_id: str) -> None:
-    asyncio.run(generate_waveform(live_set_id))
+    run_job(generate_waveform(live_set_id))

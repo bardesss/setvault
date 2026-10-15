@@ -12,7 +12,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.progress import ProgressEvent, publish
 from setvault_core.services.audit import log as audit_log
@@ -113,4 +113,4 @@ async def fingerprint_audio(live_set_id: str) -> None:
 
 
 def fingerprint_audio_sync(live_set_id: str) -> None:
-    asyncio.run(fingerprint_audio(live_set_id))
+    run_job(fingerprint_audio(live_set_id))

@@ -47,6 +47,24 @@ jobs:
           CONTAINER: sv
           BASE: http://localhost:1970
 
+      - name: Drop a clip into a watch folder and wait for it to publish
+        run: bash infra/docker/test/smoke_watch_folder.sh
+        env:
+          CONTAINER: sv
+          BASE: http://localhost:1970
+
+      - name: Rip a URL (served offline inside the container) and wait for it to publish
+        run: bash infra/docker/test/smoke_url_rip.sh
+        env:
+          CONTAINER: sv
+          BASE: http://localhost:1970
+
+      - name: Re-measure a set stuck at the bogus -70 LUFS
+        run: bash infra/docker/test/smoke_loudness_backfill.sh
+        env:
+          CONTAINER: sv
+          BASE: http://localhost:1970
+
       - name: Dump logs on failure
         if: failure()
         run: docker logs sv || true

@@ -12,12 +12,13 @@ from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.enrichment import ProviderConfig
 from setvault_core.models.identity import User
 from setvault_core.models.system import AuditEvent, NotificationConnector
+from setvault_core.services.audit import log as audit_log
 from setvault_core.services.system_config import get_config
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web import __version__
-from setvault_web.deps import db_session, require_admin
+from setvault_web.deps import current_user, db_session, require_admin
 from setvault_web.schemas.settings import SettingsIn, SettingsOut
 
 logger = logging.getLogger(__name__)
@@ -135,6 +136,40 @@ async def update_settings(
     await session.flush()
     await session.commit()
     return _settings_out(config)
+
+
+@router.post("/maintenance/remeasure-loudness", status_code=202)
+async def remeasure_loudness(
+    session: Annotated[AsyncSession, Depends(db_session)],
+    admin: Annotated[User, Depends(current_user)],
+    _: Annotated[object, Depends(require_admin)],
+):
+    """Enqueue the one-off backfill that re-measures ``normalized_lufs`` for
+    sets still holding the bogus ``-70.0`` from the old ebur128 parser.
+
+    Returns 202 with the number of candidate sets; the scans run in the worker.
+    """
+    from redis import Redis
+    from rq import Queue
+    from setvault_core.jobs.loudness_backfill import BOGUS_LUFS
+
+    candidates = (await session.execute(
+        select(func.count()).select_from(LiveSet)
+        .where(LiveSet.normalized_lufs == BOGUS_LUFS)
+    )).scalar_one()
+    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    rq_job = Queue("default", connection=redis).enqueue(
+        "setvault_core.jobs.loudness_backfill.run_remeasure_bogus_loudness",
+        job_timeout="6h",
+    )
+    await audit_log(
+        session,
+        actor_user_id=admin.id,
+        action="maintenance.remeasure_loudness_requested",
+        after={"candidates": int(candidates)},
+    )
+    await session.commit()
+    return {"status": "queued", "job_id": rq_job.id, "candidates": int(candidates)}
 
 
 def _disk_usage_for(host_path: str) -> dict | None:

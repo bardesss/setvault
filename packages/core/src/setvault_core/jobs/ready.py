@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import uuid
 
 from sqlalchemy import select
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.library_webhook import LibraryWebhook
 from setvault_core.progress import ProgressEvent, publish
@@ -79,4 +78,4 @@ async def mark_ready(live_set_id: str) -> None:
 
 
 def mark_ready_sync(live_set_id: str) -> None:
-    asyncio.run(mark_ready(live_set_id))
+    run_job(mark_ready(live_set_id))

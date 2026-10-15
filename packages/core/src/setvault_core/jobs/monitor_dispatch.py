@@ -5,14 +5,13 @@ interval from SystemConfig.monitor_interval_seconds.
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.services.monitors import due_monitors
 from setvault_core.services.system_config import get_config
 
@@ -50,4 +49,4 @@ async def _run() -> int:
 
 def run_dispatch_monitors() -> int:
     """RQ entry point (scheduled)."""
-    return asyncio.run(_run())
+    return run_job(_run())

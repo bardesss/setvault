@@ -6,7 +6,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.progress import ProgressEvent, publish
 
@@ -62,4 +62,4 @@ def _extract_integrated_loudness(stderr: str) -> float | None:
 
 
 def normalize_audio_sync(live_set_id: str) -> None:
-    asyncio.run(normalize_audio(live_set_id))
+    run_job(normalize_audio(live_set_id))

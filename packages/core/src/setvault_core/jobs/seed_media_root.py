@@ -12,13 +12,12 @@ admin who has configured their own root(s) is never overridden.
 
 from __future__ import annotations
 
-import asyncio
 import os
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.jobs.email import DATABASE_URL_ENV
 from setvault_core.models.catalog import MediaRoot
 
@@ -62,7 +61,7 @@ def main() -> None:
     if DATABASE_URL_ENV in os.environ:
         init_engine(os.environ[DATABASE_URL_ENV])
     host_path = os.environ.get(MEDIA_PATH_ENV, "/srv/media")
-    asyncio.run(_run(host_path))
+    run_job(_run(host_path))
 
 
 if __name__ == "__main__":
