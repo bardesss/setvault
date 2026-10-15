@@ -73,12 +73,11 @@ def send_email_job(*, connector_id: str, to: str, subject: str, text: str) -> No
     """RQ entry point. Re-resolves config from DB + decrypts.
 
     Picks up Redis URL + DATABASE_URL from env (worker boot sets these)."""
-    import asyncio
     import json
     import os
     import uuid
 
-    from setvault_core.db import init_engine, session_factory
+    from setvault_core.db import init_engine, run_job, session_factory
     from setvault_core.models.system import NotificationConnector
     from setvault_core.services.crypto import Crypter
 
@@ -93,4 +92,4 @@ def send_email_job(*, connector_id: str, to: str, subject: str, text: str) -> No
             )
         send_email_sync(config=config, to=to, subject=subject, text=text)
 
-    asyncio.run(_run())
+    run_job(_run())

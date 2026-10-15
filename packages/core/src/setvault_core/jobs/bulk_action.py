@@ -16,7 +16,6 @@ proceeds). The summary dict is the job return value.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import uuid
@@ -25,7 +24,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, LiveSetTag, MediaRoot, Tag
 from setvault_core.services.audit import log as audit_log
 
@@ -193,7 +192,7 @@ def run_bulk_action(
     params: dict | None = None,
     actor_user_id: str | None = None,
 ) -> dict:
-    return asyncio.run(bulk_action(
+    return run_job(bulk_action(
         action=action, set_ids=set_ids,
         params=params or {}, actor_user_id=actor_user_id,
     ))

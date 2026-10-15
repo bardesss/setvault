@@ -13,7 +13,6 @@ alive (hardlink == cheap, copy == known waste; admin can re-run).
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import uuid
@@ -21,7 +20,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.services.audit import log as audit_log
 from setvault_core.services.naming import render_filename
@@ -102,4 +101,4 @@ async def reapply_naming_template(media_root_id: str) -> dict:
 
 def run_reapply_naming_template(media_root_id: str) -> dict:
     """RQ entry point."""
-    return asyncio.run(reapply_naming_template(media_root_id))
+    return run_job(reapply_naming_template(media_root_id))

@@ -7,14 +7,13 @@ the audit log forever and rely on filesystem-level archival.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.system import AuditEvent
 from setvault_core.services.system_config import get_config
 
@@ -48,4 +47,4 @@ async def prune_audit_events() -> dict:
 
 def run_prune_audit_events() -> dict:
     """RQ entry point."""
-    return asyncio.run(prune_audit_events())
+    return run_job(prune_audit_events())

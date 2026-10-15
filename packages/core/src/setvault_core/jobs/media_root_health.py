@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import os
 from datetime import UTC, datetime
 
 from sqlalchemy import select
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.jobs.email import DATABASE_URL_ENV
 from setvault_core.models.catalog import MediaRoot
 from setvault_core.services.storage import probe
@@ -24,4 +23,4 @@ def run_health_checks_sync() -> None:
     """RQ-callable wrapper. Re-initialises the engine from env vars."""
     if DATABASE_URL_ENV in os.environ:
         init_engine(os.environ[DATABASE_URL_ENV])
-    asyncio.run(run_health_checks())
+    run_job(run_health_checks())

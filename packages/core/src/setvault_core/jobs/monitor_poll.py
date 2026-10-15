@@ -7,14 +7,13 @@ poll); results are handed to the discovery service which dedups, auto-ingests, n
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.monitors import Monitor
 from setvault_core.services.discoveries import process_candidates
 from setvault_core.services.ingest_sources import (
@@ -64,4 +63,4 @@ def run_poll_monitor(*, monitor_id: str) -> dict:
         async with session_factory()() as s:
             return await poll_monitor(s, monitor_id=uuid.UUID(monitor_id))
 
-    return asyncio.run(_main())
+    return run_job(_main())

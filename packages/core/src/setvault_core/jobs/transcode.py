@@ -6,7 +6,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.progress import ProgressEvent, publish
 
@@ -54,4 +54,4 @@ async def transcode_audio(live_set_id: str) -> None:
 
 
 def transcode_audio_sync(live_set_id: str) -> None:
-    asyncio.run(transcode_audio(live_set_id))
+    run_job(transcode_audio(live_set_id))

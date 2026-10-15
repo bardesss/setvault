@@ -20,7 +20,6 @@ source where the watcher found it so a retry sees the same state.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -34,7 +33,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
 from setvault_core.models.watch_folder import UnmatchedFile, WatchFolder
@@ -298,4 +297,4 @@ def run_watch_folder_ingest(
                 file_path=file_path,
             )
 
-    asyncio.run(_main())
+    run_job(_main())

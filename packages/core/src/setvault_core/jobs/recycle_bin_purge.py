@@ -16,7 +16,6 @@ in the returned summary so the next pass picks the row up again.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from datetime import UTC, datetime
@@ -24,7 +23,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.services.audit import log as audit_log
 
@@ -120,4 +119,4 @@ async def purge_recycle_bin() -> dict:
 
 def run_purge_recycle_bin() -> dict:
     """RQ entry point."""
-    return asyncio.run(purge_recycle_bin())
+    return run_job(purge_recycle_bin())
