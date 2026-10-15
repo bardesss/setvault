@@ -2,12 +2,13 @@
 
 Pipeline:
 
-    queued -> probing -> downloading -> transcoding -> normalizing -> waveform -> ready
+    queued -> probing -> downloading -> probing (ffprobe + chromaprint dedup)
+           -> transcoding -> normalizing -> waveform -> ready
 
 On any step's exception: status=failed with error_text, tmp dir purged, RipJob row
 gets finished_at.
 
-The transcode/normalize/waveform/ready stages reuse the existing Phase 2B job
+The probe/fingerprint/transcode/normalize/waveform/ready stages reuse the Phase 2B job
 functions which take a live_set_id and update LiveSet.status + emit
 ProgressEvents on their own. We just update the RipJob row in between so the
 Jobs drawer reflects the active phase.
@@ -205,15 +206,23 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
         # The downstream stages each open their own session via session_factory()
         # and emit ProgressEvents tied to the LiveSet. We just update the RipJob
         # marker between phases so the Jobs drawer reflects what's running.
+        from setvault_core.jobs.fingerprint import fingerprint_audio
         from setvault_core.jobs.normalize import normalize_audio
         from setvault_core.jobs.probe import probe_audio
         from setvault_core.jobs.ready import mark_ready
         from setvault_core.jobs.transcode import transcode_audio
         from setvault_core.jobs.waveform import generate_waveform
 
-        await _set_status(session, job, "transcoding", progress_pct=35,
+        await _set_status(session, job, "probing", progress_pct=30,
                           message="probing audio")
         await probe_audio(live_set_id)
+
+        # Same chromaprint dedup as uploads and watch-folder ingest: flags
+        # duplicate_of (or restores a recycled original) and records the
+        # SetFingerprint that later rips/uploads and upgrade matching check.
+        await _set_status(session, job, "probing", progress_pct=38,
+                          message="fingerprinting")
+        await fingerprint_audio(live_set_id)
 
         await _set_status(session, job, "transcoding", progress_pct=45,
                           message="encoding Opus")
