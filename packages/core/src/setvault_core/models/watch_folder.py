@@ -23,6 +23,13 @@ class WatchFolder(Base, UuidPkMixin):
         nullable=False,
     )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Admin who configured the folder; sets ingested from it are attributed
+    # to them. NULL for folders created before 0020 (falls back to first admin).
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     last_event_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )

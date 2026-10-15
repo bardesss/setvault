@@ -99,6 +99,7 @@ async def create_watch_folder(
         host_path=body.host_path,
         target_media_root_id=target_id,
         enabled=body.enabled,
+        created_by=admin.id,
         last_health_status=health,
         last_health_check_at=datetime.now(UTC),
     )

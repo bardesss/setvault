@@ -151,6 +151,24 @@ async def _record_unmatched(
     await session.commit()
 
 
+async def _ingest_actor(session: AsyncSession, watch_folder: WatchFolder) -> User:
+    """The user a watch-folder ingest is attributed to: the admin who created
+    the folder while they're still an active admin, otherwise the first
+    active admin (folders created before ``created_by`` existed, or whose
+    creator was removed, disabled or demoted)."""
+    if watch_folder.created_by is not None:
+        creator = await session.get(User, watch_folder.created_by)
+        if creator is not None and creator.role == "admin" and creator.disabled_at is None:
+            return creator
+    admin = (await session.execute(
+        select(User).where(User.role == "admin", User.disabled_at.is_(None))
+        .order_by(User.created_at).limit(1),
+    )).scalar_one_or_none()
+    if admin is None:
+        raise RuntimeError("no admin user to attribute the watch-folder ingest to")
+    return admin
+
+
 async def _make_draft_set(
     session: AsyncSession,
     *,
@@ -164,14 +182,7 @@ async def _make_draft_set(
     if root is None:
         raise RuntimeError("watch folder's target MediaRoot is gone")
 
-    # Pick an arbitrary uploaded_by user — the watch folder is a system-level
-    # ingest, so use the first admin as the audit actor. Better long-term: a
-    # dedicated `system` user, but that's a follow-up.
-    admin = (await session.execute(
-        select(User).where(User.role == "admin").order_by(User.created_at).limit(1),
-    )).scalar_one_or_none()
-    if admin is None:
-        raise RuntimeError("no admin user to attribute the watch-folder ingest to")
+    uploader = await _ingest_actor(session, watch_folder)
 
     new_set_id = uuid.uuid4()
     audio_relpath = f"originals/{new_set_id}/{source_path.name}"
@@ -201,7 +212,7 @@ async def _make_draft_set(
         media_root_id=root.id,
         audio_path=audio_relpath,
         status="draft",
-        uploaded_by=admin.id,
+        uploaded_by=uploader.id,
     )
     session.add(live)
     await session.commit()
