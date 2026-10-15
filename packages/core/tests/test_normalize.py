@@ -1,12 +1,11 @@
 import os
-import shutil
 import subprocess
 import uuid
 from pathlib import Path
 
 import pytest
 from setvault_core.db import init_engine, session_factory
-from setvault_core.jobs.normalize import normalize_audio
+from setvault_core.jobs.normalize import _extract_integrated_loudness, normalize_audio
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
 
@@ -16,9 +15,8 @@ def _engine():
     init_engine(os.environ["TEST_DATABASE_URL"])
 
 
-async def test_normalize_stores_lufs(tmp_path: Path):
-    if not shutil.which("ffmpeg"):
-        pytest.skip("ffmpeg required")
+async def test_normalize_stores_lufs(tmp_path: Path, require_tools):
+    require_tools("ffmpeg")
     src = tmp_path / "audio.flac"
     cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i",
            "sine=frequency=1000:duration=3", str(src)]
@@ -43,3 +41,20 @@ async def test_normalize_stores_lufs(tmp_path: Path):
         row = await s.get(LiveSet, sid)
         assert row.normalized_lufs is not None
         assert -40 < row.normalized_lufs < 0
+
+
+def test_extract_integrated_loudness_reads_summary_not_frame_lines():
+    """ebur128 logs a running ``I: -70.0 LUFS`` on every frame before the
+    summary; only the summary's integrated value is the real loudness."""
+    stderr = (
+        "[Parsed_ebur128_0 @ 0x1] t: 0.0999773  TARGET:-23 LUFS    M:-120.7 S:-120.7"
+        "     I: -70.0 LUFS       LRA:   0.0 LU  FTPK: -18.1 dBFS  TPK: -18.1 dBFS\n"
+        "[Parsed_ebur128_0 @ 0x1] t: 2.99998    TARGET:-23 LUFS    M: -21.1 S:-120.7"
+        "     I: -21.2 LUFS       LRA:   0.0 LU  FTPK: -18.1 dBFS  TPK: -18.1 dBFS\n"
+        "[Parsed_ebur128_0 @ 0x1] Summary:\n"
+        "\n"
+        "  Integrated loudness:\n"
+        "    I:         -21.1 LUFS\n"
+        "    Threshold: -31.1 LUFS\n"
+    )
+    assert _extract_integrated_loudness(stderr) == -21.1

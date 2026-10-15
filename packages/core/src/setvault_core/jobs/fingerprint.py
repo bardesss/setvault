@@ -38,12 +38,22 @@ async def fingerprint_audio(live_set_id: str) -> None:
             progress_pct=20, message="fingerprinting",
         ))
 
+        # No check=True: chromaprint 1.5.1 (Debian bookworm, Ubuntu noble)
+        # exits 3 with "Error decoding audio frame (End of file)" after
+        # printing a valid fingerprint. Trust the output, not the exit code.
         out = await asyncio.to_thread(
             subprocess.run, ["fpcalc", "-json", str(path)],
-            check=True, capture_output=True, text=True,
+            capture_output=True, text=True,
         )
-        data = json.loads(out.stdout)
-        fp = data["fingerprint"]
+        try:
+            data = json.loads(out.stdout)
+            fp = data["fingerprint"]
+        except (ValueError, KeyError) as exc:
+            raise RuntimeError(
+                f"fpcalc failed (exit {out.returncode}): {out.stderr.strip()[-500:]}",
+            ) from exc
+        if not fp:
+            raise RuntimeError(f"fpcalc returned an empty fingerprint (exit {out.returncode})")
         duration = float(data.get("duration", live.duration_seconds or 0))
         digest = hashlib.sha256(fp.encode("ascii")).hexdigest()
 
