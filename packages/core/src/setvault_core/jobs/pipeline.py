@@ -4,7 +4,7 @@ import asyncio
 import os
 import uuid
 
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import engine, init_engine, session_factory
 from setvault_core.jobs.probe import probe_audio
 from setvault_core.models.catalog import LiveSet
 
@@ -37,11 +37,19 @@ def run_pipeline(live_set_id: str) -> None:
                               job_id=live_set_id, progress_pct=0, message="pipeline failed"))
 
         async def _mark_failed() -> None:
-            async with session_factory()() as s:
-                live = await s.get(LiveSet, uuid.UUID(live_set_id))
-                if live is not None:
-                    live.status = "failed"
-                    await s.commit()
+            # This runs in a fresh event loop; the pooled engine from the
+            # pipeline's loop holds connections bound to the closed loop, so
+            # build a new engine here and dispose it before the loop ends.
+            if "DATABASE_URL" in os.environ:
+                init_engine(os.environ["DATABASE_URL"])
+            try:
+                async with session_factory()() as s:
+                    live = await s.get(LiveSet, uuid.UUID(live_set_id))
+                    if live is not None:
+                        live.status = "failed"
+                        await s.commit()
+            finally:
+                await engine().dispose()
 
         asyncio.run(_mark_failed())
         raise

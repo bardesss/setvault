@@ -47,7 +47,12 @@ async def normalize_audio(live_set_id: str) -> None:
 
 
 def _extract_integrated_loudness(stderr: str) -> float | None:
-    for line in stderr.splitlines():
+    # ebur128 logs a running "I: -70.0 LUFS" on every frame; the real value is
+    # the integrated loudness in the trailing "Summary:" block.
+    _, sep, summary = stderr.rpartition("Summary:")
+    if not sep:
+        return None
+    for line in summary.splitlines():
         if "I:" in line and "LUFS" in line:
             try:
                 return float(line.split("I:")[1].split("LUFS")[0].strip())

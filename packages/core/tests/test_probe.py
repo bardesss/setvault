@@ -17,9 +17,8 @@ def _engine():
 
 
 @pytest.fixture
-async def silent_audio(tmp_path: Path) -> Path:
-    if not shutil.which("ffmpeg"):
-        pytest.skip("ffmpeg not installed")
+async def silent_audio(tmp_path: Path, require_tools) -> Path:
+    require_tools("ffmpeg")
     out = tmp_path / "silent.flac"
     cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
            "-t", "3", str(out)]

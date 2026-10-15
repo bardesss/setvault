@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 import subprocess
 import uuid
 from pathlib import Path
@@ -17,9 +16,8 @@ def _engine():
     init_engine(os.environ["TEST_DATABASE_URL"])
 
 
-async def test_waveform_writes_peaks_json(tmp_path: Path):
-    if not shutil.which("audiowaveform") or not shutil.which("ffmpeg"):
-        pytest.skip("audiowaveform + ffmpeg required")
+async def test_waveform_writes_peaks_json(tmp_path: Path, require_tools):
+    require_tools("audiowaveform", "ffmpeg")
     src = tmp_path / "audio.flac"
     cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i",
            "sine=frequency=1000:duration=3", str(src)]
@@ -47,12 +45,11 @@ async def test_waveform_writes_peaks_json(tmp_path: Path):
         assert "data" in peaks and len(peaks["data"]) > 0
 
 
-async def test_waveform_handles_aac_source(tmp_path: Path):
+async def test_waveform_handles_aac_source(tmp_path: Path, require_tools):
     """SoundCloud commonly serves AAC in an .m4a/.mp4 container, which
     audiowaveform can't decode directly. The waveform step must decode via
     ffmpeg first, so an AAC source still yields peaks."""
-    if not shutil.which("audiowaveform") or not shutil.which("ffmpeg"):
-        pytest.skip("audiowaveform + ffmpeg required")
+    require_tools("audiowaveform", "ffmpeg")
     src = tmp_path / "audio.m4a"
     cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i",
            "sine=frequency=1000:duration=3", "-c:a", "aac", str(src)]

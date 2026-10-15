@@ -1,5 +1,4 @@
 import os
-import shutil
 import subprocess
 import uuid
 from pathlib import Path
@@ -16,9 +15,8 @@ def _engine():
     init_engine(os.environ["TEST_DATABASE_URL"])
 
 
-async def test_transcode_produces_opus_stream(tmp_path: Path):
-    if not shutil.which("ffmpeg"):
-        pytest.skip("ffmpeg required")
+async def test_transcode_produces_opus_stream(tmp_path: Path, require_tools):
+    require_tools("ffmpeg")
     src = tmp_path / "audio.flac"
     cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
            "-t", "3", str(src)]

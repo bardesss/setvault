@@ -1,4 +1,5 @@
 import os
+import shutil
 import uuid
 
 import pytest
@@ -25,6 +26,24 @@ def _check_db_url():
     url = _get_test_url()
     if not url:
         pytest.skip("TEST_DATABASE_URL not set", allow_module_level=True)
+
+
+@pytest.fixture
+def require_tools():
+    """Skip when audio CLI tools are missing; fail instead in CI.
+
+    CI sets ``SETVAULT_REQUIRE_AUDIO_TOOLS=1`` so the ffmpeg/audiowaveform/
+    fpcalc pipeline tests can never silently skip there.
+    """
+    def _require(*tools: str) -> None:
+        missing = [t for t in tools if not shutil.which(t)]
+        if not missing:
+            return
+        msg = f"{' + '.join(missing)} not installed"
+        if os.environ.get("SETVAULT_REQUIRE_AUDIO_TOOLS") == "1":
+            pytest.fail(msg)
+        pytest.skip(msg)
+    return _require
 
 
 @pytest.fixture
