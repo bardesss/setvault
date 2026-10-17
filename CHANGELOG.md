@@ -4,6 +4,24 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0](https://github.com/bardesss/setvault/compare/v0.15.2...v0.16.0) (2026-10-17)
+
+
+### Features
+
+* **admin:** backfill normalized_lufs for sets stuck at the bogus -70.0 ([ed50d44](https://github.com/bardesss/setvault/commit/ed50d44e0971a41aa94da8807c75a13beb1db2eb))
+
+
+### Bug Fixes
+
+* fingerprint URL rips, attribute watch-folder sets to their creator ([b885466](https://github.com/bardesss/setvault/commit/b885466b4d6d7409eaf136e7432f322ce2edc542))
+* harden ingest paths (smoke all ingest paths, LUFS backfill, engine-per-job leak) ([7f17944](https://github.com/bardesss/setvault/commit/7f17944284927147280230e2315640de28d0bf9b))
+* **jobs:** dispose the pooled engine at the end of every sync RQ entrypoint ([20c02d5](https://github.com/bardesss/setvault/commit/20c02d50bde2b4cbf8858e5af929d6865f39e27f))
+* surface failed discovery rips, briefly cache provider errors; pre-bundle dev deps ([c903c73](https://github.com/bardesss/setvault/commit/c903c73e95b38d2bc6e8363bc41ad15b82797239))
+* surface failed discovery rips; log and briefly cache provider errors ([af3c2b9](https://github.com/bardesss/setvault/commit/af3c2b92a1a18d783e06948b40ae2ab8dcb7931a))
+* **url-rip:** fingerprint rips so they get chromaprint dedup ([368808f](https://github.com/bardesss/setvault/commit/368808f67770b740df134b248475dfe6bc5d41ad))
+* **watch-folder:** attribute ingested sets to the folder's creator ([5e4ac4b](https://github.com/bardesss/setvault/commit/5e4ac4b3b8258a9e5687380025654e89fbbcfb67))
+
 ## [0.15.2](https://github.com/bardesss/setvault/compare/v0.15.1...v0.15.2) (2026-10-15)
 
 
