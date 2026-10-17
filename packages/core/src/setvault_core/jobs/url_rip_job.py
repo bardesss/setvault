@@ -40,6 +40,10 @@ DATABASE_URL_ENV = "DATABASE_URL"
 
 _ERROR_TEXT_MAX = 500
 
+# Download + the full pipeline run inside one RQ job; RQ's 180s default kills
+# any real-length set. Every enqueue of run_rip_job must pass this.
+RIP_JOB_TIMEOUT = "1h"
+
 
 def _error_text(exc: BaseException) -> str:
     """Build the user-visible error_text for a failed rip.
@@ -236,10 +240,11 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
                           message="rendering waveform")
         await generate_waveform(live_set_id)
 
-        await mark_ready(live_set_id)
-
+        # mark_ready holds fingerprint duplicates as drafts for admin review.
+        published = await mark_ready(live_set_id) is not False
         await _set_status(session, job, "ready", progress_pct=100,
-                          message="published")
+                          message="published" if published
+                          else "held for review: duplicate")
     except Exception as exc:
         # Surface the real exception in error_text (self-hosted, owner-only);
         # the full traceback still lands in server logs.

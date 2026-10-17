@@ -39,6 +39,7 @@ async def _ingest_candidate(
     from redis import Redis
     from rq import Queue
 
+    from setvault_core.jobs.url_rip_job import RIP_JOB_TIMEOUT
     from setvault_core.services.url_rip import DuplicateRipError, submit_rip
 
     try:
@@ -53,6 +54,7 @@ async def _ingest_candidate(
     redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
     Queue("default", connection=redis).enqueue(
         "setvault_core.jobs.url_rip_job.run_rip_job", rip_job_id=str(job.id),
+        job_timeout=RIP_JOB_TIMEOUT,
     )
     return job.id
 

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from setvault_core.jobs.pipeline import PIPELINE_JOB_TIMEOUT
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
 from sqlalchemy import select
@@ -122,7 +123,7 @@ async def tusd_hook(
         tusd_hooks.queue().enqueue(
             "setvault_core.jobs.pipeline.run_pipeline",
             live_set_id=str(set_id),
-            job_timeout="30m",
+            job_timeout=PIPELINE_JOB_TIMEOUT,
         )
         return {"live_set_id": str(set_id)}
 

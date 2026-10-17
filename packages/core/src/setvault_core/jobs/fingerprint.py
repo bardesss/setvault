@@ -57,15 +57,20 @@ async def fingerprint_audio(live_set_id: str) -> None:
         duration = float(data.get("duration", live.duration_seconds or 0))
         digest = hashlib.sha256(fp.encode("ascii")).hexdigest()
 
-        existing = (await s.execute(
-            select(SetFingerprint).where(SetFingerprint.fingerprint_hash == digest),
-        )).scalar_one_or_none()
-        duplicate_detected = (
-            existing is not None
-            and existing.live_set_id != live.id
-            and abs(existing.duration_seconds - duration) < 2
+        # Every arrival records its own fingerprint row (duplicates included),
+        # so a hash can match many rows. The earliest other set is the original.
+        matches = (await s.execute(
+            select(SetFingerprint)
+            .where(SetFingerprint.fingerprint_hash == digest)
+            .order_by(SetFingerprint.created_at),
+        )).scalars().all()
+        own = [m for m in matches if m.live_set_id == live.id]
+        existing = next(
+            (m for m in matches
+             if m.live_set_id != live.id and abs(m.duration_seconds - duration) < 2),
+            None,
         )
-        if duplicate_detected:
+        if existing is not None and live.duplicate_of is None:
             existing_live = await s.get(LiveSet, existing.live_set_id)
             if existing_live is not None:
                 live.duplicate_of = existing_live.id
@@ -97,9 +102,11 @@ async def fingerprint_audio(live_set_id: str) -> None:
                     },
                 )
 
-        s.add(SetFingerprint(
-            live_set_id=live.id, fingerprint_hash=digest, duration_seconds=duration,
-        ))
+        # A re-run of the pipeline on the same set must not add a second row.
+        if not own:
+            s.add(SetFingerprint(
+                live_set_id=live.id, fingerprint_hash=digest, duration_seconds=duration,
+            ))
         await s.commit()
 
         publish(ProgressEvent(

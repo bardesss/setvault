@@ -192,3 +192,5 @@ async def test_rip_of_known_audio_is_flagged_duplicate(
     dup = await session.get(LiveSet, second)
     await session.refresh(dup)
     assert dup.duplicate_of == first
+    # Duplicates are held as drafts for admin review, never auto-published.
+    assert dup.status == "draft"

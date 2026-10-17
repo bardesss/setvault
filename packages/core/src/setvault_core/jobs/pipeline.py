@@ -7,6 +7,10 @@ from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.jobs.probe import probe_audio
 from setvault_core.models.catalog import LiveSet
 
+# RQ's default job timeout is 180s, far too short for a multi-hour set.
+# Every enqueue of run_pipeline must pass this.
+PIPELINE_JOB_TIMEOUT = "30m"
+
 
 async def _run(live_set_id: str) -> None:
     from setvault_core.jobs.fingerprint import fingerprint_audio  # Task F4

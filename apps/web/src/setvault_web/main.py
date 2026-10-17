@@ -16,6 +16,7 @@ from setvault_web.api import catalog_admin as catalog_admin_api
 from setvault_web.api import comments as comments_api
 from setvault_web.api import connectors as connectors_api
 from setvault_web.api import dev_seed as dev_seed_api
+from setvault_web.api import duplicates as duplicates_api
 from setvault_web.api import embed as embed_api
 from setvault_web.api import enrichment as enrichment_api
 from setvault_web.api import feeds as feeds_api
@@ -103,6 +104,7 @@ def create_app() -> FastAPI:
     app.include_router(embed_api.router)
     app.include_router(watch_folders_api.router)
     app.include_router(recycle_api.router)
+    app.include_router(duplicates_api.router)
     app.include_router(scheduled_tasks_api.router)
     app.include_router(webhooks_api.router)
     app.include_router(backup_api.router)
