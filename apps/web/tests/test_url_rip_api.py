@@ -119,3 +119,39 @@ async def test_my_rip_jobs_lists_recent(authed_admin_client, seeded_admin):
     assert r.status_code == 200, r.text
     items = r.json()["items"]
     assert len(items) >= 3
+
+
+@pytest.mark.asyncio
+async def test_submit_url_rip_enqueues_with_long_timeout(authed_admin_client, monkeypatch):
+    """RQ's 180s default kills a real-length rip; the enqueue must override it."""
+    from setvault_core.jobs.url_rip_job import RIP_JOB_TIMEOUT
+    from setvault_core.models.url_rip import RipJob
+    from setvault_core.services import url_rip as _service
+    from setvault_web.api import url_rip as url_rip_api
+
+    async def _fake_submit(session, *, user_id, url):
+        job = RipJob(
+            submitted_by=user_id, source_url=url,
+            source_platform="youtube", source_external_id=uuidmod.uuid4().hex[:11],
+            status="queued", progress_pct=0, probed_metadata={"title": "t"},
+            created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+        )
+        session.add(job)
+        await session.flush()
+        return job
+
+    calls: list[dict] = []
+
+    class _Q:
+        def enqueue(self, *_args, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr(_service, "submit_rip", _fake_submit)
+    monkeypatch.setattr(url_rip_api, "_queue", lambda: _Q())
+
+    r = await authed_admin_client.post(
+        "/api/sets/url-rip",
+        json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+    )
+    assert r.status_code == 201, r.text
+    assert calls[0]["job_timeout"] == RIP_JOB_TIMEOUT

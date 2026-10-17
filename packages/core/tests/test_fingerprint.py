@@ -101,3 +101,36 @@ async def test_fingerprint_raises_when_fpcalc_prints_nothing(tmp_path: Path, mon
 
     with pytest.raises(RuntimeError, match="fpcalc failed"):
         await fingerprint_audio(str(sid))
+
+
+async def test_third_copy_of_a_set_is_flagged_not_crashed(tmp_path: Path, monkeypatch):
+    """Duplicates record their own fingerprint row, so by the third copy the
+    hash matches several rows. That must flag the copy, not raise
+    MultipleResultsFound, and must point at the earliest (original) set."""
+    _fake_fpcalc(monkeypatch, 0, f'{{"duration": 3.00, "fingerprint": "{uuid.uuid4().hex}"}}\n')
+    original = await _make_set(tmp_path)
+    second = await _make_set(tmp_path)
+    third = await _make_set(tmp_path)
+
+    for sid in (original, second, third):
+        await fingerprint_audio(str(sid))
+
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, original)).duplicate_of is None
+        assert (await s.get(LiveSet, second)).duplicate_of == original
+        assert (await s.get(LiveSet, third)).duplicate_of == original
+
+
+async def test_fingerprint_rerun_does_not_add_a_second_row(tmp_path: Path, monkeypatch):
+    _fake_fpcalc(monkeypatch, 0, f'{{"duration": 3.00, "fingerprint": "{uuid.uuid4().hex}"}}\n')
+    sid = await _make_set(tmp_path)
+
+    await fingerprint_audio(str(sid))
+    await fingerprint_audio(str(sid))
+
+    async with session_factory()() as s:
+        rows = (await s.execute(
+            select(SetFingerprint).where(SetFingerprint.live_set_id == sid),
+        )).scalars().all()
+        assert len(rows) == 1
+        assert (await s.get(LiveSet, sid)).duplicate_of is None
