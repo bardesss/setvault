@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    true,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -153,6 +154,22 @@ class LiveSet(Base, UuidPkMixin, TimestampMixin):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     purge_after_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     embed_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Measured on probe (services/audio_quality); all NULL until measured.
+    audio_codec: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    audio_bitrate_kbps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    audio_sample_rate: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    audio_bit_depth: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    audio_lossless: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    quality_tier: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    quality_measured_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    upgrades_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    last_upgrade_search_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     party: Mapped[Party | None] = relationship(lazy="joined")
     venue: Mapped[Venue | None] = relationship(lazy="joined")
