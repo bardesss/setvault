@@ -18,18 +18,23 @@ from redis import Redis
 from rq import Queue, Worker
 from rq_scheduler import Scheduler
 from setvault_core.db import init_engine
+from setvault_core.jobs.upgrade_search import UPGRADE_SEARCH_JOB_TIMEOUT
 
 _HOURLY = 60 * 60
 _DAILY = 24 * 60 * 60
 
-# (func_path, interval_seconds). Re-registered exactly once at worker boot.
-_SCHEDULE: tuple[tuple[str, int], ...] = (
+# (func_path, interval_seconds[, job_timeout_seconds]). Re-registered exactly
+# once at worker boot. Without a timeout RQ's default (180 s) applies.
+_SCHEDULE: tuple[tuple[str, int] | tuple[str, int, int], ...] = (
     ("setvault_core.jobs.media_root_health.run_health_checks_sync", 5 * 60),
     ("setvault_core.jobs.recycle_bin_purge.run_purge_recycle_bin", _HOURLY),
     ("setvault_core.jobs.github_version_poll.run_poll_github_releases", _DAILY),
     ("setvault_core.jobs.audit_retention.run_prune_audit_events", _DAILY),
     ("setvault_core.jobs.monitor_dispatch.run_dispatch_monitors", 5 * 60),
     ("setvault_core.jobs.tus_spool_prune.run_prune_tus_spool", _DAILY),
+    # Hourly batches spread the daily/weekly upgrade sweep over its window.
+    ("setvault_core.jobs.upgrade_search.run_upgrade_search", _HOURLY,
+     UPGRADE_SEARCH_JOB_TIMEOUT),
 )
 
 
@@ -40,7 +45,7 @@ def _bootstrap_scheduler(redis: Redis) -> None:
     keyed on the func path."""
     scheduler = Scheduler(connection=redis)
     already = {j.func_name for j in scheduler.get_jobs()}
-    for func_path, interval in _SCHEDULE:
+    for func_path, interval, *timeout in _SCHEDULE:
         if func_path in already:
             continue
         scheduler.schedule(
@@ -48,6 +53,7 @@ def _bootstrap_scheduler(redis: Redis) -> None:
             func=func_path,
             interval=interval,
             repeat=None,
+            timeout=timeout[0] if timeout else None,
         )
 
 

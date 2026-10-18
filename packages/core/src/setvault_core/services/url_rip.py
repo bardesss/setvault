@@ -183,6 +183,8 @@ async def submit_rip(
     *,
     user_id: uuid.UUID,
     url: str,
+    upgrade_target_set_id: uuid.UUID | None = None,
+    trigger: str | None = None,
 ) -> RipJob:
     """Create a RipJob row and return it. Raise DuplicateRipError if an active
     or recently-completed rip exists for the same (platform, external_id).
@@ -190,6 +192,10 @@ async def submit_rip(
     The probe runs inline so the returned row carries metadata for the Jobs
     drawer. The actual download/transcode is enqueued separately by the caller
     (see jobs/url_rip_job.py).
+
+    ``upgrade_target_set_id`` marks the rip as an upgrade attempt for that set
+    (the pipeline swaps or discards it instead of publishing a new set);
+    ``trigger`` says what found it, for the upgrade history.
     """
     url = url.strip()
     if not url:
@@ -221,6 +227,8 @@ async def submit_rip(
         source_url=url,
         source_external_id=probed.external_id,
         source_platform=probed.platform,
+        upgrade_target_set_id=upgrade_target_set_id,
+        trigger=trigger,
         status="queued",
         progress_pct=0,
         probed_metadata={
