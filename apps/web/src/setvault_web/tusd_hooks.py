@@ -6,6 +6,7 @@ Production / CI images ship ``libmagic1``.
 """
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import unicodedata
@@ -30,6 +31,53 @@ def queue() -> Queue:
         _redis = Redis.from_url(get_settings().redis_url)
         _queue = Queue("default", connection=_redis)
     return _queue
+
+
+def upload_dir() -> Path:
+    """tusd's ``-upload-dir``. Hook payloads may only point inside it."""
+    return Path(get_settings().cache_path) / "tus"
+
+
+def spool_path(raw: str) -> Path | None:
+    """Resolve the ``Storage.Path`` a post-finish hook claims and return it
+    only if it is a file inside the tus spool. The hook endpoint is reachable
+    by any logged-in browser session, so the payload is untrusted: without
+    this check a forged hook could import any file on the host."""
+    if not raw:
+        return None
+    try:
+        path = Path(raw).resolve(strict=True)
+        spool = upload_dir().resolve()
+    except OSError:
+        return None
+    if not path.is_relative_to(spool) or path == spool or not path.is_file():
+        return None
+    return path
+
+
+# Metadata key the pre-create hook stamps with the uploader's user id. tusd
+# writes it into the upload's ``.info`` file, which only tusd can write, so
+# post-finish can check that the upload belongs to the session finishing it.
+OWNER_KEY = "setvault_owner"
+
+
+def read_spool_info(path: Path) -> dict | None:
+    """tusd's ``<id>.info`` sidecar for a spooled upload, or None."""
+    try:
+        data = json.loads(path.with_name(path.name + ".info").read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def remove_spooled(path: Path) -> None:
+    """Drop a finished upload (``<id>`` + tusd's ``<id>.info`` sidecar) from
+    the spool once its bytes live in the MediaRoot. Best effort."""
+    for p in (path, path.with_name(path.name + ".info")):
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 ALLOWED_MIMES = {

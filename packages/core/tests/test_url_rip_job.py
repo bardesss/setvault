@@ -194,3 +194,95 @@ async def test_rip_of_known_audio_is_flagged_duplicate(
     assert dup.duplicate_of == first
     # Duplicates are held as drafts for admin review, never auto-published.
     assert dup.status == "draft"
+
+
+@pytest.mark.asyncio
+async def test_download_requests_single_video_with_size_cap(tmp_path):
+    import uuid
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    from setvault_core.jobs.url_rip_job import MAX_DOWNLOAD_BYTES, _download
+
+    out = tmp_path / "x.opus"
+    out.write_bytes(b"x")
+    ctx = MagicMock()
+    ctx.__enter__.return_value.extract_info.return_value = {"filepath": str(out)}
+    job = SimpleNamespace(id=uuid.uuid4(), source_url="https://www.youtube.com/watch?v=a&list=PL1")
+
+    with patch("yt_dlp.YoutubeDL", return_value=ctx) as ydl:
+        assert await _download(job, tmp_path) == out
+
+    opts = ydl.call_args.args[0]
+    assert opts["noplaylist"] is True
+    assert opts["max_filesize"] == MAX_DOWNLOAD_BYTES
+
+
+@pytest.mark.asyncio
+async def test_download_aborts_once_written_bytes_pass_the_cap(tmp_path, monkeypatch):
+    """max_filesize is only checked when the size is known up front, so the
+    cap must also stop a download on the bytes actually written. Served from
+    a local HTTP server without Content-Length (like a streamed download)."""
+    import threading
+    import uuid
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from types import SimpleNamespace
+
+    from setvault_core.jobs import url_rip_job
+
+    class _Stream(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.0"  # no Content-Length: size unknown up front
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.end_headers()
+            try:
+                for _ in range(64):
+                    self.wfile.write(b"\0" * 16384)
+            except ConnectionError:
+                pass  # the client hung up once the cap tripped
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Stream)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setattr(url_rip_job, "MAX_DOWNLOAD_BYTES", 100_000)
+        monkeypatch.setattr(
+            "setvault_core.services.url_rip.require_supported_url", lambda _url: None,
+        )
+        job = SimpleNamespace(
+            id=uuid.uuid4(),
+            source_url=f"http://127.0.0.1:{server.server_port}/set.wav",
+        )
+        with pytest.raises(Exception, match="exceeded"):
+            await url_rip_job._download(job, tmp_path)
+    finally:
+        server.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_download_refuses_a_stream_that_went_live_after_submit(tmp_path):
+    import uuid
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    from setvault_core.jobs.url_rip_job import _download
+
+    def _fake_ydl(opts):
+        ctx = MagicMock()
+
+        def _extract(url, download):
+            # yt-dlp consults match_filter before downloading.
+            assert opts["match_filter"]({"id": "a", "live_status": "is_live"}) is not None
+            return None
+
+        ctx.__enter__.return_value.extract_info.side_effect = _extract
+        return ctx
+
+    job = SimpleNamespace(id=uuid.uuid4(), source_url="https://www.youtube.com/watch?v=a")
+    with patch("yt_dlp.YoutubeDL", side_effect=_fake_ydl), \
+            pytest.raises(RuntimeError, match="live streams"):
+        await _download(job, tmp_path)

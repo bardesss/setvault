@@ -155,3 +155,65 @@ async def test_submit_url_rip_enqueues_with_long_timeout(authed_admin_client, mo
     )
     assert r.status_code == 201, r.text
     assert calls[0]["job_timeout"] == RIP_JOB_TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_submit_url_rip_commits_before_enqueueing(authed_admin_client, monkeypatch):
+    """A worker that picks the job up immediately must find the RipJob row;
+    enqueueing before the commit left jobs stuck in "queued"."""
+    import asyncio
+    import os
+    import threading
+
+    from setvault_core.models.url_rip import RipJob
+    from setvault_core.services import url_rip as _service
+    from setvault_web.api import url_rip as url_rip_api
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    async def _fake_submit(session, *, user_id, url):
+        job = RipJob(
+            submitted_by=user_id, source_url=url,
+            source_platform="youtube", source_external_id=uuidmod.uuid4().hex[:11],
+            status="queued", progress_pct=0, probed_metadata={"title": "t"},
+            created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+        )
+        session.add(job)
+        await session.flush()
+        return job
+
+    def _row_visible_elsewhere(job_id: str) -> bool:
+        """What a separate worker process would see right now."""
+        async def _check() -> bool:
+            engine = create_async_engine(os.environ["TEST_DATABASE_URL"], poolclass=NullPool)
+            try:
+                async with engine.connect() as conn:
+                    from sqlalchemy import select
+                    row = (await conn.execute(
+                        select(RipJob.id).where(RipJob.id == uuidmod.UUID(job_id)),
+                    )).first()
+                    return row is not None
+            finally:
+                await engine.dispose()
+
+        result: list[bool] = []
+        t = threading.Thread(target=lambda: result.append(asyncio.run(_check())))
+        t.start()
+        t.join()
+        return result[0]
+
+    seen: list[bool] = []
+
+    class _Q:
+        def enqueue(self, *_args, **kwargs):
+            seen.append(_row_visible_elsewhere(kwargs["rip_job_id"]))
+
+    monkeypatch.setattr(_service, "submit_rip", _fake_submit)
+    monkeypatch.setattr(url_rip_api, "_queue", lambda: _Q())
+
+    r = await authed_admin_client.post(
+        "/api/sets/url-rip",
+        json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+    )
+    assert r.status_code == 201, r.text
+    assert seen == [True]

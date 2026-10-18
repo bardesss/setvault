@@ -19,6 +19,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from setvault_core.jobs.pipeline import PIPELINE_JOB_TIMEOUT
 from setvault_core.models.catalog import LiveSet, MediaRoot
+from setvault_core.models.identity import User
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,22 +66,47 @@ async def tusd_hook(
         raise HTTPException(
             status_code=401, detail="upload requires an authenticated session",
         )
+    # Same liveness rule as deps.current_user: a signed cookie alone isn't
+    # enough once the account is gone or disabled.
+    try:
+        user = await session.get(User, uuid.UUID(user_id))
+    except ValueError:
+        user = None
+    if user is None or user.disabled_at is not None:
+        raise HTTPException(status_code=401, detail="user inactive")
 
     if event_type == "pre-create":
         meta = (event.get("Upload") or {}).get("MetaData") or {}
         if not meta.get("filename"):
             raise HTTPException(status_code=400, detail="filename metadata required")
-        # Return an empty ChangeFileInfo so tusd accepts the upload unchanged.
-        return {"ChangeFileInfo": {}}
+        # Stamp the owner into the upload's metadata (this replaces whatever
+        # the client sent, so it can't claim someone else's id). tusd stores
+        # it in the .info sidecar that post-finish checks.
+        return {"ChangeFileInfo": {
+            "MetaData": {**meta, tusd_hooks.OWNER_KEY: str(user.id)},
+        }}
 
     if event_type == "post-finish":
         upload = event.get("Upload") or {}
-        meta = upload.get("MetaData") or {}
-        path = Path((upload.get("Storage") or {}).get("Path") or "")
         # Local-FS stat on the upload spool — fast, no need to off-thread.
-        if not path.exists():  # noqa: ASYNC240
+        path = tusd_hooks.spool_path((upload.get("Storage") or {}).get("Path") or "")
+        if path is None:
             raise HTTPException(status_code=400, detail="upload storage missing")
-        filename = tusd_hooks.normalize_filename(meta.get("filename", "upload"))
+        # Any logged-in session can POST here, so trust tusd's own record of
+        # the upload rather than the request body: it must belong to this
+        # user and be fully received.
+        info = tusd_hooks.read_spool_info(path)
+        meta = (info or {}).get("MetaData") or {}
+        if meta.get(tusd_hooks.OWNER_KEY) != str(user.id):
+            raise HTTPException(status_code=403, detail="upload belongs to another session")
+        # tusd's filestore writes .info once at creation (Offset stays 0) and
+        # derives the real offset from the data file's size, so do the same.
+        if info.get("SizeIsDeferred") or path.stat().st_size != info.get("Size"):
+            raise HTTPException(status_code=409, detail="upload is incomplete")
+        try:
+            filename = tusd_hooks.normalize_filename(meta.get("filename", "upload"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         mime = tusd_hooks.sniff_mime(path)
         if mime not in tusd_hooks.ALLOWED_MIMES:
             raise HTTPException(
@@ -119,6 +145,9 @@ async def tusd_hook(
         )
         session.add(live)
         await session.commit()
+        # The bytes now live in the MediaRoot (hardlink or copy); the spool
+        # copy would otherwise stay in the cache forever.
+        tusd_hooks.remove_spooled(path)
 
         tusd_hooks.queue().enqueue(
             "setvault_core.jobs.pipeline.run_pipeline",
