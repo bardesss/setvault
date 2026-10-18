@@ -198,6 +198,25 @@ async def _create_draft_live_set(
     return live
 
 
+async def _discard_partial_rip(session: AsyncSession, job: RipJob, root: MediaRoot) -> None:
+    """Undo what a rip that failed before publishing left behind: the draft
+    LiveSet (nothing lists non-published sets, so it would sit invisible
+    forever, plus one more per retry) and its files under the root. Best
+    effort; the RipJob row itself stays so the user sees the failure."""
+    host = Path(root.host_path)
+    if job.live_set_id is not None:
+        live = await session.get(LiveSet, job.live_set_id, populate_existing=True)
+        job.live_set_id = None
+        await session.flush()
+        if live is not None:
+            for rel in (live.streaming_path, live.waveform_path):
+                if rel:
+                    (host / rel).unlink(missing_ok=True)
+            await session.delete(live)
+    shutil.rmtree(host / "originals" / str(job.id), ignore_errors=True)
+    await session.commit()
+
+
 async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
     """The pipeline itself. Separated from the RQ entry point for testing."""
     job = await session.get(RipJob, job_id)
@@ -206,9 +225,14 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
         return
 
     tmp_dir = Path(tempfile.mkdtemp(prefix=f"setvault-rip-{job_id}-"))
+    root: MediaRoot | None = None
+    finished = False
     try:
+        # Same rule as uploads: a disabled root never receives new ingests.
         root = (await session.execute(
-            select(MediaRoot).where(MediaRoot.default_for_ingest.is_(True))
+            select(MediaRoot).where(
+                MediaRoot.default_for_ingest.is_(True), MediaRoot.enabled.is_(True),
+            )
             .order_by(MediaRoot.created_at).limit(1)
         )).scalar_one_or_none()
         if root is None:
@@ -275,6 +299,7 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
 
         # mark_ready holds fingerprint duplicates as drafts for admin review.
         published = await mark_ready(live_set_id) is not False
+        finished = True
         await _set_status(session, job, "ready", progress_pct=100,
                           message="published" if published
                           else "held for review: duplicate")
@@ -282,6 +307,13 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
         # Surface the real exception in error_text (self-hosted, owner-only);
         # the full traceback still lands in server logs.
         logger.exception("rip job %s failed", job_id)
+        if root is not None and not finished:
+            try:
+                await _discard_partial_rip(session, job, root)
+            except Exception:
+                logger.exception("rip job %s: failed to discard partial rip", job_id)
+                await session.rollback()
+                await session.refresh(job)  # rollback expired it; reload async
         try:
             job.error_text = _error_text(exc)
             await _set_status(session, job, "failed", message="rip failed")

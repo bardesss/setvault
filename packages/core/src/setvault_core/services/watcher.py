@@ -14,6 +14,11 @@ Events don't go straight to the queue: ``created`` fires as soon as a writer
 opens the file, long before a ``cp`` or SMB copy has finished. Arrivals wait
 in ``_PendingFiles`` until their size and mtime stop changing for
 ``SETTLE_SECONDS``.
+
+Events only fire while the watcher is running, so when it (re)subscribes a
+folder it also scans for files that arrived after the folder's
+``last_watched_at`` heartbeat (or everything, for a folder never watched)
+and feeds them through the same settle tracker.
 """
 from __future__ import annotations
 
@@ -24,15 +29,17 @@ import threading
 import time
 import uuid
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from setvault_core.db import init_engine, run_job, session_factory
-from setvault_core.models.watch_folder import WatchFolder
+from setvault_core.models.catalog import LiveSet
+from setvault_core.models.watch_folder import UnmatchedFile, WatchFolder
 
 logger = logging.getLogger(__name__)
 
@@ -180,9 +187,11 @@ def _reconcile_observers(
     active_paths: dict[uuid.UUID, tuple[str, object]],
     rows: Iterable[WatchFolder],
     enqueue: callable,
-) -> None:
+) -> list[uuid.UUID]:
     """Synchronise the observer's schedule with the current set of enabled
-    watch folders. Schedules new ones, unschedules ones that vanished."""
+    watch folders. Schedules new ones, unschedules ones that vanished.
+    Returns the ids of the folders newly scheduled by this call."""
+    scheduled: list[uuid.UUID] = []
     desired = {row.id: row.host_path for row in rows}
 
     # Unschedule any path that's no longer desired.
@@ -205,7 +214,81 @@ def _reconcile_observers(
         handler = _WatchFolderHandler(watch_folder_id=wf_id, enqueue=enqueue, root=host_path)
         watch = observer.schedule(handler, host_path, recursive=True)
         active_paths[wf_id] = (host_path, watch)
+        scheduled.append(wf_id)
         logger.info("watching %s -> %s", wf_id, host_path)
+    return scheduled
+
+
+# Slack on the heartbeat comparison: a file that landed in the last moments
+# before the watcher went down may not have fired an event either.
+_CATCH_UP_SLACK_SECONDS = 60
+
+
+def _catch_up_candidates(root: str, *, since: float | None, known: set[str]) -> list[str]:
+    """Audio files under ``root`` the watcher may have missed while it wasn't
+    observing: everything when ``since`` is None (a never-watched folder),
+    otherwise files written or moved in after ``since`` (epoch seconds).
+    Hidden dirs/files and paths in ``known`` are skipped. ctime is included
+    because a copy that preserves mtime (``cp -p``, ``rsync -a``) still gets
+    a fresh ctime when it lands."""
+    found: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        for name in filenames:
+            if name.startswith(".") or not _is_audio_file(name):
+                continue
+            path = os.path.join(dirpath, name)
+            if path in known:
+                continue
+            if since is not None:
+                try:
+                    st = os.stat(path)
+                except OSError:
+                    continue
+                if max(st.st_mtime, st.st_ctime) < since - _CATCH_UP_SLACK_SECONDS:
+                    continue
+            found.append(path)
+    return found
+
+
+async def _known_paths(session: AsyncSession, watch_folder_id: uuid.UUID) -> set[str]:
+    """Source paths the ingest job has already handled for this folder: sets
+    it created (source_url holds the source path) and Unmatched rows."""
+    sets = (await session.execute(
+        select(LiveSet.source_url).where(LiveSet.source_type == "watch_folder"),
+    )).scalars().all()
+    unmatched = (await session.execute(
+        select(UnmatchedFile.file_path).where(UnmatchedFile.watch_folder_id == watch_folder_id),
+    )).scalars().all()
+    return {p for p in (*sets, *unmatched) if p}
+
+
+async def _catch_up(
+    session: AsyncSession, row: WatchFolder, add: callable,
+) -> int:
+    """Queue (via the settle tracker) files that arrived while ``row`` wasn't
+    being watched. Returns how many were queued."""
+    since = row.last_watched_at.timestamp() if row.last_watched_at else None
+    known = await _known_paths(session, row.id)
+    found = await asyncio.to_thread(
+        _catch_up_candidates, row.host_path, since=since, known=known,
+    )
+    for path in found:
+        add(row.id, path)
+    if found:
+        logger.info("watch folder %s: catching up on %d file(s)", row.id, len(found))
+    return len(found)
+
+
+async def _heartbeat(session: AsyncSession, watch_folder_ids: Iterable[uuid.UUID]) -> None:
+    ids = list(watch_folder_ids)
+    if not ids:
+        return
+    await session.execute(
+        update(WatchFolder).where(WatchFolder.id.in_(ids))
+        .values(last_watched_at=datetime.now(UTC)),
+    )
+    await session.commit()
 
 
 async def run_watcher(
@@ -243,7 +326,13 @@ async def run_watcher(
             if time.monotonic() >= next_reconcile:
                 async with session_factory()() as s:
                     rows = await _load_active_watch_folders(s)
-                _reconcile_observers(observer, active, rows, pending.add)
+                    scheduled = set(_reconcile_observers(observer, active, rows, pending.add))
+                    # Catch up first (it reads the previous heartbeat), then
+                    # stamp every observed folder as watched up to now.
+                    for row in rows:
+                        if row.id in scheduled:
+                            await _catch_up(s, row, pending.add)
+                    await _heartbeat(s, active.keys())
                 next_reconcile = time.monotonic() + reconcile_interval
             for wf_id, path in pending.pop_settled():
                 enqueue(wf_id, path)

@@ -159,3 +159,41 @@ def test_pending_file_that_vanishes_or_stays_empty_is_dropped():
     assert pending.pop_settled() == []
     clock.now += 11
     assert pending.pop_settled() == []
+
+
+def test_catch_up_finds_files_missed_while_not_watching(tmp_path):
+    """Files that landed while the watcher was down get picked up on
+    resubscribe; older files, known paths, hidden dirs and non-audio don't."""
+    import os
+
+    from setvault_core.services.watcher import _catch_up_candidates
+
+    heartbeat = 1_000_000.0
+    old = tmp_path / "old.flac"
+    new = tmp_path / "sub" / "new.flac"
+    known = tmp_path / "known.flac"
+    hidden = tmp_path / ".discarded" / "x.flac"
+    notes = tmp_path / "notes.txt"
+    for p in (old, new, known, hidden, notes):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"x")
+    os.utime(old, (heartbeat - 3600, heartbeat - 3600))
+
+    got = _catch_up_candidates(str(tmp_path), since=heartbeat, known={str(known)})
+
+    # ``old`` has an old mtime but a fresh ctime (it was just written), so on
+    # POSIX it counts as a new arrival too — the ctime rule exists for exactly
+    # that (cp -p / rsync -a preserve mtime). Only assert what's portable.
+    assert str(new) in got
+    assert str(known) not in got
+    assert str(hidden) not in got
+    assert str(notes) not in got
+
+
+def test_catch_up_on_a_never_watched_folder_imports_everything(tmp_path):
+    from setvault_core.services.watcher import _catch_up_candidates
+
+    a = tmp_path / "a.mp3"
+    a.write_bytes(b"x")
+
+    assert _catch_up_candidates(str(tmp_path), since=None, known=set()) == [str(a)]

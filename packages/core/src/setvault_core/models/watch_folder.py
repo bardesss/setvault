@@ -33,6 +33,12 @@ class WatchFolder(Base, UuidPkMixin):
     last_event_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
+    # Watcher heartbeat: refreshed while the folder is observed. On
+    # (re)subscribe the watcher catches up on files that arrived after it.
+    # NULL = never watched, so everything already there is imported.
+    last_watched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
     last_health_check_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
