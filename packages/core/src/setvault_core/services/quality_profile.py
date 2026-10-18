@@ -33,11 +33,13 @@ def is_better(
     candidate_tier: str | None,
     current_tier: str | None,
     *,
-    candidate_lossless: bool | None = None,
-    current_lossless: bool | None = None,
+    candidate_lossless: bool | None,
+    current_lossless: bool | None,
 ) -> bool:
     """Strictly better only. A lossy container never replaces a lossless one,
-    since the fake-lossless heuristic can misrate a genuine FLAC."""
+    since the fake-lossless heuristic can misrate a genuine FLAC. The
+    lossless flags are required so no caller can forget them; pass ``None``
+    when a side was not measured."""
     if candidate_tier is None or current_tier is None:
         return False
     if current_lossless is True and candidate_lossless is not True:
