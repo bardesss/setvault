@@ -12,9 +12,20 @@ from pathlib import Path
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.progress import ProgressEvent, publish
-from setvault_core.services.audio_quality import measure_quality
+from setvault_core.services.audio_quality import AudioQuality, measure_quality
 
 logger = logging.getLogger(__name__)
+
+
+def apply_quality(live: LiveSet, q: AudioQuality) -> None:
+    """Copy a measured ``AudioQuality`` onto the LiveSet's quality columns."""
+    live.audio_codec = q.codec[:32]
+    live.audio_bitrate_kbps = q.bitrate_kbps
+    live.audio_sample_rate = q.sample_rate
+    live.audio_bit_depth = q.bit_depth
+    live.audio_lossless = q.lossless
+    live.quality_tier = q.tier
+    live.quality_measured_at = datetime.now(UTC)
 
 
 async def probe_audio(live_set_id: str) -> None:
@@ -50,13 +61,7 @@ async def probe_audio(live_set_id: str) -> None:
         except Exception:
             logger.warning("quality measurement failed for %s", live_set_id, exc_info=True)
         else:
-            live.audio_codec = q.codec[:32]
-            live.audio_bitrate_kbps = q.bitrate_kbps
-            live.audio_sample_rate = q.sample_rate
-            live.audio_bit_depth = q.bit_depth
-            live.audio_lossless = q.lossless
-            live.quality_tier = q.tier
-            live.quality_measured_at = datetime.now(UTC)
+            apply_quality(live, q)
             await s.commit()
 
         publish(ProgressEvent(kind="probe", live_set_id=live_set_id, job_id=live_set_id,

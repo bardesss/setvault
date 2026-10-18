@@ -24,6 +24,25 @@ from setvault_core.services.set_match import find_original_match
 logger = logging.getLogger(__name__)
 
 
+async def store_fingerprint(
+    s, live_set_id: uuid.UUID, raw_bytes: bytes, digest: str, duration: float,
+) -> None:
+    """Create or update the set's single SetFingerprint row (never a second)."""
+    own = (await s.execute(
+        select(SetFingerprint).where(SetFingerprint.live_set_id == live_set_id),
+    )).scalars().first()
+    if own is None:
+        s.add(SetFingerprint(
+            live_set_id=live_set_id, fingerprint_hash=digest, duration_seconds=duration,
+            raw=raw_bytes, raw_version=MATCHER_VERSION,
+        ))
+    else:
+        own.fingerprint_hash = digest
+        own.duration_seconds = duration
+        own.raw = raw_bytes
+        own.raw_version = MATCHER_VERSION
+
+
 async def fingerprint_audio(live_set_id: str) -> None:
     if "DATABASE_URL" in os.environ:
         init_engine(os.environ["DATABASE_URL"])
@@ -47,20 +66,7 @@ async def fingerprint_audio(live_set_id: str) -> None:
         raw_bytes = raw_to_bytes(raw)
         digest = hashlib.sha256(raw_bytes).hexdigest()
 
-        # A re-run of the pipeline on the same set must not add a second row.
-        own = (await s.execute(
-            select(SetFingerprint).where(SetFingerprint.live_set_id == live.id),
-        )).scalars().first()
-        if own is None:
-            s.add(SetFingerprint(
-                live_set_id=live.id, fingerprint_hash=digest, duration_seconds=duration,
-                raw=raw_bytes, raw_version=MATCHER_VERSION,
-            ))
-        else:
-            own.fingerprint_hash = digest
-            own.duration_seconds = duration
-            own.raw = raw_bytes
-            own.raw_version = MATCHER_VERSION
+        await store_fingerprint(s, live.id, raw_bytes, digest, duration)
 
         match = None
         if live.duplicate_of is None:

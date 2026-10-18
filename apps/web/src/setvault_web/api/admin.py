@@ -184,6 +184,47 @@ async def remeasure_loudness(
     return {"status": "queued", "job_id": rq_job.id, "candidates": int(candidates)}
 
 
+@router.get("/maintenance/quality-backfill")
+async def quality_backfill_candidates(
+    session: Annotated[AsyncSession, Depends(db_session)],
+    _: Annotated[object, Depends(require_admin)],
+):
+    """Dry run: how many sets still need a fingerprint and a quality reading."""
+    from setvault_core.jobs.quality_backfill import backfill_candidates
+
+    return await backfill_candidates(session)
+
+
+@router.post("/maintenance/quality-backfill", status_code=202)
+async def quality_backfill(
+    session: Annotated[AsyncSession, Depends(db_session)],
+    admin: Annotated[User, Depends(current_user)],
+    _: Annotated[object, Depends(require_admin)],
+):
+    """Enqueue the fingerprint + quality backfill for existing sets."""
+    from redis import Redis
+    from rq import Queue
+    from setvault_core.jobs.quality_backfill import (
+        QUALITY_BACKFILL_TIMEOUT,
+        backfill_candidates,
+    )
+
+    candidates = await backfill_candidates(session)
+    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    rq_job = Queue("default", connection=redis).enqueue(
+        "setvault_core.jobs.quality_backfill.run_quality_backfill",
+        job_timeout=QUALITY_BACKFILL_TIMEOUT,
+    )
+    await audit_log(
+        session,
+        actor_user_id=admin.id,
+        action="maintenance.quality_backfill_requested",
+        after=candidates,
+    )
+    await session.commit()
+    return {"status": "queued", "job_id": rq_job.id, **candidates}
+
+
 def _disk_usage_for(host_path: str) -> dict | None:
     try:
         usage = shutil.disk_usage(host_path)
