@@ -408,3 +408,37 @@ async def test_real_legacy_row_matches_identical_upload(tmp_path: Path):
             select(SetFingerprint).where(SetFingerprint.live_set_id == ids[1]),
         )).scalars().one()
         assert row.fingerprint_hash == legacy
+
+
+async def test_identical_short_clips_are_flagged_duplicate(
+    tmp_path: Path, fpcalc_present, require_tools,
+):
+    """A 5 s clip is too short for the fuzzy matcher (needs ~15 s of chromaprint
+    items), so identical short files must match on the exact legacy digest."""
+    require_tools("ffmpeg")
+    clip = tmp_path / "clip.flac"
+    cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=5",
+           str(clip)]
+    subprocess.run(cmd, check=True, capture_output=True)  # noqa: ASYNC221, S603
+    async with session_factory()() as s:
+        u = User(email=f"u{uuid.uuid4().hex[:6]}@x.test", username=f"u{uuid.uuid4().hex[:6]}",
+                 display_name="u", password_hash="x", role="admin")
+        r = MediaRoot(name=f"r{uuid.uuid4().hex[:6]}", host_path=str(tmp_path),
+                      enabled=True, default_for_ingest=True)
+        s.add_all([u, r])
+        await s.flush()
+        ids = []
+        for _ in range(2):
+            live = LiveSet(slug=f"s-{uuid.uuid4().hex[:6]}", title="t", media_root_id=r.id,
+                           audio_path="clip.flac", uploaded_by=u.id, source_type="upload",
+                           status="processing", duration_seconds=5)
+            s.add(live)
+            await s.commit()  # distinct created_at, original first
+            ids.append(live.id)
+
+    for sid in ids:
+        await fingerprint_audio(str(sid))
+
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, ids[0])).duplicate_of is None
+        assert (await s.get(LiveSet, ids[1])).duplicate_of == ids[0]

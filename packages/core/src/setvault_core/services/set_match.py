@@ -5,7 +5,7 @@ import array
 import asyncio
 import logging
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.models.catalog import LiveSet, SetFingerprint
@@ -37,9 +37,10 @@ async def find_original_match(
     """The original set that ``raw`` is another copy of, with the match result.
 
     Candidates are other sets with a current-version raw fingerprint and a
-    duration within ±10% or ±60 s (the larger). Rows without a comparable raw
-    (pre-7D, not yet backfilled) fall back to the old exact rule: same
-    ``legacy_hash`` and duration within ±2 s. Only sets that are not
+    duration within ±10% or ±60 s (the larger). Separately, the old exact rule
+    (same ``legacy_hash``, duration within ±2 s) matches any row, raw or not;
+    it is the only match for clips too short for the fuzzy comparison, and
+    exact hits don't count toward the compare cap. Only sets that are not
     themselves flagged duplicates can be the original; of those, the
     earliest-created live one wins, else the earliest soft-deleted one (the
     caller undeletes it, spec §A6). The result's offset is for
@@ -54,16 +55,21 @@ async def find_original_match(
         comparable,
         SetFingerprint.duration_seconds.between(duration - tol, duration + tol),
     )
+    exact = None
     where = fuzzy
     if legacy_hash is not None:
-        where = or_(fuzzy, and_(
-            ~comparable,
+        # Exact legacy digest + duration: counts for any row, raw or not. Short
+        # clips (< ~15 s) are too short for the fuzzy matcher, so this is the
+        # only way identical short files match.
+        exact = and_(
             SetFingerprint.fingerprint_hash == legacy_hash,
             func.abs(SetFingerprint.duration_seconds - duration) < LEGACY_DURATION_SECONDS,
-        ))
+        )
+        where = or_(fuzzy, exact)
+    is_exact = exact if exact is not None else literal(False)
     # Ids only: raw blobs (a few hundred KB each) are fetched one at a time.
     rows = (await session.execute(
-        select(LiveSet.id, SetFingerprint.id, comparable)
+        select(LiveSet.id, SetFingerprint.id, comparable, is_exact)
         .join(SetFingerprint, SetFingerprint.live_set_id == LiveSet.id)
         .where(LiveSet.id != live.id, LiveSet.duplicate_of.is_(None), where)
         # Live sets first, then oldest; one set can hold several rows.
@@ -73,18 +79,20 @@ async def find_original_match(
 
     seen: set = set()
     compares = 0
-    for live_set_id, fp_id, is_comparable in rows:
-        if live_set_id in seen:
-            continue
-        if not is_comparable:
-            # Matched by the legacy hash.
+    capped = False
+    for live_set_id, fp_id, is_comparable, exact_hit in rows:
+        if exact_hit:
             return await session.get(LiveSet, live_set_id), LEGACY_EXACT_MATCH
+        if live_set_id in seen or not is_comparable:
+            continue
         if compares >= MAX_COMPARES:
-            logger.warning(
-                "match for %s: stopped after %d candidates (cap), %d left unchecked",
-                live.id, compares, len({r[0] for r in rows} - seen),
-            )
-            return None
+            if not capped:
+                capped = True
+                logger.warning(
+                    "match for %s: stopped after %d candidates (cap), %d left unchecked",
+                    live.id, compares, len({r[0] for r in rows} - seen),
+                )
+            continue  # keep scanning: a later exact-digest hit still counts
         fp_raw = (await session.execute(
             select(SetFingerprint.raw).where(SetFingerprint.id == fp_id),
         )).scalar_one()
