@@ -9,19 +9,20 @@ import pytest
 
 def _spool_upload(
     spool_dir: Path, upload_id: str = "abc123", *, owner: str | None,
-    filename: str = "set.flac", data: bytes = b"fake-audio-bytes", offset: int | None = None,
+    filename: str = "set.flac", data: bytes = b"fake-audio-bytes", size: int | None = None,
 ) -> Path:
     """Write an upload the way tusd's filestore leaves it: the bytes at
     ``<id>`` plus an ``<id>.info`` JSON sidecar (with the owner stamped into
-    its MetaData by our pre-create hook)."""
+    its MetaData by our pre-create hook). Like the real filestore, .info is
+    written at creation and never updated, so its Offset stays 0."""
     src = spool_dir / upload_id
     src.write_bytes(data)
     meta = {"filename": filename, "filetype": "audio/flac"}
     if owner is not None:
         meta["setvault_owner"] = owner
     (spool_dir / f"{upload_id}.info").write_text(json.dumps({
-        "ID": upload_id, "Size": len(data),
-        "Offset": len(data) if offset is None else offset,
+        "ID": upload_id, "Size": len(data) if size is None else size,
+        "Offset": 0,
         "SizeIsDeferred": False, "MetaData": meta,
         "Storage": {"Type": "filestore", "Path": str(src)},
     }))
@@ -148,7 +149,8 @@ async def test_post_finish_rejects_another_users_upload(
 async def test_post_finish_rejects_incomplete_upload(
     authed_admin_client, seeded_admin, spool, media_root,
 ):
-    src = _spool_upload(spool.path, owner=str(seeded_admin.id), offset=3)
+    # Only 16 of the declared 1000 bytes have arrived.
+    src = _spool_upload(spool.path, owner=str(seeded_admin.id), size=1000)
 
     r = await _post_finish(authed_admin_client, storage_path=str(src))
 

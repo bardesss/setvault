@@ -99,7 +99,9 @@ async def tusd_hook(
         meta = (info or {}).get("MetaData") or {}
         if meta.get(tusd_hooks.OWNER_KEY) != str(user.id):
             raise HTTPException(status_code=403, detail="upload belongs to another session")
-        if info.get("SizeIsDeferred") or info.get("Offset") != info.get("Size"):
+        # tusd's filestore writes .info once at creation (Offset stays 0) and
+        # derives the real offset from the data file's size, so do the same.
+        if info.get("SizeIsDeferred") or path.stat().st_size != info.get("Size"):
             raise HTTPException(status_code=409, detail="upload is incomplete")
         try:
             filename = tusd_hooks.normalize_filename(meta.get("filename", "upload"))
