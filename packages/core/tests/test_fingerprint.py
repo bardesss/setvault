@@ -4,6 +4,7 @@ import os
 import random
 import subprocess
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -234,3 +235,72 @@ async def test_reencoded_upload_is_flagged_duplicate(tmp_path: Path):
         second = await s.get(LiveSet, ids[1])
         assert second.duplicate_of == ids[0]
         assert abs(second.match_offset_seconds) < 1
+
+
+async def _set_quality(sid: uuid.UUID, tier: str, lossless: bool, *, deleted: bool = False):
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, sid)
+        live.quality_tier = tier
+        live.audio_lossless = lossless
+        if deleted:
+            live.deleted_at = datetime.now(UTC)
+            live.purge_after_at = live.deleted_at + timedelta(days=14)
+        await s.commit()
+
+
+async def test_better_arrival_is_kept_when_original_is_recycled(tmp_path: Path, monkeypatch):
+    """A FLAC arriving for a recycled MP3 128 must not be thrown away (R11)."""
+    _fake_fpcalc(monkeypatch, 0, _items_json(_random_items(31)))
+    original = await _make_set(tmp_path)
+    arrival = await _make_set(tmp_path)
+    await fingerprint_audio(str(original))
+    await _set_quality(original, "ok", False, deleted=True)
+    await _set_quality(arrival, "lossless", True)
+
+    await fingerprint_audio(str(arrival))
+
+    async with session_factory()() as s:
+        kept = await s.get(LiveSet, arrival)
+        assert kept.deleted_at is None
+        assert kept.duplicate_of is None
+        assert kept.match_offset_seconds is None
+        assert kept.status == "processing"
+        assert (await s.get(LiveSet, original)).deleted_at is not None
+
+
+async def test_unknown_tier_arrival_is_kept_when_original_is_recycled(
+    tmp_path: Path, monkeypatch,
+):
+    _fake_fpcalc(monkeypatch, 0, _items_json(_random_items(32)))
+    original = await _make_set(tmp_path)
+    arrival = await _make_set(tmp_path)
+    await fingerprint_audio(str(original))
+    await _set_quality(original, "lossless", True, deleted=True)
+
+    await fingerprint_audio(str(arrival))  # arrival was never measured
+
+    async with session_factory()() as s:
+        kept = await s.get(LiveSet, arrival)
+        assert kept.deleted_at is None and kept.duplicate_of is None
+        assert (await s.get(LiveSet, original)).deleted_at is not None
+
+
+async def test_worse_arrival_restores_recycled_original(tmp_path: Path, monkeypatch):
+    """MP3 128 arriving for a recycled FLAC: undelete the FLAC, recycle the
+    arrival with the normal 14-day window."""
+    _fake_fpcalc(monkeypatch, 0, _items_json(_random_items(33)))
+    original = await _make_set(tmp_path)
+    arrival = await _make_set(tmp_path)
+    await fingerprint_audio(str(original))
+    await _set_quality(original, "lossless", True, deleted=True)
+    await _set_quality(arrival, "ok", False)
+
+    await fingerprint_audio(str(arrival))
+
+    async with session_factory()() as s:
+        restored = await s.get(LiveSet, original)
+        assert restored.deleted_at is None and restored.purge_after_at is None
+        gone = await s.get(LiveSet, arrival)
+        assert gone.duplicate_of == original
+        assert gone.deleted_at is not None
+        assert gone.purge_after_at - gone.deleted_at == timedelta(days=14)

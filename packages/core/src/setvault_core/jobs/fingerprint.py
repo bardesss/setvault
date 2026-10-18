@@ -19,6 +19,7 @@ from setvault_core.services.audio_match import (
     raw_to_bytes,
 )
 from setvault_core.services.audit import log as audit_log
+from setvault_core.services.quality_profile import get_profile, is_better
 from setvault_core.services.set_match import find_original_match
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,21 @@ async def store_fingerprint(
         own.duration_seconds = duration
         own.raw = raw_bytes
         own.raw_version = MATCHER_VERSION
+
+
+async def _not_known_worse(s, arrival: LiveSet, original: LiveSet) -> bool:
+    """True unless the arrival is measured and no better than the original.
+
+    Probe runs before fingerprint, so both tiers are normally known; an
+    unmeasured side counts as "not known to be worse" and keeps the arrival.
+    """
+    if arrival.quality_tier is None or original.quality_tier is None:
+        return True
+    return is_better(
+        await get_profile(s), arrival.quality_tier, original.quality_tier,
+        candidate_lossless=arrival.audio_lossless,
+        current_lossless=original.audio_lossless,
+    )
 
 
 async def fingerprint_audio(live_set_id: str) -> None:
@@ -73,23 +89,36 @@ async def fingerprint_audio(live_set_id: str) -> None:
             match = await find_original_match(s, live, raw, duration)
         if match is not None:
             existing_live, result = match
-            live.duplicate_of = existing_live.id
-            live.match_offset_seconds = result.offset_seconds
-            live.status = "draft"
-            if existing_live.deleted_at is not None:
-                # Spec §A6: "if the existing set is soft-deleted in the
-                # recycle bin, undelete the existing set and discard the
-                # new one." We undelete + soft-delete the new arrival with
-                # a 1-hour purge window so the recycle-bin purge job
-                # (5B.5) cleans it up without admin intervention.
-                existing_live.deleted_at = None
-                existing_live.purge_after_at = None
-                now = datetime.now(UTC)
-                live.deleted_at = now
-                live.purge_after_at = now + timedelta(hours=1)
-                audit_action = "ingest.duplicate_of_recycled"
+            audit_after = {
+                "duplicate_of": str(existing_live.id),
+                "duration_seconds": duration,
+                "similarity": result.similarity,
+                "offset_seconds": result.offset_seconds,
+            }
+            if (existing_live.deleted_at is not None
+                    and await _not_known_worse(s, live, existing_live)):
+                # The original is in the recycle bin but this arrival may be
+                # the better copy: keep it as a normal new set and leave the
+                # recycled one where it is (never lose a better copy).
+                audit_action = "ingest.recycled_original_kept_arrival"
             else:
-                audit_action = "ingest.duplicate_detected"
+                live.duplicate_of = existing_live.id
+                live.match_offset_seconds = result.offset_seconds
+                live.status = "draft"
+                if existing_live.deleted_at is not None:
+                    # Spec §A6: "if the existing set is soft-deleted in the
+                    # recycle bin, undelete the existing set and discard the
+                    # new one." The arrival is no better, so it goes to the
+                    # recycle bin with the normal grace period (sets.py
+                    # delete_set) and the purge job (5B.5) cleans it up.
+                    existing_live.deleted_at = None
+                    existing_live.purge_after_at = None
+                    now = datetime.now(UTC)
+                    live.deleted_at = now
+                    live.purge_after_at = now + timedelta(days=14)
+                    audit_action = "ingest.duplicate_of_recycled"
+                else:
+                    audit_action = "ingest.duplicate_detected"
             await audit_log(
                 s,
                 actor_user_id=existing_live.uploaded_by,
@@ -97,12 +126,7 @@ async def fingerprint_audio(live_set_id: str) -> None:
                 action=audit_action,
                 target_type="LiveSet",
                 target_id=str(live.id),
-                after={
-                    "duplicate_of": str(existing_live.id),
-                    "duration_seconds": duration,
-                    "similarity": result.similarity,
-                    "offset_seconds": result.offset_seconds,
-                },
+                after=audit_after,
             )
         await s.commit()
 
