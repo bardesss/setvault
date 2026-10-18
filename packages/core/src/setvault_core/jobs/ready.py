@@ -71,16 +71,6 @@ class ArrivalResult:
     message: str
 
 
-def _message(decision) -> str:
-    if decision.outcome == "publish":
-        return "published"
-    if decision.outcome == "upgraded":
-        return f'upgraded "{decision.target_title}" to a better copy'
-    if decision.outcome == "discarded":
-        return f"no upgrade: {decision.reason}"
-    return "held for review: duplicate"
-
-
 async def finish_arrival(
     live_set_id: str, *, upgrade_target_id: uuid.UUID | None = None,
     trigger: str = "upload", candidate_source_kind: str | None = None,
@@ -111,7 +101,7 @@ async def finish_arrival(
             await s.commit()
             published = live
 
-    result = ArrivalResult(decision.outcome, _message(decision))
+    result = ArrivalResult(decision.outcome, decision.message)
     publish(ProgressEvent(
         kind="ready", live_set_id=live_set_id, job_id=live_set_id,
         progress_pct=100, message=result.message,

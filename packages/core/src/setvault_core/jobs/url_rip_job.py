@@ -25,6 +25,7 @@ import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +35,9 @@ from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
 from setvault_core.services.storage import path_in_use
+
+if TYPE_CHECKING:
+    from setvault_core.services.upgrade_decision import Decision
 
 logger = logging.getLogger(__name__)
 
@@ -350,17 +354,18 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
         if job.upgrade_target_set_id is not None:
             # An upgrade attempt that can't upgrade its target (different
             # audio, not better, target gone or locked) is discarded now,
-            # before the transcode/normalize/waveform work.
-            reason = await _discard_unless_upgrade(
+            # before the transcode/normalize/waveform work. One the fingerprint
+            # stage already recycled (R1) ends here too, as held.
+            early = await _discard_unless_upgrade(
                 live.id, target_id=job.upgrade_target_set_id, trigger=trigger, **candidate,
             )
-            if reason is not None:
-                # The arrival and its files are gone; nothing left for
-                # _discard_partial_rip to undo.
+            if early is not None:
+                # Discarded (row and files gone) or recycled (the purge job
+                # owns it): nothing for _discard_partial_rip to undo.
                 finished = True
                 await session.refresh(job)
                 await _set_status(session, job, "ready", progress_pct=100,
-                                  message=f"no upgrade: {reason}")
+                                  message=early.message)
                 return
 
         await _set_status(session, job, "transcoding", progress_pct=45,
@@ -413,9 +418,9 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
 async def _discard_unless_upgrade(
     live_set_id: uuid.UUID, *, target_id: uuid.UUID, trigger: str,
     candidate_source_kind: str | None, candidate_external_id: str | None,
-) -> str | None:
+) -> Decision | None:
     """Early upgrade check in its own session (the discard locks and may roll
-    back). Returns the reason when the arrival was discarded."""
+    back). Returns the final decision when the rip should end here."""
     from setvault_core.services.upgrade_decision import discard_unless_upgrade
 
     async with session_factory()() as s:

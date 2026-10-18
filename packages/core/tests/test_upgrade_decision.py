@@ -57,13 +57,24 @@ async def _seed(
     tmp_path: Path, *, target_tier: str | None = "ok", arrival_tier: str = "lossless",
     target_lossless: bool | None = False, arrival_lossless: bool | None = True,
     upgrades_enabled: bool = True, target_deleted: bool = False, duplicate: bool = True,
+    arrival_by: str | None = None, uploader_disabled: bool = False,
 ) -> tuple[uuid.UUID, uuid.UUID]:
-    """A published target and a processed draft arrival flagged as its duplicate."""
+    """A published target and a processed draft arrival flagged as its
+    duplicate (as the fingerprint stage leaves it). ``arrival_by`` is None for
+    the target's owner, else the role of another user who uploaded it."""
     async with session_factory()() as s:
         u = User(email=f"u{uuid.uuid4().hex[:6]}@x.test", username=f"u{uuid.uuid4().hex[:6]}",
                  display_name="u", password_hash="x")
         r = MediaRoot(name=f"r{uuid.uuid4().hex[:6]}", host_path=str(tmp_path), enabled=True)
         s.add_all([u, r])
+        uploader = u
+        if arrival_by is not None:
+            uploader = User(
+                email=f"o{uuid.uuid4().hex[:6]}@x.test", username=f"o{uuid.uuid4().hex[:6]}",
+                display_name="o", password_hash="x", role=arrival_by,
+                disabled_at=datetime.now(UTC) if uploader_disabled else None,
+            )
+            s.add(uploader)
         await s.flush()
         tid, aid = uuid.uuid4(), uuid.uuid4()
         target = LiveSet(
@@ -78,7 +89,7 @@ async def _seed(
         arrival = LiveSet(
             id=aid, slug=f"a-{aid.hex[:6]}", title="Set X again", media_root_id=r.id,
             audio_path=f"originals/{aid}/new.flac", streaming_path=f"stream/{aid}.opus",
-            waveform_path=f"waveform/{aid}.json", uploaded_by=u.id, status="processing",
+            waveform_path=f"waveform/{aid}.json", uploaded_by=uploader.id, status="draft",
             source_type="upload", audio_codec="flac", audio_lossless=arrival_lossless,
             quality_tier=arrival_tier, quality_measured_at=datetime.now(UTC),
             duplicate_of=tid if duplicate else None,
@@ -100,6 +111,14 @@ async def _events(tid: uuid.UUID) -> list[SetUpgradeEvent]:
         return list((await s.execute(
             select(SetUpgradeEvent).where(SetUpgradeEvent.live_set_id == tid)
         )).scalars().all())
+
+
+async def _held_duplicate_ids(s) -> set[uuid.UUID]:
+    """The admin Duplicates page's query (apps/web api/duplicates.py)."""
+    return set((await s.execute(select(LiveSet.id).where(
+        LiveSet.duplicate_of.is_not(None), LiveSet.status == "draft",
+        LiveSet.deleted_at.is_(None),
+    ))).scalars().all())
 
 
 async def _decide(aid: uuid.UUID, **kw) -> str:
@@ -135,8 +154,9 @@ async def test_equal_duplicate_is_held(tmp_path, auto_upgrades):
         arrival = await s.get(LiveSet, aid)
         target = await s.get(LiveSet, tid)
         # Held for the Duplicates page: a draft still flagged, nothing swapped.
-        assert arrival.deleted_at is None and arrival.status != "published"
+        assert arrival.status == "draft" and arrival.deleted_at is None
         assert arrival.duplicate_of == tid
+        assert aid in await _held_duplicate_ids(s)
         assert target.audio_path == f"originals/{tid}/old.mp3"
     assert await _events(tid) == []
 
@@ -246,3 +266,94 @@ async def test_upgrade_rip_of_better_audio_upgrades(tmp_path, auto_upgrades):
     assert await _decide(aid, upgrade_target_id=tid, trigger="scheduled") == "upgraded"
     [event] = await _events(tid)
     assert (event.outcome, event.trigger) == ("upgraded", "scheduled")
+
+
+async def test_parallel_lossy_arrival_cannot_replace_the_new_lossless_copy(
+    tmp_path, auto_upgrades,
+):
+    """Two better duplicates of one set on parallel workers: the second was
+    judged against the target's old tier; the locked re-check refuses it."""
+    tid, aid = await _seed(tmp_path)
+    async with session_factory()() as s:
+        first = await s.get(LiveSet, aid)
+        second = LiveSet(
+            slug=f"b-{uuid.uuid4().hex[:6]}", title="Set X lossy",
+            media_root_id=first.media_root_id,
+            audio_path="originals/b/high.mp3", streaming_path="stream/b.opus",
+            waveform_path="waveform/b.json", uploaded_by=first.uploaded_by, status="draft",
+            source_type="upload", audio_codec="mp3", audio_lossless=False,
+            quality_tier="high", quality_measured_at=datetime.now(UTC), duplicate_of=tid,
+        )
+        s.add(second)
+        await s.commit()
+        bid = second.id
+
+    async with session_factory()() as s:
+        stale_target = await s.get(LiveSet, tid)
+        arrival2 = await s.get(LiveSet, bid)
+        await s.commit()  # worker 2 decided on this read: "high" beats "ok"
+        assert await mark_ready(str(aid)) is False  # worker 1 upgrades to lossless
+        assert stale_target.quality_tier == "ok"  # stale view
+        with pytest.raises(set_upgrade.UpgradeNoLongerApplicable):
+            await set_upgrade.apply_upgrade(
+                s, target=stale_target, arrival=arrival2, trigger="upload",
+            )
+
+    async with session_factory()() as s:
+        target = await s.get(LiveSet, tid)
+        assert target.quality_tier == "lossless"
+        assert target.audio_path == f"originals/{aid}/new.flac"
+        b = await s.get(LiveSet, bid)
+        assert b.deleted_at is None and b.audio_path == "originals/b/high.mp3"
+    assert [e.outcome for e in await _events(tid)] == ["upgraded"]
+
+
+async def test_members_better_upload_of_another_members_set_is_held(tmp_path, auto_upgrades):
+    tid, aid = await _seed(tmp_path, arrival_by="user")
+    assert await _decide(aid, upgrade_target_id=None, trigger="upload") == "held"
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, tid)).quality_tier == "ok"
+        assert aid in await _held_duplicate_ids(s)
+    # Defence in depth: the swap itself refuses too.
+    async with session_factory()() as s:
+        target, arrival = await s.get(LiveSet, tid), await s.get(LiveSet, aid)
+        with pytest.raises(set_upgrade.UpgradeNoLongerApplicable, match="not owner"):
+            await set_upgrade.apply_upgrade(s, target=target, arrival=arrival, trigger="upload")
+
+
+async def test_owners_better_upload_upgrades(tmp_path, auto_upgrades):
+    _tid, aid = await _seed(tmp_path)
+    assert await _decide(aid, upgrade_target_id=None, trigger="upload") == "upgraded"
+
+
+async def test_admins_better_upload_of_someone_elses_set_upgrades(tmp_path, auto_upgrades):
+    _tid, aid = await _seed(tmp_path, arrival_by="admin")
+    assert await _decide(aid, upgrade_target_id=None, trigger="upload") == "upgraded"
+    # A disabled admin is no admin.
+    _tid2, aid2 = await _seed(tmp_path, arrival_by="admin", uploader_disabled=True)
+    assert await _decide(aid2, upgrade_target_id=None, trigger="upload") == "held"
+
+
+async def test_upgrade_rip_by_non_owner_is_discarded(tmp_path, auto_upgrades):
+    tid, aid = await _seed(tmp_path, arrival_by="user")
+    assert await _decide(aid, upgrade_target_id=tid, trigger="scheduled") == "discarded"
+    assert [e.reason for e in await _events(tid)] == ["not owner"]
+
+
+async def test_search_now_ignores_library_switch_but_not_set_switch(tmp_path, auto_upgrades):
+    await auto_upgrades(False)
+    tid, aid = await _seed(tmp_path)
+    assert await _decide(aid, upgrade_target_id=tid, trigger="search_now") == "upgraded"
+    [event] = await _events(tid)
+    assert (event.outcome, event.trigger) == ("upgraded", "search_now")
+
+    tid2, aid2 = await _seed(tmp_path, upgrades_enabled=False)
+    assert await _decide(aid2, upgrade_target_id=tid2, trigger="search_now") == "discarded"
+    assert [e.reason for e in await _events(tid2)] == ["upgrades off"]
+
+    # The swap's own re-check: library switch off blocks other triggers only.
+    tid3, aid3 = await _seed(tmp_path)
+    async with session_factory()() as s:
+        target, arrival = await s.get(LiveSet, tid3), await s.get(LiveSet, aid3)
+        with pytest.raises(set_upgrade.UpgradeNoLongerApplicable, match="upgrades off"):
+            await set_upgrade.apply_upgrade(s, target=target, arrival=arrival, trigger="upload")

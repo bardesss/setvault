@@ -469,7 +469,9 @@ async def test_failure_after_a_committed_upgrade_deletes_neither_set(
             assert (tmp_path / rel).exists(), rel
 
 
-async def _upgrade_rip_setup(session, monkeypatch, tmp_path, *, arrival_tier, matches):
+async def _upgrade_rip_setup(
+    session, monkeypatch, tmp_path, *, arrival_tier, matches, recycled=False,
+):
     """A published MP3 target, an upgrade-attempt rip for it, and stubbed stages:
     the fingerprint stub measures the arrival and flags (or not) the match."""
     from setvault_core.db import session_factory
@@ -518,6 +520,8 @@ async def _upgrade_rip_setup(session, monkeypatch, tmp_path, *, arrival_tier, ma
             live.quality_tier = arrival_tier
             live.audio_lossless = arrival_tier == "lossless"
             live.duplicate_of = tid if matches else None
+            if recycled:  # as fingerprint does for a match with a recycled original
+                live.deleted_at = datetime.now(UTC)
             await s.commit()
 
     def _track(name):
@@ -611,3 +615,25 @@ async def test_upgrade_rip_of_better_audio_upgrades_the_target(
         assert job.live_set_id == tid
         target = await s.get(LiveSet, tid)
         assert target.quality_tier == "lossless" and target.deleted_at is None
+
+
+async def test_recycled_upgrade_rip_ends_before_transcode(session, monkeypatch, tmp_path):
+    """R1: fingerprinting already recycled the arrival; the rip ends as held
+    without the transcode work and keeps the recycled row for the purge job."""
+    from setvault_core.db import session_factory
+    from setvault_core.models.catalog import LiveSet
+
+    tid, job_id, _user, calls = await _upgrade_rip_setup(
+        session, monkeypatch, tmp_path, arrival_tier="lossless", matches=True, recycled=True,
+    )
+
+    await _run_rip_job(session, job_id)
+
+    assert calls == []
+    async with session_factory()() as s:
+        job = await s.get(RipJob, job_id)
+        assert job.status == "ready", job.error_text
+        assert job.message == "held: arrival is in the recycle bin"
+        arrival = await s.get(LiveSet, job.live_set_id)
+        assert arrival is not None and arrival.deleted_at is not None
+        assert (await s.get(LiveSet, tid)).quality_tier == "ok"

@@ -31,11 +31,14 @@ from setvault_core.jobs.ready import fan_out_webhooks
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.models.engagement import ListeningHistory, UserSetState
 from setvault_core.models.engagement_3c import Bookmark, Comment
+from setvault_core.models.identity import User
 from setvault_core.models.tracklist import TracklistEntry
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
 from setvault_core.services.notifications import notify_set_upgraded
+from setvault_core.services.quality_profile import QualityProfile, get_profile, is_better
 from setvault_core.services.storage import path_in_use
+from setvault_core.services.system_config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,8 @@ RECYCLE_GRACE = timedelta(days=14)
 MIN_SHIFT_SECONDS = 1.0
 _REPLACED_SUFFIX = " (replaced copy)"
 _TITLE_MAX = 512  # LiveSet.title is String(512)
+# The Wanted page's manual search; not blocked by the library-wide switch.
+SEARCH_NOW_TRIGGER = "search_now"
 
 # The columns that describe the audio file itself. They move together: the
 # path strings are relative to ``media_root_id``.
@@ -161,6 +166,48 @@ async def _lock_sets(session: AsyncSession, *ids: uuid.UUID) -> dict[uuid.UUID, 
     return rows
 
 
+async def may_replace_audio(session: AsyncSession, arrival: LiveSet, target: LiveSet) -> bool:
+    """Ownership rule (R20): an arrival may replace a set's audio only when
+    it was uploaded (or ripped) by the set's owner or by an active admin."""
+    if arrival.uploaded_by is not None and arrival.uploaded_by == target.uploaded_by:
+        return True
+    if arrival.uploaded_by is None:
+        return False
+    uploader = await session.get(User, arrival.uploaded_by)
+    return uploader is not None and uploader.role == "admin" and uploader.disabled_at is None
+
+
+async def upgrade_switches_on(session: AsyncSession, target: LiveSet, *, trigger: str) -> bool:
+    """Per-set switch always applies; the library-wide one doesn't block an
+    explicit "search now" (R18)."""
+    if not target.upgrades_enabled:
+        return False
+    if trigger == SEARCH_NOW_TRIGGER:
+        return True
+    return bool((await get_config(session)).auto_upgrades_enabled)
+
+
+def audio_is_better(profile: QualityProfile, arrival: LiveSet, target: LiveSet) -> bool:
+    return is_better(
+        profile, arrival.quality_tier, target.quality_tier,
+        candidate_lossless=arrival.audio_lossless, current_lossless=target.audio_lossless,
+    )
+
+
+async def upgrade_refusal(
+    session: AsyncSession, arrival: LiveSet, target: LiveSet, *, trigger: str,
+) -> str | None:
+    """Why ``arrival`` may not replace ``target``'s audio (switches, owner,
+    quality), or None. Match and recycle state are the caller's checks."""
+    if not await upgrade_switches_on(session, target, trigger=trigger):
+        return "upgrades off"
+    if not await may_replace_audio(session, arrival, target):
+        return "not owner"
+    if not audio_is_better(await get_profile(session), arrival, target):
+        return "not better"
+    return None
+
+
 async def apply_upgrade(
     session: AsyncSession,
     *,
@@ -200,6 +247,12 @@ async def apply_upgrade(
             raise UpgradeNoLongerApplicable("arrival was already swapped or recycled")
         if not arrival.streaming_path or not arrival.waveform_path:
             raise ValueError("arrival is not fully processed (no stream or waveform)")
+        # The caller decided on an unlocked read; re-check against the locked
+        # rows so two parallel arrivals can't both swap (a lossy copy
+        # replacing the lossless one the first arrival just put in).
+        refusal = await upgrade_refusal(session, arrival, target, trigger=trigger)
+        if refusal is not None:
+            raise UpgradeNoLongerApplicable(refusal)
 
         event = _event(
             target, arrival, outcome="upgraded", trigger=trigger, reason=None,
