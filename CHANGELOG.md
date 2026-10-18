@@ -4,6 +4,25 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0](https://github.com/bardesss/setvault/compare/v0.16.0...v0.17.0) (2026-10-18)
+
+
+### Features
+
+* **admin:** hold fingerprint duplicates for review instead of publishing ([5d45346](https://github.com/bardesss/setvault/commit/5d4534620c787401c0263474589d89f6d3c33751))
+
+
+### Bug Fixes
+
+* **ingest:** bind tus uploads to their owner; enforce rip byte cap ([be3d594](https://github.com/bardesss/setvault/commit/be3d594ed849338d37ca5f5e70c900380f43cc53))
+* **ingest:** harden tusd hook, rip submit ordering, yt-dlp guards, tus spool ([785e99b](https://github.com/bardesss/setvault/commit/785e99bb0c40d6d536c3a4b74fc587780fb75716))
+* **ingest:** harden tusd hook, rip submit ordering, yt-dlp guards, tus spool ([3f66e5f](https://github.com/bardesss/setvault/commit/3f66e5f4ec2233c343ae744a9fbfc6ca7de0404b))
+* **ingest:** job timeouts, dedup crash, watch-folder races; hold duplicates for review ([f9b7144](https://github.com/bardesss/setvault/commit/f9b714449b82e5188d844b14cb28068fa6d8e3c4))
+* **ingest:** job timeouts, fingerprint dedup crash, watch-folder races ([ffb9549](https://github.com/bardesss/setvault/commit/ffb95491da500d08e1bb3406897db894f73976c0))
+* **ingest:** watcher catch-up scan, failed-rip cleanup, poll dedup, enabled roots ([f6c8c02](https://github.com/bardesss/setvault/commit/f6c8c02bde7f88ccc86b7b410610a1e18464b0e2))
+* **ingest:** watcher catch-up scan, failed-rip cleanup, poll dedup, enabled roots ([d9fbd89](https://github.com/bardesss/setvault/commit/d9fbd89f71a14f2b373c3f89520db0eb0a409df3))
+* **uploads:** judge tus completeness by spool file size, not .info Offset ([8301d0c](https://github.com/bardesss/setvault/commit/8301d0ced0128f5ac423a1531a7e563ec53bc7eb))
+
 ## [0.16.0](https://github.com/bardesss/setvault/compare/v0.15.2...v0.16.0) (2026-10-17)
 
 
