@@ -118,3 +118,28 @@ async def test_backfill_continues_after_one_bad_file(tmp_path: Path, monkeypatch
     # The full run terminates despite the permanently bad file.
     totals = await qb._run_quality_backfill()
     assert totals["processed"] == 0 and totals["errors"] == 1
+
+
+async def test_batch_stops_at_deadline_and_reports_remaining(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+
+    for n in ("a.flac", "b.flac", "c.flac"):
+        (tmp_path / n).write_bytes(b"x")
+    await _seed(tmp_path, ["a.flac", "b.flac", "c.flac"])
+    monkeypatch.setattr(
+        qb, "compute_raw_fingerprint",
+        lambda _p: (array.array("I", [1, 2, 3]), 3.0),
+    )
+    monkeypatch.setattr(
+        qb, "measure_quality",
+        lambda _p: AudioQuality("flac", None, 44100, 16, True, "lossless"),
+    )
+    # First deadline check passes, every later one is past the deadline.
+    ticks = iter([0.0])
+    monkeypatch.setattr(
+        qb, "time", SimpleNamespace(monotonic=lambda: next(ticks, 10_000.0)),
+    )
+
+    res = await qb.run_backfill_batch(deadline=100.0)
+    assert res["processed"] == 1 and res["errors"] == 0
+    assert res["remaining"] == 2

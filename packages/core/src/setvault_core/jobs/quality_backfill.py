@@ -58,12 +58,17 @@ async def backfill_candidates(session: AsyncSession) -> dict:
     return {"to_fingerprint": int(to_fingerprint), "to_measure": int(to_measure)}
 
 
-async def run_backfill_batch(limit: int = 50, skip_ids: set[uuid.UUID] | None = None) -> dict:
+async def run_backfill_batch(
+    limit: int = 50, skip_ids: set[uuid.UUID] | None = None,
+    deadline: float | None = None,
+) -> dict:
     """Process up to ``limit`` sets, oldest first.
 
     Returns ``{"processed", "remaining", "errors", "error_ids"}``. ``skip_ids``
     are sets to leave alone (failed earlier in the same run), so a permanently
     broken file cannot stall the loop; ``remaining`` excludes them too.
+    ``deadline`` (``time.monotonic()`` value) is checked before each set; once
+    passed the batch stops and the unprocessed sets stay in ``remaining``.
     """
     if "DATABASE_URL" in os.environ:
         init_engine(os.environ["DATABASE_URL"])
@@ -80,6 +85,8 @@ async def run_backfill_batch(limit: int = 50, skip_ids: set[uuid.UUID] | None = 
     processed = 0
     error_ids: list[uuid.UUID] = []
     for live_set_id in ids:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         try:
             await _backfill_one(live_set_id)
         except Exception:
@@ -101,6 +108,8 @@ async def run_backfill_batch(limit: int = 50, skip_ids: set[uuid.UUID] | None = 
 
 
 async def _backfill_one(live_set_id: uuid.UUID) -> None:
+    # Short sessions only: no DB connection is held across the slow
+    # fpcalc/ffprobe thread calls.
     async with session_factory()() as s:
         live = await s.get(LiveSet, live_set_id)
         if live is None:
@@ -109,42 +118,48 @@ async def _backfill_one(live_set_id: uuid.UUID) -> None:
         if root is None:
             raise RuntimeError("MediaRoot vanished")
         path = Path(root.host_path) / live.audio_path
-        if not path.is_file():
-            raise FileNotFoundError(str(path))
-
-        has_current_fp = (await s.execute(
+        need_quality = live.quality_measured_at is None
+        need_fp = (await s.execute(
             select(SetFingerprint.id).where(
                 SetFingerprint.live_set_id == live.id,
                 SetFingerprint.raw.is_not(None),
                 SetFingerprint.raw_version >= MATCHER_VERSION,
             ).limit(1)
-        )).first() is not None
-        if not has_current_fp:
-            raw, duration = await asyncio.to_thread(compute_raw_fingerprint, path)
-            raw_bytes = raw_to_bytes(raw)
-            digest = hashlib.sha256(raw_bytes).hexdigest()
-            await store_fingerprint(s, live.id, raw_bytes, digest, duration)
+        )).first() is None
+    if not path.is_file():
+        raise FileNotFoundError(str(path))
+
+    if need_fp:
+        raw, duration = await asyncio.to_thread(compute_raw_fingerprint, path)
+        raw_bytes = raw_to_bytes(raw)
+        digest = hashlib.sha256(raw_bytes).hexdigest()
+        async with session_factory()() as s:
+            await store_fingerprint(s, live_set_id, raw_bytes, digest, duration)
             await s.commit()
 
-        if live.quality_measured_at is None:
-            quality = await asyncio.to_thread(measure_quality, path)
-            apply_quality(live, quality)
-            await s.commit()
+    if need_quality:
+        quality = await asyncio.to_thread(measure_quality, path)
+        async with session_factory()() as s:
+            live = await s.get(LiveSet, live_set_id)
+            if live is not None:
+                apply_quality(live, quality)
+                await s.commit()
 
 
 async def _run_quality_backfill() -> dict:
     started = time.monotonic()
     totals = {"processed": 0, "errors": 0, "remaining": 0}
+    deadline = started + _MAX_RUNTIME_SECONDS
     skip: set[uuid.UUID] = set()
     while True:
-        res = await run_backfill_batch(skip_ids=skip)
+        res = await run_backfill_batch(skip_ids=skip, deadline=deadline)
         skip.update(res["error_ids"])
         totals["processed"] += res["processed"]
         totals["errors"] += res["errors"]
         totals["remaining"] = res["remaining"]
         if res["processed"] + res["errors"] == 0 or res["remaining"] == 0:
             break
-        if time.monotonic() - started > _MAX_RUNTIME_SECONDS:
+        if time.monotonic() >= deadline:
             logger.info("quality backfill: time budget reached, re-run to continue")
             break
     logger.info("quality backfill: %s", totals)
