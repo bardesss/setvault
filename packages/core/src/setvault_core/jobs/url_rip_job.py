@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.url_rip import RipJob
+from setvault_core.services.storage import path_in_use
 
 logger = logging.getLogger(__name__)
 
@@ -204,17 +205,49 @@ async def _discard_partial_rip(session: AsyncSession, job: RipJob, root: MediaRo
     forever, plus one more per retry) and its files under the root. Best
     effort; the RipJob row itself stays so the user sees the failure."""
     host = Path(root.host_path)
+    live_id: uuid.UUID | None = None
     if job.live_set_id is not None:
         live = await session.get(LiveSet, job.live_set_id, populate_existing=True)
         job.live_set_id = None
         await session.flush()
         if live is not None:
+            live_id = live.id
             for rel in (live.streaming_path, live.waveform_path):
-                if rel:
+                if rel and not await path_in_use(
+                    session, live.media_root_id, rel, exclude_live_set_id=live_id,
+                ):
                     (host / rel).unlink(missing_ok=True)
             await session.delete(live)
-    shutil.rmtree(host / "originals" / str(job.id), ignore_errors=True)
+    await _remove_rip_dir(session, root, job.id, exclude_live_set_id=live_id)
     await session.commit()
+
+
+async def _remove_rip_dir(
+    session: AsyncSession, root: MediaRoot, job_id: uuid.UUID,
+    *, exclude_live_set_id: uuid.UUID | None,
+) -> None:
+    """Delete ``originals/<job_id>/`` except files another LiveSet still
+    references (a quality upgrade can move a rip's audio into another set),
+    then drop the directories left empty."""
+    host = Path(root.host_path)
+    rip_dir = host / "originals" / str(job_id)
+    if not rip_dir.is_dir():
+        return
+    for dirpath, _dirnames, filenames in os.walk(rip_dir, topdown=False):
+        for name in filenames:
+            path = Path(dirpath) / name
+            rel = path.relative_to(host).as_posix()
+            if await path_in_use(session, root.id, rel, exclude_live_set_id=exclude_live_set_id):
+                logger.info("rip discard: keeping %s, another set uses it", rel)
+                continue
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("rip discard: failed to unlink %s: %s", path, exc)
+        try:
+            os.rmdir(dirpath)
+        except OSError:
+            pass  # not empty: something we kept
 
 
 async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:

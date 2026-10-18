@@ -391,3 +391,98 @@ async def test_discard_arrival_keeps_files_another_set_uses(tmp_path: Path):
             s, arrival, target=target, trigger="upload", reason="x")
     assert (tmp_path / f"stream/{ids['target']}.opus").exists()
     assert not (tmp_path / f"originals/{ids['arrival']}/new.flac").exists()
+
+
+# --- R15/R16 + webhook gating (fix round) ----------------------------------
+
+
+async def test_purge_of_recycled_copy_spares_files_the_live_target_now_uses(
+    tmp_path: Path, webhooks,
+):
+    """R15: a later transcode regen of the target writes stream/<target-id>.opus,
+    the very path the recycled old copy holds. Purging that copy must not
+    delete it."""
+    from setvault_core.jobs.recycle_bin_purge import purge_recycle_bin
+
+    ids = await _seed(tmp_path)
+    tid, aid = ids["target"], ids["arrival"]
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    regen = f"stream/{tid}.opus"
+    async with session_factory()() as s:
+        t = await s.get(LiveSet, tid)
+        t.streaming_path = regen
+        a = await s.get(LiveSet, aid)
+        a.purge_after_at = datetime.now(UTC) - timedelta(minutes=1)
+        await s.commit()
+    _touch(tmp_path, regen, b"REGEN-STREAM")
+
+    res = await purge_recycle_bin()
+    assert res == {"purged": 1, "errors": 0}
+
+    async with session_factory()() as s:
+        assert await s.get(LiveSet, aid) is None
+        t = await s.get(LiveSet, tid)
+        assert t.streaming_path == regen and t.deleted_at is None
+    assert (tmp_path / regen).read_bytes() == b"REGEN-STREAM"
+    assert (tmp_path / f"originals/{aid}/new.flac").exists()  # target's audio
+    # Files only the recycled row referenced are gone.
+    assert not (tmp_path / f"originals/{tid}/old.mp3").exists()
+    assert not (tmp_path / f"waveform/{tid}.json").exists()
+
+
+async def test_plain_purge_still_deletes_unreferenced_files(tmp_path: Path):
+    from setvault_core.jobs.recycle_bin_purge import purge_recycle_bin
+
+    ids = await _seed(tmp_path)
+    aid = ids["arrival"]
+    async with session_factory()() as s:
+        a = await s.get(LiveSet, aid)
+        a.deleted_at = datetime.now(UTC) - timedelta(days=15)
+        a.purge_after_at = datetime.now(UTC) - timedelta(days=1)
+        await s.commit()
+
+    assert await purge_recycle_bin() == {"purged": 1, "errors": 0}
+    for rel in (f"originals/{aid}/new.flac", f"stream/{aid}.opus", f"waveform/{aid}.json"):
+        assert not (tmp_path / rel).exists()
+    assert not (tmp_path / f"originals/{aid}").exists()
+    assert (tmp_path / f"originals/{ids['target']}/old.mp3").exists()
+
+
+async def test_swap_repoints_rip_job_to_target(tmp_path: Path, webhooks):
+    from setvault_core.models.url_rip import RipJob
+
+    ids = await _seed(tmp_path)
+    async with session_factory()() as s:
+        job = RipJob(
+            submitted_by=ids["user"], source_url="https://bandcamp.example/new",
+            status="done", progress_pct=100, live_set_id=ids["arrival"],
+            created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+        )
+        s.add(job)
+        await s.commit()
+        job_id = job.id
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    async with session_factory()() as s:
+        assert (await s.get(RipJob, job_id)).live_set_id == ids["target"]
+
+
+async def test_draft_target_upgrade_fires_no_webhook(tmp_path: Path, webhooks):
+    ids = await _seed(tmp_path)
+    async with session_factory()() as s:
+        t = await s.get(LiveSet, ids["target"])
+        t.status = "draft"
+        await s.commit()
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    assert webhooks == []
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, ids["target"])).quality_tier == "lossless"
+
+
+async def test_published_target_upgrade_fires_webhook(tmp_path: Path, webhooks):
+    ids = await _seed(tmp_path)
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    assert webhooks == [(ids["target"], "set.published")]

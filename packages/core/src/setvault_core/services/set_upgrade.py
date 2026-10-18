@@ -23,7 +23,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.jobs.ready import fan_out_webhooks
@@ -32,7 +32,9 @@ from setvault_core.models.engagement import ListeningHistory, UserSetState
 from setvault_core.models.engagement_3c import Bookmark, Comment
 from setvault_core.models.tracklist import TracklistEntry
 from setvault_core.models.upgrades import SetUpgradeEvent
+from setvault_core.models.url_rip import RipJob
 from setvault_core.services.notifications import notify_set_upgraded
+from setvault_core.services.storage import path_in_use
 
 logger = logging.getLogger(__name__)
 
@@ -149,9 +151,10 @@ async def apply_upgrade(
     """Give ``target`` the arrival's audio and recycle the old copy.
 
     Preconditions: the arrival is fully processed (stream and waveform exist)
-    and the caller has checked the match and the tier. One commit; webhooks and
-    the owner's notification go out after it. On a failure before the commit
-    the transaction is rolled back and the error re-raised.
+    and the caller has checked the match and the tier. One commit; webhooks
+    (published targets only) and the owner's notification go out after it.
+    On a failure before the commit the transaction is rolled back and the
+    error re-raised.
     """
     if arrival.id == target.id:
         raise ValueError("an upgrade needs two different sets")
@@ -174,6 +177,13 @@ async def apply_upgrade(
             setattr(target, f, getattr(arrival, f))
             setattr(arrival, f, old[f])
         await _swap_fingerprints(session, target, arrival)
+        # The rip that downloaded the new audio now belongs to the target.
+        await session.execute(
+            update(RipJob)
+            .where(RipJob.live_set_id == arrival.id)
+            .values(live_set_id=target.id)
+            .execution_options(synchronize_session="fetch")
+        )
         if offset is not None and abs(offset) >= MIN_SHIFT_SECONDS:
             await _shift_positions(session, target, offset)
 
@@ -194,7 +204,10 @@ async def apply_upgrade(
         raise
 
     logger.info("upgraded set %s from %s to %s", target.id, event.from_tier, event.to_tier)
-    await fan_out_webhooks(target, "set.published")
+    # Only announce sets that are public; a draft's title/slug must not leak
+    # to external webhook receivers.
+    if target.status == "published" and target.deleted_at is None:
+        await fan_out_webhooks(target, "set.published")
     try:
         await notify_set_upgraded(session, target, event)
         await session.commit()
@@ -242,15 +255,8 @@ async def discard_arrival(
     # Never delete a file some other set points at.
     to_delete: list[str] = []
     for rel in rels:
-        shared = await session.scalar(
-            select(func.count()).select_from(LiveSet).where(
-                LiveSet.id != arrival.id,
-                LiveSet.media_root_id == arrival.media_root_id,
-                or_(LiveSet.audio_path == rel, LiveSet.streaming_path == rel,
-                    LiveSet.waveform_path == rel, LiveSet.thumb_path == rel),
-            )
-        )
-        if shared:
+        if await path_in_use(session, arrival.media_root_id, rel,
+                             exclude_live_set_id=arrival.id):
             logger.warning("discard: keeping %s, another set uses it", rel)
         else:
             to_delete.append(rel)

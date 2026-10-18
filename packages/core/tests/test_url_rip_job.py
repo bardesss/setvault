@@ -348,3 +348,40 @@ async def test_rip_skips_a_disabled_default_root(session, monkeypatch, tmp_path)
     assert job.status == "failed"
     assert "no default-for-ingest" in (job.error_text or "")
     assert downloaded is False
+
+
+async def test_partial_rip_discard_keeps_files_another_set_references(session, tmp_path):
+    """R15: _discard_partial_rip removes the rip's files except any another
+    LiveSet still points at (e.g. a target this rip's audio was swapped into)."""
+    from setvault_core.jobs.url_rip_job import _discard_partial_rip
+    from setvault_core.models.catalog import LiveSet, MediaRoot
+
+    user = await _make_user(session)
+    root = MediaRoot(name=f"r-{uuid.uuid4().hex[:6]}", host_path=str(tmp_path))
+    session.add(root)
+    await session.flush()
+    job_id = await _queued_rip(session, user)
+    job = await session.get(RipJob, job_id)
+    keep_rel = f"originals/{job_id}/kept.flac"
+    other = LiveSet(slug=f"o-{uuid.uuid4().hex[:6]}", title="other", media_root_id=root.id,
+                    audio_path=keep_rel, status="published", source_type="url_rip",
+                    uploaded_by=user.id)
+    draft = LiveSet(slug=f"d-{uuid.uuid4().hex[:6]}", title="draft", media_root_id=root.id,
+                    audio_path=f"originals/{job_id}/gone.flac", status="draft",
+                    streaming_path="stream/shared.opus", source_type="url_rip",
+                    uploaded_by=user.id)
+    session.add_all([other, draft])
+    await session.flush()
+    other.streaming_path = "stream/shared.opus"
+    job.live_set_id = draft.id
+    await session.commit()
+    for rel in (keep_rel, f"originals/{job_id}/gone.flac", "stream/shared.opus"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_bytes(b"x")
+
+    await _discard_partial_rip(session, job, root)
+
+    assert (tmp_path / keep_rel).exists()
+    assert (tmp_path / "stream/shared.opus").exists()
+    assert not (tmp_path / f"originals/{job_id}/gone.flac").exists()
+    assert await session.get(LiveSet, other.id) is not None

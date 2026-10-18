@@ -88,3 +88,34 @@ async def test_keep_duplicate_stamps_kept_at(authed_admin_client, seeded_live_se
     assert r.status_code == 200, r.text
     async with session_factory()() as s:
         assert (await s.get(LiveSet, sid)).duplicate_kept_at is not None
+
+
+@pytest.mark.asyncio
+async def test_purge_now_spares_files_another_set_references(
+    authed_admin_client, seeded_live_set, tmp_path,
+):
+    """R15: purge-now deletes the recycled set's own files but never one a
+    live set still points at."""
+    from datetime import UTC, datetime
+
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, uuid.UUID(seeded_live_set["id"]))
+        live.streaming_path = "stream/shared.opus"
+        gone = LiveSet(
+            slug=f"gone-{uuid.uuid4().hex[:6]}", title="old copy",
+            media_root_id=live.media_root_id, audio_path="originals/gone/a.mp3",
+            streaming_path="stream/shared.opus", status="draft", source_type="upload",
+            uploaded_by=live.uploaded_by, deleted_at=datetime.now(UTC),
+        )
+        s.add(gone)
+        await s.commit()
+        slug = gone.slug
+    for rel in ("originals/gone/a.mp3", "stream/shared.opus"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_bytes(b"x")
+
+    r = await authed_admin_client.post(f"/api/admin/recycle/{slug}/purge-now")
+
+    assert r.status_code == 204, r.text
+    assert not (tmp_path / "originals/gone/a.mp3").exists()
+    assert (tmp_path / "stream/shared.opus").exists()

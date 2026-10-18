@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import os
 import shutil
+import uuid
 from pathlib import Path
 from typing import Literal
+
+from sqlalchemy import exists, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from setvault_core.models.catalog import LiveSet
 
 HealthStatus = Literal["ok", "unreachable", "readonly", "near_full", "unknown"]
 
@@ -88,3 +94,27 @@ def place_audio_file(src: Path, dst: Path) -> PlacementMode:
                 pass
         raise
     return "copied"
+
+
+async def path_in_use(
+    session: AsyncSession, media_root_id: uuid.UUID, rel_path: str,
+    *, exclude_live_set_id: uuid.UUID | None,
+) -> bool:
+    """True if any LiveSet other than ``exclude_live_set_id`` on this media
+    root references ``rel_path`` as its audio, stream, waveform or thumb file,
+    whatever its status (deleted or not).
+
+    Every code path that deletes set files checks this first: after a quality
+    upgrade (services/set_upgrade.py) the live set and its recycled old copy
+    can end up naming the same file, e.g. once the live set's stream is
+    regenerated at ``stream/<id>.opus``.
+    """
+    conds = [
+        LiveSet.media_root_id == media_root_id,
+        or_(LiveSet.audio_path == rel_path, LiveSet.streaming_path == rel_path,
+            LiveSet.waveform_path == rel_path, LiveSet.thumb_path == rel_path),
+    ]
+    if exclude_live_set_id is not None:
+        conds.append(LiveSet.id != exclude_live_set_id)
+    stmt = select(exists().where(*conds))
+    return bool(await session.scalar(stmt))
