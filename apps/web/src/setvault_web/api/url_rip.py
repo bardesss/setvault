@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from redis import Redis
 from rq import Queue
+from setvault_core.jobs.url_rip_job import RIP_JOB_TIMEOUT
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.identity import User
 from setvault_core.models.url_rip import RipJob
@@ -95,6 +96,7 @@ async def submit_url_rip(
         _queue().enqueue(
             "setvault_core.jobs.url_rip_job.run_rip_job",
             rip_job_id=str(job.id),
+            job_timeout=RIP_JOB_TIMEOUT,
         )
     except Exception:
         # If Redis is down we still keep the RipJob row so the user sees the

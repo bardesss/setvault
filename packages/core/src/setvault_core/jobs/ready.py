@@ -5,6 +5,7 @@ import os
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet
@@ -15,7 +16,7 @@ from setvault_core.services.activity import record
 logger = logging.getLogger(__name__)
 
 
-async def _fan_out_webhooks(live: LiveSet, event: str) -> None:
+async def fan_out_webhooks(live: LiveSet, event: str) -> None:
     """Enqueue a dispatch job for every enabled webhook whose ``events``
     array includes ``event``. Errors are logged but never re-raise — the
     set-publish flow must not block on webhook config issues."""
@@ -48,22 +49,37 @@ async def _fan_out_webhooks(live: LiveSet, event: str) -> None:
         logger.exception("webhook fan-out failed for %s", event)
 
 
-async def mark_ready(live_set_id: str) -> None:
+async def publish_live_set(s: AsyncSession, live: LiveSet) -> None:
+    """Flip ``live`` to published and record the activity event. The caller
+    commits, then calls ``fan_out_webhooks(live, "set.published")``."""
+    live.status = "published"
+    await record(
+        s,
+        kind="set.published",
+        subject_type="LiveSet",
+        subject_id=live.id,
+        user_id=live.uploaded_by,
+    )
+
+
+async def mark_ready(live_set_id: str) -> bool:
+    """Final pipeline stage. Publishes the set unless the fingerprint stage
+    flagged it as a duplicate: those stay drafts for an admin to keep or
+    discard (admin Duplicates page). Returns whether the set was published."""
     if "DATABASE_URL" in os.environ:
         init_engine(os.environ["DATABASE_URL"])
 
     async with session_factory()() as s:
         live = await s.get(LiveSet, uuid.UUID(live_set_id))
         if live is None:
-            return
-        live.status = "published"
-        await record(
-            s,
-            kind="set.published",
-            subject_type="LiveSet",
-            subject_id=live.id,
-            user_id=live.uploaded_by,
-        )
+            return False
+        if live.duplicate_of is not None:
+            publish(ProgressEvent(
+                kind="ready", live_set_id=live_set_id, job_id=live_set_id,
+                progress_pct=100, message="held for review: duplicate of an existing set",
+            ))
+            return False
+        await publish_live_set(s, live)
         await s.commit()
         published = live
 
@@ -74,7 +90,8 @@ async def mark_ready(live_set_id: str) -> None:
 
     # Library refresh webhooks (§J15). Fans out to enabled webhook rows whose
     # `events` array includes `set.published`.
-    await _fan_out_webhooks(published, "set.published")
+    await fan_out_webhooks(published, "set.published")
+    return True
 
 
 def mark_ready_sync(live_set_id: str) -> None:

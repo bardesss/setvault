@@ -232,10 +232,13 @@ async def _trigger_pipeline(live_set_id: uuid.UUID) -> None:
     from redis import Redis
     from rq import Queue
 
+    from setvault_core.jobs.pipeline import PIPELINE_JOB_TIMEOUT
+
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     Queue("default", connection=Redis.from_url(redis_url)).enqueue(
         "setvault_core.jobs.pipeline.run_pipeline",
         str(live_set_id),
+        job_timeout=PIPELINE_JOB_TIMEOUT,
     )
 
 

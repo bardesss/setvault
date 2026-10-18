@@ -9,12 +9,19 @@ its own s6-overlay longrun alongside uvicorn and the RQ worker).
 Re-syncs the active set of watched paths every ``RECONCILE_INTERVAL_SECONDS``
 (default 30) so admin-side enable/disable + path changes pick up without
 restarting the watcher.
+
+Events don't go straight to the queue: ``created`` fires as soon as a writer
+opens the file, long before a ``cp`` or SMB copy has finished. Arrivals wait
+in ``_PendingFiles`` until their size and mtime stop changing for
+``SETTLE_SECONDS``.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
+import threading
+import time
 import uuid
 from collections.abc import Iterable
 from pathlib import Path
@@ -30,6 +37,8 @@ from setvault_core.models.watch_folder import WatchFolder
 logger = logging.getLogger(__name__)
 
 RECONCILE_INTERVAL_SECONDS = 30
+SETTLE_SECONDS = 10
+SETTLE_POLL_SECONDS = 2
 
 # Audio extensions the pipeline accepts. Lowercase, with leading dot.
 _AUDIO_EXTENSIONS = frozenset({
@@ -41,17 +50,37 @@ def _is_audio_file(path: str) -> bool:
     return Path(path).suffix.lower() in _AUDIO_EXTENSIONS
 
 
-class _WatchFolderHandler(FileSystemEventHandler):
-    """Translates watchdog events into RQ job enqueues for one WatchFolder."""
+def _is_hidden(path: str, root: str | None) -> bool:
+    """True if any component below ``root`` starts with a dot: the Unmatched
+    inbox's ``.discarded/`` dir, plus rsync / Syncthing temp files. Without a
+    root only the filename is checked."""
+    p = Path(path)
+    parts: tuple[str, ...] = (p.name,)
+    if root is not None:
+        try:
+            parts = p.relative_to(root).parts
+        except ValueError:
+            pass
+    return any(part.startswith(".") for part in parts)
 
-    def __init__(self, *, watch_folder_id: uuid.UUID, enqueue: callable) -> None:
+
+class _WatchFolderHandler(FileSystemEventHandler):
+    """Translates watchdog events into ingest candidates for one WatchFolder."""
+
+    def __init__(
+        self, *, watch_folder_id: uuid.UUID, enqueue: callable, root: str | None = None,
+    ) -> None:
         self._watch_folder_id = watch_folder_id
         self._enqueue = enqueue
+        self._root = root
+
+    def _wanted(self, path: str) -> bool:
+        return _is_audio_file(path) and not _is_hidden(path, self._root)
 
     def on_created(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
-        if not _is_audio_file(event.src_path):
+        if not self._wanted(event.src_path):
             return
         self._enqueue(self._watch_folder_id, event.src_path)
 
@@ -61,9 +90,58 @@ class _WatchFolderHandler(FileSystemEventHandler):
         # Files moved INTO the watched tree should also be treated as fresh
         # arrivals. event.dest_path is the new location.
         dest = getattr(event, "dest_path", None)
-        if not dest or not _is_audio_file(dest):
+        if not dest or not self._wanted(dest):
             return
         self._enqueue(self._watch_folder_id, dest)
+
+
+class _PendingFiles:
+    """Arrivals waiting for their writer to finish.
+
+    ``add`` is called from watchdog's observer thread; ``pop_settled`` from
+    the watcher loop. A file is settled once its (size, mtime) has been
+    unchanged for ``settle_seconds``. Files that vanish are dropped, and so
+    are empty files once settled (nothing to ingest).
+    """
+
+    def __init__(
+        self,
+        *,
+        settle_seconds: float = SETTLE_SECONDS,
+        clock: callable = time.monotonic,
+        stat: callable = os.stat,
+    ) -> None:
+        self._settle_seconds = settle_seconds
+        self._clock = clock
+        self._stat = stat
+        self._lock = threading.Lock()
+        # path -> (watch_folder_id, last (size, mtime_ns) or None, unchanged since)
+        self._files: dict[str, tuple[uuid.UUID, tuple[int, int] | None, float]] = {}
+
+    def add(self, watch_folder_id: uuid.UUID, path: str) -> None:
+        with self._lock:
+            self._files[path] = (watch_folder_id, None, self._clock())
+
+    def pop_settled(self) -> list[tuple[uuid.UUID, str]]:
+        now = self._clock()
+        settled: list[tuple[uuid.UUID, str]] = []
+        with self._lock:
+            for path, (wf_id, last, since) in list(self._files.items()):
+                try:
+                    st = self._stat(path)
+                except OSError:
+                    del self._files[path]
+                    continue
+                current = (st.st_size, st.st_mtime_ns)
+                if current != last:
+                    self._files[path] = (wf_id, current, now)
+                    continue
+                if now - since < self._settle_seconds:
+                    continue
+                del self._files[path]
+                if st.st_size > 0:
+                    settled.append((wf_id, path))
+        return settled
 
 
 def _make_enqueue_callable():
@@ -124,7 +202,7 @@ def _reconcile_observers(
         if not os.path.isdir(host_path):
             logger.warning("watch folder %s path missing: %s", wf_id, host_path)
             continue
-        handler = _WatchFolderHandler(watch_folder_id=wf_id, enqueue=enqueue)
+        handler = _WatchFolderHandler(watch_folder_id=wf_id, enqueue=enqueue, root=host_path)
         watch = observer.schedule(handler, host_path, recursive=True)
         active_paths[wf_id] = (host_path, watch)
         logger.info("watching %s -> %s", wf_id, host_path)
@@ -134,6 +212,7 @@ async def run_watcher(
     *,
     enqueue: callable | None = None,
     reconcile_interval: int = RECONCILE_INTERVAL_SECONDS,
+    settle_poll: float = SETTLE_POLL_SECONDS,
 ) -> None:
     """Run the watcher until cancelled.
 
@@ -144,6 +223,8 @@ async def run_watcher(
         REDIS_URL.
     reconcile_interval
         Seconds between DB re-reads of the enabled WatchFolder set.
+    settle_poll
+        Seconds between checks of pending arrivals for a finished write.
     """
     if enqueue is None:
         enqueue = _make_enqueue_callable()
@@ -154,13 +235,19 @@ async def run_watcher(
     observer = Observer()
     observer.start()
     active: dict[uuid.UUID, tuple[str, object]] = {}
+    pending = _PendingFiles()
+    next_reconcile = 0.0
 
     try:
         while True:
-            async with session_factory()() as s:
-                rows = await _load_active_watch_folders(s)
-            _reconcile_observers(observer, active, rows, enqueue)
-            await asyncio.sleep(reconcile_interval)
+            if time.monotonic() >= next_reconcile:
+                async with session_factory()() as s:
+                    rows = await _load_active_watch_folders(s)
+                _reconcile_observers(observer, active, rows, pending.add)
+                next_reconcile = time.monotonic() + reconcile_interval
+            for wf_id, path in pending.pop_settled():
+                enqueue(wf_id, path)
+            await asyncio.sleep(settle_poll)
     finally:
         observer.stop()
         observer.join(timeout=5)
