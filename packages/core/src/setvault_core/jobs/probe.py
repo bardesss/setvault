@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import subprocess
 import uuid
@@ -10,6 +11,9 @@ from pathlib import Path
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.progress import ProgressEvent, publish
+from setvault_core.services.audio_quality import apply_quality, measure_quality
+
+logger = logging.getLogger(__name__)
 
 
 async def probe_audio(live_set_id: str) -> None:
@@ -37,6 +41,16 @@ async def probe_audio(live_set_id: str) -> None:
         duration = float(info.get("format", {}).get("duration", 0))
         live.duration_seconds = round(duration)
         await s.commit()
+
+        # Quality is best-effort: a failed measurement leaves the columns NULL
+        # and must never fail ingest.
+        try:
+            q = await asyncio.to_thread(measure_quality, path)
+        except Exception:
+            logger.warning("quality measurement failed for %s", live_set_id, exc_info=True)
+        else:
+            apply_quality(live, q)
+            await s.commit()
 
         publish(ProgressEvent(kind="probe", live_set_id=live_set_id, job_id=live_set_id,
                               progress_pct=10, message=f"duration={live.duration_seconds}s"))

@@ -95,6 +95,10 @@ def _settings_out(config) -> SettingsOut:
         monitors_allow_all_users=config.monitors_allow_all_users,
         monitor_interval_seconds=config.monitor_interval_seconds,
         single_user_auto_login=config.single_user_auto_login,
+        quality_tiers_order=list(config.quality_tiers_order),
+        quality_cutoff=config.quality_cutoff,
+        auto_upgrades_enabled=config.auto_upgrades_enabled,
+        upgrade_search_schedule=config.upgrade_search_schedule,
     )
 
 
@@ -133,6 +137,14 @@ async def update_settings(
                     detail="single-user auto-login requires exactly one active user",
                 )
         config.single_user_auto_login = body.single_user_auto_login
+    if body.quality_tiers_order is not None:
+        config.quality_tiers_order = body.quality_tiers_order
+    if body.quality_cutoff is not None:
+        config.quality_cutoff = body.quality_cutoff
+    if body.auto_upgrades_enabled is not None:
+        config.auto_upgrades_enabled = body.auto_upgrades_enabled
+    if body.upgrade_search_schedule is not None:
+        config.upgrade_search_schedule = body.upgrade_search_schedule
     await session.flush()
     await session.commit()
     return _settings_out(config)
@@ -170,6 +182,42 @@ async def remeasure_loudness(
     )
     await session.commit()
     return {"status": "queued", "job_id": rq_job.id, "candidates": int(candidates)}
+
+
+@router.get("/maintenance/quality-backfill")
+async def quality_backfill_candidates(
+    session: Annotated[AsyncSession, Depends(db_session)],
+    _: Annotated[object, Depends(require_admin)],
+):
+    """Dry run: how many sets still need a fingerprint and a quality reading."""
+    from setvault_core.jobs.quality_backfill import backfill_candidates
+
+    return await backfill_candidates(session)
+
+
+@router.post("/maintenance/quality-backfill", status_code=202)
+async def quality_backfill(
+    session: Annotated[AsyncSession, Depends(db_session)],
+    admin: Annotated[User, Depends(current_user)],
+    _: Annotated[object, Depends(require_admin)],
+):
+    """Enqueue the first slice of the fingerprint + quality backfill; each
+    slice queues the next one until nothing is left."""
+    from setvault_core.jobs.quality_backfill import (
+        backfill_candidates,
+        enqueue_quality_backfill,
+    )
+
+    candidates = await backfill_candidates(session)
+    rq_job = enqueue_quality_backfill()
+    await audit_log(
+        session,
+        actor_user_id=admin.id,
+        action="maintenance.quality_backfill_requested",
+        after=candidates,
+    )
+    await session.commit()
+    return {"status": "queued", "job_id": rq_job.id, **candidates}
 
 
 def _disk_usage_for(host_path: str) -> dict | None:

@@ -52,3 +52,51 @@ async def test_remeasure_loudness_enqueues_backfill(
     assert r.status_code == 202, r.text
     assert r.json() == {"status": "queued", "job_id": "job-1", "candidates": 1}
     assert enqueued == ["setvault_core.jobs.loudness_backfill.run_remeasure_bogus_loudness"]
+
+
+async def test_quality_backfill_dry_run_counts(authed_admin_client, seeded_live_set):
+    r = await authed_admin_client.get("/api/admin/maintenance/quality-backfill")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"to_fingerprint": 1, "to_measure": 1}
+
+
+async def test_quality_backfill_post_enqueues_with_timeout(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    import rq
+
+    calls: list[tuple[str, dict]] = []
+
+    class _Job:
+        id = "job-q"
+
+    def _enqueue(self, func, **kwargs):
+        calls.append((func, kwargs))
+        return _Job()
+
+    monkeypatch.setattr(rq.Queue, "enqueue", _enqueue)
+    r = await authed_admin_client.post("/api/admin/maintenance/quality-backfill")
+    assert r.status_code == 202, r.text
+    assert r.json() == {
+        "status": "queued", "job_id": "job-q", "to_fingerprint": 1, "to_measure": 1,
+    }
+    assert calls == [(
+        "setvault_core.jobs.quality_backfill.run_quality_backfill", {"job_timeout": "1h"},
+    )]
+
+
+async def test_quality_backfill_member_forbidden(client, seeded_admin):
+    from setvault_core.db import session_factory
+    from setvault_core.models.identity import User
+    from setvault_core.services.passwords import hash_password
+
+    async with session_factory()() as s:
+        s.add(User(email="member-qb@x.test", username="member-qb", display_name="M",
+                   password_hash=hash_password("hunter2hunter2"), role="member"))
+        await s.commit()
+    login = await client.post("/api/auth/login",
+                              json={"email": "member-qb@x.test", "password": "hunter2hunter2"})
+    client.cookies = login.cookies
+    client.headers["X-CSRF-Token"] = login.cookies["csrf_token"]
+    assert (await client.get("/api/admin/maintenance/quality-backfill")).status_code == 403
+    assert (await client.post("/api/admin/maintenance/quality-backfill")).status_code == 403

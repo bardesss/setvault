@@ -12,7 +12,10 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
+    SmallInteger,
     String,
+    true,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -148,11 +151,35 @@ class LiveSet(Base, UuidPkMixin, TimestampMixin):
     duplicate_of: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("live_sets.id", ondelete="SET NULL"), nullable=True
     )
+    # Set with duplicate_of by the fuzzy matcher: where this copy starts within
+    # the original (> 0: this copy starts later in the set). NULL otherwise.
+    match_offset_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     # draft|processing|published|failed
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     purge_after_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     embed_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Measured on probe (services/audio_quality); all NULL until measured.
+    audio_codec: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    audio_bitrate_kbps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    audio_sample_rate: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    audio_bit_depth: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    audio_lossless: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    quality_tier: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    quality_measured_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Set when the quality/fingerprint backfill failed on this set; it is not
+    # retried (jobs/quality_backfill.py).
+    quality_backfill_failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    upgrades_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    last_upgrade_search_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     party: Mapped[Party | None] = relationship(lazy="joined")
     venue: Mapped[Venue | None] = relationship(lazy="joined")
@@ -197,5 +224,11 @@ class SetFingerprint(Base, UuidPkMixin, TimestampMixin):
         nullable=False,
         index=True,
     )
+    # sha256 of plain `fpcalc -json`'s fingerprint string (120 s), the pre-7D
+    # exact-match key; still how rows without `raw` are matched.
     fingerprint_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     duration_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    # Raw chromaprint (little-endian uint32 items, `fpcalc -raw`) for fuzzy
+    # matching (services/audio_match.py); raw_version = its MATCHER_VERSION.
+    raw: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    raw_version: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
