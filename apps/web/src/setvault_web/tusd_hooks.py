@@ -6,6 +6,7 @@ Production / CI images ship ``libmagic1``.
 """
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import unicodedata
@@ -52,6 +53,21 @@ def spool_path(raw: str) -> Path | None:
     if not path.is_relative_to(spool) or path == spool or not path.is_file():
         return None
     return path
+
+
+# Metadata key the pre-create hook stamps with the uploader's user id. tusd
+# writes it into the upload's ``.info`` file, which only tusd can write, so
+# post-finish can check that the upload belongs to the session finishing it.
+OWNER_KEY = "setvault_owner"
+
+
+def read_spool_info(path: Path) -> dict | None:
+    """tusd's ``<id>.info`` sidecar for a spooled upload, or None."""
+    try:
+        data = json.loads(path.with_name(path.name + ".info").read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def remove_spooled(path: Path) -> None:

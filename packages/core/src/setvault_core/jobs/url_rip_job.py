@@ -112,6 +112,25 @@ async def _download(job: RipJob, tmp_dir: Path) -> Path:
     require_supported_url(job.source_url)
 
     output_template = str(tmp_dir / f"{job.id}.%(ext)s")
+    rejected: list[str] = []
+
+    def _match_filter(info: dict, *, incomplete: bool = False) -> str | None:
+        # The submit-time probe already refuses live streams, but a scheduled
+        # premiere can go live between submit and worker pickup.
+        if info.get("is_live") or info.get("live_status") in {"is_live", "is_upcoming"}:
+            rejected.append("live streams can't be ripped")
+            return rejected[-1]
+        return None
+
+    def _cap_written_bytes(progress: dict) -> None:
+        # max_filesize only applies when the size is known up front; streamed
+        # and fragmented (HLS/DASH) downloads must be stopped on what's
+        # actually been written.
+        if (progress.get("downloaded_bytes") or 0) > MAX_DOWNLOAD_BYTES:
+            raise RuntimeError(
+                f"download exceeded the {MAX_DOWNLOAD_BYTES // 1024**3} GiB limit",
+            )
+
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": output_template,
@@ -120,6 +139,8 @@ async def _download(job: RipJob, tmp_dir: Path) -> Path:
         "noprogress": True,
         "noplaylist": True,
         "max_filesize": MAX_DOWNLOAD_BYTES,
+        "match_filter": _match_filter,
+        "progress_hooks": [_cap_written_bytes],
     }
 
     def _run() -> dict:
@@ -127,6 +148,9 @@ async def _download(job: RipJob, tmp_dir: Path) -> Path:
             return ydl.extract_info(job.source_url, download=True)
 
     info = await asyncio.to_thread(_run)
+    if rejected:
+        raise RuntimeError(rejected[0])
+    info = info or {}
     filepath = info.get("filepath") or info.get("_filename")
     # ASYNC240: trivial stat + listdir on a freshly-created tmp dir we own —
     # blocking time is bounded and matches the precedent in apps/web uploads.py.
