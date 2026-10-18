@@ -117,9 +117,12 @@ async def test_backfill_continues_after_one_bad_file(tmp_path: Path, monkeypatch
         gone = await s.get(LiveSet, ids["gone.flac"])
         assert gone.quality_measured_at is None
 
-    # The full run terminates despite the permanently bad file.
-    totals = await qb._run_quality_backfill()
-    assert totals["processed"] == 0 and totals["errors"] == 1
+        # The failure is persisted, so the set is not picked up again.
+        assert gone.quality_backfill_failed_at is not None
+        assert await qb.backfill_candidates(s) == {"to_fingerprint": 0, "to_measure": 0}
+
+    res = await qb.run_backfill_batch()
+    assert (res["processed"], res["errors"], res["remaining"]) == (0, 0, 0)
 
 
 async def test_batch_stops_at_deadline_and_reports_remaining(tmp_path: Path, monkeypatch):
@@ -146,3 +149,101 @@ async def test_batch_stops_at_deadline_and_reports_remaining(tmp_path: Path, mon
     res = await qb.run_backfill_batch(deadline=100.0)
     assert res["processed"] == 1 and res["errors"] == 0
     assert res["remaining"] == 2
+
+
+
+def _stub_tools(monkeypatch):
+    monkeypatch.setattr(
+        qb, "compute_raw_fingerprint",
+        lambda _p: (array.array("I", [1, 2, 3]), 3.0),
+    )
+    monkeypatch.setattr(qb, "compute_legacy_digest", lambda _p: "legacy")
+    monkeypatch.setattr(
+        qb, "measure_quality",
+        lambda _p: AudioQuality("flac", None, 44100, 16, True, "lossless"),
+    )
+
+
+@pytest.fixture
+def fake_queue(monkeypatch):
+    import rq
+
+    calls: list[tuple[str, dict]] = []
+
+    class _Job:
+        id = "job-next"
+
+    def _enqueue(self, func, **kwargs):
+        calls.append((self.name, func, kwargs))
+        return _Job()
+
+    monkeypatch.setattr(rq.Queue, "enqueue", _enqueue)
+    return calls
+
+
+async def test_job_runs_one_slice_and_enqueues_the_next(
+    tmp_path: Path, monkeypatch, fake_queue,
+):
+    names = ["a.flac", "b.flac", "c.flac"]
+    for n in names:
+        (tmp_path / n).write_bytes(b"x")
+    await _seed(tmp_path, names)
+    _stub_tools(monkeypatch)
+    monkeypatch.setattr(qb, "BATCH_MAX_SETS", 2)
+
+    res = await qb._run_quality_backfill()
+
+    assert res["processed"] == 2 and res["remaining"] == 1
+    assert fake_queue == [(
+        "default", "setvault_core.jobs.quality_backfill.run_quality_backfill",
+        {"job_timeout": qb.QUALITY_BACKFILL_TIMEOUT},
+    )]
+
+
+async def test_job_slice_is_time_bounded(tmp_path: Path, monkeypatch, fake_queue):
+    from types import SimpleNamespace
+
+    names = ["a.flac", "b.flac"]
+    for n in names:
+        (tmp_path / n).write_bytes(b"x")
+    await _seed(tmp_path, names)
+    _stub_tools(monkeypatch)
+    # Slice start, first per-set check, then past BATCH_SECONDS.
+    ticks = iter([0.0, 0.0])
+    monkeypatch.setattr(
+        qb, "time",
+        SimpleNamespace(monotonic=lambda: next(ticks, qb.BATCH_SECONDS + 1.0)),
+    )
+
+    res = await qb._run_quality_backfill()
+
+    assert res["processed"] == 1 and res["remaining"] == 1
+    assert len(fake_queue) == 1
+
+
+async def test_job_does_not_enqueue_when_done(tmp_path: Path, monkeypatch, fake_queue):
+    (tmp_path / "a.flac").write_bytes(b"x")
+    await _seed(tmp_path, ["a.flac"])
+    _stub_tools(monkeypatch)
+
+    res = await qb._run_quality_backfill()
+
+    assert res["processed"] == 1 and res["remaining"] == 0
+    assert fake_queue == []
+
+
+async def test_failed_set_is_marked_and_not_retried(tmp_path: Path, monkeypatch, fake_queue):
+    ids = await _seed(tmp_path, ["missing.flac"])  # no file on disk
+    _stub_tools(monkeypatch)
+
+    res = await qb._run_quality_backfill()
+    assert res["errors"] == 1 and res["remaining"] == 0
+    assert fake_queue == []
+
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, ids["missing.flac"])
+        assert live.quality_backfill_failed_at is not None
+        assert live.status == "published" and live.deleted_at is None
+
+    res = await qb._run_quality_backfill()
+    assert (res["processed"], res["errors"]) == (0, 0)

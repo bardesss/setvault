@@ -169,6 +169,11 @@ class LiveSet(Base, UuidPkMixin, TimestampMixin):
     quality_measured_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Set when the quality/fingerprint backfill failed on this set; it is not
+    # retried (jobs/quality_backfill.py).
+    quality_backfill_failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     upgrades_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )

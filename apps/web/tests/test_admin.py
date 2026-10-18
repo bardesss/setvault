@@ -81,7 +81,7 @@ async def test_quality_backfill_post_enqueues_with_timeout(
         "status": "queued", "job_id": "job-q", "to_fingerprint": 1, "to_measure": 1,
     }
     assert calls == [(
-        "setvault_core.jobs.quality_backfill.run_quality_backfill", {"job_timeout": "6h"},
+        "setvault_core.jobs.quality_backfill.run_quality_backfill", {"job_timeout": "1h"},
     )]
 
 

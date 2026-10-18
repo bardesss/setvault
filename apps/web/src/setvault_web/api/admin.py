@@ -201,20 +201,15 @@ async def quality_backfill(
     admin: Annotated[User, Depends(current_user)],
     _: Annotated[object, Depends(require_admin)],
 ):
-    """Enqueue the fingerprint + quality backfill for existing sets."""
-    from redis import Redis
-    from rq import Queue
+    """Enqueue the first slice of the fingerprint + quality backfill; each
+    slice queues the next one until nothing is left."""
     from setvault_core.jobs.quality_backfill import (
-        QUALITY_BACKFILL_TIMEOUT,
         backfill_candidates,
+        enqueue_quality_backfill,
     )
 
     candidates = await backfill_candidates(session)
-    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
-    rq_job = Queue("default", connection=redis).enqueue(
-        "setvault_core.jobs.quality_backfill.run_quality_backfill",
-        job_timeout=QUALITY_BACKFILL_TIMEOUT,
-    )
+    rq_job = enqueue_quality_backfill()
     await audit_log(
         session,
         actor_user_id=admin.id,
