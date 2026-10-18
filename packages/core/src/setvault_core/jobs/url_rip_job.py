@@ -329,7 +329,7 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
         from setvault_core.jobs.fingerprint import fingerprint_audio
         from setvault_core.jobs.normalize import normalize_audio
         from setvault_core.jobs.probe import probe_audio
-        from setvault_core.jobs.ready import mark_ready
+        from setvault_core.jobs.ready import finish_arrival
         from setvault_core.jobs.transcode import transcode_audio
         from setvault_core.jobs.waveform import generate_waveform
 
@@ -344,6 +344,25 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
                           message="fingerprinting")
         await fingerprint_audio(live_set_id)
 
+        trigger = job.trigger or "url_rip"
+        candidate = {"candidate_source_kind": job.source_platform,
+                     "candidate_external_id": job.source_external_id}
+        if job.upgrade_target_set_id is not None:
+            # An upgrade attempt that can't upgrade its target (different
+            # audio, not better, target gone or locked) is discarded now,
+            # before the transcode/normalize/waveform work.
+            reason = await _discard_unless_upgrade(
+                live.id, target_id=job.upgrade_target_set_id, trigger=trigger, **candidate,
+            )
+            if reason is not None:
+                # The arrival and its files are gone; nothing left for
+                # _discard_partial_rip to undo.
+                finished = True
+                await session.refresh(job)
+                await _set_status(session, job, "ready", progress_pct=100,
+                                  message=f"no upgrade: {reason}")
+                return
+
         await _set_status(session, job, "transcoding", progress_pct=45,
                           message="encoding Opus")
         await transcode_audio(live_set_id)
@@ -356,12 +375,16 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
                           message="rendering waveform")
         await generate_waveform(live_set_id)
 
-        # mark_ready holds fingerprint duplicates as drafts for admin review.
-        published = await mark_ready(live_set_id) is not False
+        # Publishes, upgrades the matched set, holds a duplicate for admin
+        # review, or discards an upgrade attempt that turned out no better.
+        result = await finish_arrival(
+            live_set_id, upgrade_target_id=job.upgrade_target_set_id, trigger=trigger,
+            **candidate,
+        )
         finished = True
-        await _set_status(session, job, "ready", progress_pct=100,
-                          message="published" if published
-                          else "held for review: duplicate")
+        # An upgrade repoints the job at the target; a discard detaches it.
+        await session.refresh(job)
+        await _set_status(session, job, "ready", progress_pct=100, message=result.message)
     except Exception as exc:
         # Surface the real exception in error_text (self-hosted, owner-only);
         # the full traceback still lands in server logs.
@@ -385,6 +408,25 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         except Exception:
             logger.exception("rip job %s: tmp cleanup failed", job_id)
+
+
+async def _discard_unless_upgrade(
+    live_set_id: uuid.UUID, *, target_id: uuid.UUID, trigger: str,
+    candidate_source_kind: str | None, candidate_external_id: str | None,
+) -> str | None:
+    """Early upgrade check in its own session (the discard locks and may roll
+    back). Returns the reason when the arrival was discarded."""
+    from setvault_core.services.upgrade_decision import discard_unless_upgrade
+
+    async with session_factory()() as s:
+        arrival = await s.get(LiveSet, live_set_id)
+        if arrival is None:
+            return None
+        return await discard_unless_upgrade(
+            s, arrival, target_id=target_id, trigger=trigger,
+            candidate_source_kind=candidate_source_kind,
+            candidate_external_id=candidate_external_id,
+        )
 
 
 def run_rip_job(*, rip_job_id: str) -> None:

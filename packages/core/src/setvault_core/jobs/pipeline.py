@@ -25,7 +25,12 @@ async def _run(live_set_id: str) -> None:
     await transcode_audio(live_set_id)
     await normalize_audio(live_set_id)
     await generate_waveform(live_set_id)
-    await mark_ready(live_set_id)
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, uuid.UUID(live_set_id))
+        source_type = live.source_type if live is not None else None
+    # Upgrade history records how a better copy arrived.
+    trigger = "watch_folder" if source_type == "watch_folder" else "upload"
+    await mark_ready(live_set_id, trigger=trigger)
 
 
 def run_pipeline(live_set_id: str) -> None:
