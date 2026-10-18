@@ -286,3 +286,65 @@ async def test_download_refuses_a_stream_that_went_live_after_submit(tmp_path):
     with patch("yt_dlp.YoutubeDL", side_effect=_fake_ydl), \
             pytest.raises(RuntimeError, match="live streams"):
         await _download(job, tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_failed_rip_leaves_no_orphan_draft_or_files(session, monkeypatch, tmp_path):
+    """A rip that fails after the download (here: transcode) must not leave an
+    invisible draft LiveSet + its audio behind; a retry would add another."""
+    from setvault_core.models.catalog import LiveSet
+    from sqlalchemy import select
+
+    src = tmp_path / "src.flac"
+    src.write_bytes(b"x")
+    user = await _make_user(session)
+    await _make_root(session, tmp_path)
+    job_id = await _queued_rip(session, user)
+
+    async def _ok(live_set_id):
+        return None
+
+    async def _boom(live_set_id):
+        raise RuntimeError("ffmpeg boom")
+
+    monkeypatch.setattr("setvault_core.jobs.url_rip_job._download", _fake_download(src))
+    for mod, fn in [("probe", "probe_audio"), ("fingerprint", "fingerprint_audio")]:
+        monkeypatch.setattr(f"setvault_core.jobs.{mod}.{fn}", _ok)
+    monkeypatch.setattr("setvault_core.jobs.transcode.transcode_audio", _boom)
+
+    await _run_rip_job(session, job_id)
+
+    job = await session.get(RipJob, job_id, populate_existing=True)
+    assert job.status == "failed"
+    assert "ffmpeg boom" in (job.error_text or "")
+    assert job.live_set_id is None
+    left = (await session.execute(
+        select(LiveSet).where(LiveSet.source_type == "url_rip", LiveSet.uploaded_by == user.id),
+    )).scalars().all()
+    assert left == []
+    assert not (tmp_path / "originals" / str(job_id)).exists()
+
+
+@pytest.mark.asyncio
+async def test_rip_skips_a_disabled_default_root(session, monkeypatch, tmp_path):
+    from setvault_core.models.catalog import MediaRoot
+
+    user = await _make_user(session)
+    session.add(MediaRoot(name=f"r-{uuid.uuid4().hex[:6]}", host_path=str(tmp_path),
+                          default_for_ingest=True, enabled=False))
+    await session.commit()
+    job_id = await _queued_rip(session, user)
+    downloaded = False
+
+    async def _download(job, tmp_dir):
+        nonlocal downloaded
+        downloaded = True
+
+    monkeypatch.setattr("setvault_core.jobs.url_rip_job._download", _download)
+
+    await _run_rip_job(session, job_id)
+
+    job = await session.get(RipJob, job_id, populate_existing=True)
+    assert job.status == "failed"
+    assert "no default-for-ingest" in (job.error_text or "")
+    assert downloaded is False

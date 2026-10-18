@@ -34,3 +34,32 @@ async def test_dispatch_enqueues_only_due_monitors(session, monkeypatch):
     assert count == 1
     assert str(due.id) in enqueued
     assert str(fresh.id) not in enqueued
+
+
+def test_enqueue_poll_skips_a_monitor_whose_poll_is_still_in_flight(monkeypatch):
+    """A queued-but-not-yet-run poll leaves last_checked_at stale, so the next
+    dispatch tick sees the monitor as due again; it must not stack a second
+    poll behind the first."""
+    import os
+
+    from redis import Redis
+    from rq.job import Job
+
+    url = os.environ.get("REDIS_URL")
+    if not url:
+        pytest.skip("REDIS_URL not set")
+    monkeypatch.setenv("REDIS_URL", url)
+    redis = Redis.from_url(url)
+    monitor_id = uuid.uuid4()
+    try:
+        assert job._enqueue_poll(monitor_id) is True
+        assert job._enqueue_poll(monitor_id) is False   # still queued
+
+        # Once that poll has run, the next tick may enqueue again.
+        queued = Job.fetch(job._poll_job_id(monitor_id), connection=redis)
+        queued.set_status("finished")
+        assert job._enqueue_poll(monitor_id) is True
+    finally:
+        j = Job.fetch_many([job._poll_job_id(monitor_id)], connection=redis)[0]
+        if j is not None:
+            j.delete()
