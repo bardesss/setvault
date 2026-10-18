@@ -32,6 +32,7 @@ from setvault_core.services.email_dispatch import enqueue_email
 if TYPE_CHECKING:
     from setvault_core.models.catalog import LiveSet
     from setvault_core.models.engagement_3c import Comment
+    from setvault_core.models.upgrades import SetUpgradeEvent
 
 logger = logging.getLogger(__name__)
 
@@ -139,3 +140,22 @@ async def dispatch_for_comment(
             )
         if channel in ("email", "both"):
             await _deliver_email(session, user_id=uid, kind=kind, payload=payload)
+
+
+async def notify_set_upgraded(
+    session: AsyncSession, target: LiveSet, event: SetUpgradeEvent,
+) -> None:
+    """Tell the set's owner a better copy replaced its audio (Phase 7D).
+
+    In-app only for now; the caller commits. Task 12 adds labels, email and
+    the per-kind preference.
+    """
+    await _deliver_in_app(
+        session, user_id=target.uploaded_by, kind="set_upgraded",
+        subject_type="LiveSet", subject_id=target.id,
+        payload={
+            "set_slug": target.slug,
+            "set_title": target.title,
+            "event_id": str(event.id),
+        },
+    )
