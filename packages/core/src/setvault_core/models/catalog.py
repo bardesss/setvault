@@ -12,6 +12,8 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
+    SmallInteger,
     String,
     true,
 )
@@ -216,3 +218,7 @@ class SetFingerprint(Base, UuidPkMixin, TimestampMixin):
     )
     fingerprint_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     duration_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    # Raw chromaprint (little-endian uint32 items, `fpcalc -raw`) for fuzzy
+    # matching (services/audio_match.py); raw_version = its MATCHER_VERSION.
+    raw: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    raw_version: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
