@@ -95,6 +95,10 @@ def _settings_out(config) -> SettingsOut:
         monitors_allow_all_users=config.monitors_allow_all_users,
         monitor_interval_seconds=config.monitor_interval_seconds,
         single_user_auto_login=config.single_user_auto_login,
+        quality_tiers_order=list(config.quality_tiers_order),
+        quality_cutoff=config.quality_cutoff,
+        auto_upgrades_enabled=config.auto_upgrades_enabled,
+        upgrade_search_schedule=config.upgrade_search_schedule,
     )
 
 
@@ -133,6 +137,14 @@ async def update_settings(
                     detail="single-user auto-login requires exactly one active user",
                 )
         config.single_user_auto_login = body.single_user_auto_login
+    if body.quality_tiers_order is not None:
+        config.quality_tiers_order = body.quality_tiers_order
+    if body.quality_cutoff is not None:
+        config.quality_cutoff = body.quality_cutoff
+    if body.auto_upgrades_enabled is not None:
+        config.auto_upgrades_enabled = body.auto_upgrades_enabled
+    if body.upgrade_search_schedule is not None:
+        config.upgrade_search_schedule = body.upgrade_search_schedule
     await session.flush()
     await session.commit()
     return _settings_out(config)

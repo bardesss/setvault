@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, func, text, true
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from setvault_core.models.base import Base
@@ -45,6 +46,22 @@ class SystemConfig(Base):
     # the admin toggle is gated to the single-user case (see api/admin.py).
     single_user_auto_login: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False,
+    )
+    # Library-wide quality profile (Phase 7D): tier order best-first, cutoff
+    # tier, and the automatic-upgrade switch + search cadence.
+    quality_tiers_order: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False,
+        default=lambda: ["lossless", "high", "good", "ok", "low"],
+        server_default=text("""'["lossless","high","good","ok","low"]'::jsonb"""),
+    )
+    quality_cutoff: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="lossless", server_default="lossless",
+    )
+    auto_upgrades_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true(),
+    )
+    upgrade_search_schedule: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="weekly", server_default="weekly",
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
