@@ -26,7 +26,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.jobs.fingerprint import store_fingerprint
-from setvault_core.jobs.probe import apply_quality
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.services.audio_match import (
     MATCHER_VERSION,
@@ -34,7 +33,7 @@ from setvault_core.services.audio_match import (
     compute_raw_fingerprint,
     raw_to_bytes,
 )
-from setvault_core.services.audio_quality import measure_quality
+from setvault_core.services.audio_quality import apply_quality, measure_quality
 
 logger = logging.getLogger(__name__)
 

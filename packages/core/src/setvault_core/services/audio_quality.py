@@ -7,7 +7,12 @@ import re
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from setvault_core.models.catalog import LiveSet
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +79,17 @@ class AudioQuality:
     bit_depth: int | None
     lossless: bool
     tier: str
+
+
+def apply_quality(live: LiveSet, q: AudioQuality) -> None:
+    """Copy a measured ``AudioQuality`` onto the LiveSet's quality columns."""
+    live.audio_codec = q.codec[:32]
+    live.audio_bitrate_kbps = q.bitrate_kbps
+    live.audio_sample_rate = q.sample_rate
+    live.audio_bit_depth = q.bit_depth
+    live.audio_lossless = q.lossless
+    live.quality_tier = q.tier
+    live.quality_measured_at = datetime.now(UTC)
 
 
 def is_lossless_codec(codec: str) -> bool:
