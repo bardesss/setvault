@@ -25,6 +25,17 @@ def noise_dir(tmp_path_factory) -> Path:
     _ffmpeg("-i", str(d / "noise.flac"), "-c:a", "libmp3lame", "-b:a", "128k",
             str(d / "n128.mp3"))
     _ffmpeg("-i", str(d / "n128.mp3"), "-sample_fmt", "s16", str(d / "fake.flac"))
+    _ffmpeg("-i", str(d / "noise.flac"), "-c:a", "libmp3lame", "-b:a", "192k",
+            str(d / "n192.mp3"))
+    _ffmpeg("-i", str(d / "n192.mp3"), "-sample_fmt", "s16", str(d / "fake192.flac"))
+    for colour in ("pink", "brown"):
+        _ffmpeg("-f", "lavfi", "-i", f"anoisesrc=color={colour}:d=60:r=44100:a=0.5",
+                "-ac", "2", "-sample_fmt", "s16", str(d / f"{colour}.flac"))
+    # Music-like: most energy in the lows, gradual (12 dB/oct) roll-off, no cliff.
+    _ffmpeg("-f", "lavfi", "-i", "anoisesrc=color=pink:d=60:r=44100:a=0.5",
+            "-af", "lowpass=f=3000", "-ac", "2", "-sample_fmt", "s16", str(d / "sloped.flac"))
+    _ffmpeg("-f", "lavfi", "-i", "anoisesrc=color=white:d=60:r=48000:a=0.5",
+            "-ac", "2", "-sample_fmt", "s16", str(d / "white48.flac"))
     return d
 
 
@@ -71,3 +82,17 @@ def test_fake_lossless_from_128k_is_rated_ok(noise_dir):
     assert q.codec == "flac"
     assert q.lossless is True
     assert q.tier == "ok"
+
+
+def test_fake_lossless_from_192k_is_rated_good(noise_dir):
+    q = measure_quality(noise_dir / "fake192.flac")
+    assert q.lossless is True
+    assert q.tier == "good"
+
+
+@pytest.mark.parametrize("name", ["pink.flac", "brown.flac", "white48.flac", "sloped.flac"])
+def test_genuine_lossless_noise_stays_lossless(noise_dir, name):
+    """Sloped spectra (pink/brown) and 48 kHz must not look like a lowpass."""
+    q = measure_quality(noise_dir / name)
+    assert q.lossless is True
+    assert q.tier == "lossless"
