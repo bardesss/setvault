@@ -21,6 +21,11 @@ class RipJob(Base, UuidPkMixin):
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_platform: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Set when this rip is an upgrade candidate for an existing set.
+    upgrade_target_set_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("live_sets.id", ondelete="SET NULL"), nullable=True
+    )
+    trigger: Mapped[str | None] = mapped_column(String(16), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     progress_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)

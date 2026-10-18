@@ -75,3 +75,16 @@ async def test_actions_reject_sets_that_are_not_held_duplicates(
     for action in ("keep", "discard"):
         r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/{action}")
         assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
+async def test_keep_duplicate_stamps_kept_at(authed_admin_client, seeded_live_set):
+    slug, sid = await _held_duplicate(seeded_live_set["id"])
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, sid)).duplicate_kept_at is None
+
+    r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/keep")
+
+    assert r.status_code == 200, r.text
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, sid)).duplicate_kept_at is not None
