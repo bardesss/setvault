@@ -20,6 +20,8 @@ class Candidate:
     duration_seconds: int | None
     thumbnail_url: str | None
     webpage_url: str
+    # Estimated quality tier (setvault_core TIERS name) or None when unknown.
+    expected_tier: str | None = None
 
 
 @runtime_checkable
