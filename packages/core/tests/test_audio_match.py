@@ -1,4 +1,5 @@
 import array
+import dataclasses
 import importlib.util
 import random
 import time
@@ -8,6 +9,8 @@ import pytest
 from setvault_core.models.catalog import SetFingerprint
 from setvault_core.services.audio_match import (
     ITEMS_PER_SECOND,
+    SAME_AUDIO_MAX_BER,
+    WORST_WINDOW_MAX_BER,
     MatchResult,
     compare,
     compute_raw_fingerprint,
@@ -44,6 +47,7 @@ def test_compute_raw_fingerprint_covers_the_whole_file(fps):
 def test_reencodes_of_same_set_match(fps, copy):
     r = compare(fps["a"], fps[copy])
     assert is_same_audio(r), r
+    assert r.worst_window_ber < 0.05
     assert abs(r.offset_seconds) < 1
 
 
@@ -91,6 +95,15 @@ def _flip_bits(fp: array.array, rate: float, seed: int) -> array.array:
     return out
 
 
+def test_items_per_second_is_chromaprints_hop():
+    assert ITEMS_PER_SECOND == 11025 / 1365
+
+
+def test_raw_to_bytes_rejects_non_uint32_arrays():
+    with pytest.raises(ValueError):
+        raw_to_bytes(array.array("Q", [1]))
+
+
 def test_raw_bytes_round_trip_is_little_endian_uint32():
     fp = array.array("I", [0, 1, 0xFFFFFFFF, 0x12345678])
     raw = raw_to_bytes(fp)
@@ -106,6 +119,7 @@ def test_synthetic_noisy_shifted_copy_matches():
     assert isinstance(r, MatchResult)
     assert is_same_audio(r), r
     assert r.offset_seconds == pytest.approx(100 / ITEMS_PER_SECOND, abs=0.01)
+    assert r.worst_window_ber < 0.12
     assert 1 - r.similarity == pytest.approx(0.08, abs=0.01)
 
 
@@ -120,9 +134,58 @@ def test_too_short_inputs_return_none():
 
 def test_is_same_audio_thresholds():
     assert not is_same_audio(None)
-    assert is_same_audio(MatchResult(similarity=0.9, offset_seconds=0, overlap=1.0))
-    assert not is_same_audio(MatchResult(similarity=0.5, offset_seconds=0, overlap=1.0))
-    assert not is_same_audio(MatchResult(similarity=0.9, offset_seconds=0, overlap=0.5))
+    ok = MatchResult(similarity=0.9, offset_seconds=0, overlap=1.0, worst_window_ber=0.1)
+    assert is_same_audio(ok)
+    assert not is_same_audio(dataclasses.replace(ok, similarity=0.5))
+    assert not is_same_audio(dataclasses.replace(ok, overlap=0.5))
+    assert not is_same_audio(dataclasses.replace(ok, worst_window_ber=0.4))
+
+
+def _ber_at(a: array.array, b: array.array, k: int) -> float:
+    """Full-overlap BER at offset k (A[i+k] ~ B[i]), computed independently."""
+    a0, b0 = max(0, k), max(0, -k)
+    n = min(len(a) - a0, len(b) - b0)
+    return sum((a[a0 + i] ^ b[b0 + i]).bit_count() for i in range(n)) / (32 * n)
+
+
+def test_probe_agreement_rejects_what_the_full_ber_would_accept():
+    # B = A's first 2000 items, then A's 2100-3000: every probe finds itself
+    # with BER 0, but probe 3 (at 2250) lands at offset +100, probes 1-2 at 0.
+    a = _random_fp(3000, seed=1)
+    b = a[:2000] + a[2100:]
+    assert _ber_at(a, b, 0) < SAME_AUDIO_MAX_BER  # a whole-overlap score alone passes
+    # Only the agreement check returns None here (the window guard would still
+    # return a MatchResult), so removing it fails this test.
+    assert compare(a, b) is None
+
+
+def test_mostly_shared_audio_with_different_last_third_does_not_match():
+    a = _random_fp(3000, seed=1)
+    b = a[:2000] + _random_fp(1000, seed=5)  # ~67% shared
+    assert _ber_at(a, b, 0) < SAME_AUDIO_MAX_BER
+    r = compare(a, b)
+    assert r is None or not is_same_audio(r)
+
+
+def test_every_probe_must_find_itself_not_just_the_best():
+    # Only probe 3's slice (A[2250:2370]) is garbled (40% of bits): offsets
+    # still agree on 0 and the whole-overlap and window BERs stay low, so only
+    # the per-probe BER gate rejects it.
+    a = _random_fp(3000, seed=1)
+    b = a[:2250] + _flip_bits(a[2250:2370], rate=0.40, seed=6) + a[2370:]
+    assert _ber_at(a, b, 0) < 0.02
+    assert compare(a, b) is None
+
+
+def test_different_ending_is_caught_by_the_worst_window():
+    # Identical except the last ~15%: overall BER ~0.075 would pass on its own.
+    a = _random_fp(3000, seed=1)
+    b = a[:2550] + _random_fp(450, seed=7)
+    r = compare(a, b)
+    assert r is not None
+    assert 1 - r.similarity < SAME_AUDIO_MAX_BER
+    assert r.worst_window_ber > WORST_WINDOW_MAX_BER
+    assert not is_same_audio(r)
 
 
 def test_compare_is_fast_on_a_three_hour_set():

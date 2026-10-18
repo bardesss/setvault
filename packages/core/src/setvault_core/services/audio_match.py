@@ -20,6 +20,9 @@ chromaprint 1.5.1, Debian bookworm). Full-overlap BER at the chosen offset:
   A vs C (unrelated) ......................... probes disagree -> None;
       full BER at offset 0 is 0.455; best probe BERs 0.30-0.45
 So 0.20 / 0.8 leave a wide margin both ways and are kept as specified.
+Worst 60 s window: same audio 0.0004 / 0.0006 / 0.0046 (re-encodes), 0.081
+(trim); different audio 0.424-0.483 per window at offset 0 (A vs C, and A vs B
+outside the 0.012 shared intro), hence WORST_WINDOW_MAX_BER = 0.35.
 """
 from __future__ import annotations
 
@@ -34,13 +37,18 @@ from pathlib import Path
 # makes stored raw fingerprints incomparable with new ones.
 MATCHER_VERSION = 1
 
-# Chromaprint resamples to 11025 Hz and hops 4096/3 samples per item
-# (~8.07/s; fpcalc reports ~8.0 over a file since the edges lose a few items).
-# 7.8 would put a 20 s trim at 20.8 s and drift tracklist shifts by ~3%.
-ITEMS_PER_SECOND = 11025 / (4096 / 3)
+# Chromaprint resamples to 11025 Hz; frames are 4096 samples overlapping by
+# 4096 - 4096 // 3, so it hops 1365 samples per item (8.0769/s). fpcalc's
+# item count over a whole file is a few short (edges), not a different rate.
+# Offsets feed tracklist shifting: 7.8 would drift ~3.5% (6 min over 3 h).
+ITEMS_PER_SECOND = 11025 / 1365
 
 SAME_AUDIO_MAX_BER = 0.20
 MIN_OVERLAP = 0.8
+# Worst-segment guard: no ~60 s stretch of the overlap may be this far apart.
+# A good overall BER can hide a different ending (e.g. last 15% replaced).
+WORST_WINDOW_MAX_BER = 0.35
+WINDOW_SECONDS = 60
 
 _PROBE_ITEMS = 120
 _PROBE_POSITIONS = (0.25, 0.50, 0.75)
@@ -60,10 +68,16 @@ class MatchResult:
     # (as first planned), a 1-minute excerpt of a set would score 1.0 and
     # "match" the full set (measured: BER 0.04); the spec wants durations close.
     overlap: float
+    # Highest BER of any ~60 s window of the overlap (half-window steps, the
+    # last window ends at the end of the overlap; the whole overlap if shorter).
+    worst_window_ber: float
 
 
 def raw_to_bytes(fp: array.array) -> bytes:
     """Little-endian uint32 bytes, as stored in ``SetFingerprint.raw``."""
+    if fp.itemsize != 4:
+        # Not an assert: it must hold under python -O too.
+        raise ValueError(f"expected 4-byte items, got {fp.itemsize} ({fp.typecode!r})")
     if sys.byteorder == "little":
         return fp.tobytes()
     swapped = array.array(fp.typecode, fp)
@@ -140,8 +154,13 @@ def compare(a: array.array, b: array.array) -> MatchResult | None:
     # 4. Nothing even roughly similar: bail out early.
     if not probes or min(ber for _, ber in probes) >= _PROBE_MAX_BER:
         return None
-    # 2. All three probes must agree on one offset (rejects a shared intro).
+    # 2. Agreement: all three probes must be searchable, each must have really
+    # found itself in B (BER < _PROBE_MAX_BER, not just the best one), and each
+    # offset must lie within ±_AGREE_ITEMS of their median (spread <= 16).
+    # This rejects a match that only lines up on a shared intro.
     if len(probes) < len(_PROBE_POSITIONS):
+        return None
+    if any(ber >= _PROBE_MAX_BER for _, ber in probes):
         return None
     offsets = sorted(k for k, _ in probes)
     k = offsets[1]
@@ -153,14 +172,27 @@ def compare(a: array.array, b: array.array) -> MatchResult | None:
     n = min(len_a - a_start, len_b - b_start)
     if n <= 0:
         return None
-    errors = (_as_int(a_bytes, a_start, n) ^ _as_int(b_bytes, b_start, n)).bit_count()
+    diff = _as_int(a_bytes, a_start, n) ^ _as_int(b_bytes, b_start, n)
     return MatchResult(
-        similarity=1 - errors / (32 * n),
+        similarity=1 - diff.bit_count() / (32 * n),
         offset_seconds=k / ITEMS_PER_SECOND,
         overlap=n / max(len_a, len_b),
+        worst_window_ber=_worst_window_ber(diff, n),
     )
+
+
+def _worst_window_ber(diff: int, n: int) -> float:
+    """Highest BER over ~60 s windows of an n-item XOR (item 0 = lowest bits)."""
+    w = round(WINDOW_SECONDS * ITEMS_PER_SECOND)
+    if n <= w:
+        return diff.bit_count() / (32 * n)
+    diff_bytes = diff.to_bytes(4 * n, "little")
+    starts = [*range(0, n - w + 1, w // 2), n - w]
+    worst = max(_as_int(diff_bytes, s, w).bit_count() for s in starts)
+    return worst / (32 * w)
 
 
 def is_same_audio(r: MatchResult | None) -> bool:
     return (r is not None and 1 - r.similarity <= SAME_AUDIO_MAX_BER
-            and r.overlap >= MIN_OVERLAP)
+            and r.overlap >= MIN_OVERLAP
+            and r.worst_window_ber <= WORST_WINDOW_MAX_BER)
