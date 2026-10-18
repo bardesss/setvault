@@ -9,7 +9,6 @@ up, oldest first.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import os
 import time
@@ -25,6 +24,7 @@ from setvault_core.jobs.probe import apply_quality
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.services.audio_match import (
     MATCHER_VERSION,
+    compute_legacy_digest,
     compute_raw_fingerprint,
     raw_to_bytes,
 )
@@ -132,7 +132,7 @@ async def _backfill_one(live_set_id: uuid.UUID) -> None:
     if need_fp:
         raw, duration = await asyncio.to_thread(compute_raw_fingerprint, path)
         raw_bytes = raw_to_bytes(raw)
-        digest = hashlib.sha256(raw_bytes).hexdigest()
+        digest = await asyncio.to_thread(compute_legacy_digest, path)
         async with session_factory()() as s:
             await store_fingerprint(s, live_set_id, raw_bytes, digest, duration)
             await s.commit()

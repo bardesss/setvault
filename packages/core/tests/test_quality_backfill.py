@@ -85,6 +85,7 @@ async def test_backfill_skips_already_done(tmp_path: Path, monkeypatch):
     def boom(*_a, **_k):
         raise AssertionError("must not recompute")
     monkeypatch.setattr(qb, "compute_raw_fingerprint", boom)
+    monkeypatch.setattr(qb, "compute_legacy_digest", boom)
     monkeypatch.setattr(qb, "measure_quality", boom)
 
     async with session_factory()() as s:
@@ -100,6 +101,7 @@ async def test_backfill_continues_after_one_bad_file(tmp_path: Path, monkeypatch
         qb, "compute_raw_fingerprint",
         lambda _p: (array.array("I", [1, 2, 3]), 3.0),
     )
+    monkeypatch.setattr(qb, "compute_legacy_digest", lambda _p: "legacy")
     monkeypatch.setattr(
         qb, "measure_quality",
         lambda _p: AudioQuality("flac", None, 44100, 16, True, "lossless"),
@@ -130,6 +132,7 @@ async def test_batch_stops_at_deadline_and_reports_remaining(tmp_path: Path, mon
         qb, "compute_raw_fingerprint",
         lambda _p: (array.array("I", [1, 2, 3]), 3.0),
     )
+    monkeypatch.setattr(qb, "compute_legacy_digest", lambda _p: "legacy")
     monkeypatch.setattr(
         qb, "measure_quality",
         lambda _p: AudioQuality("flac", None, 44100, 16, True, "lossless"),

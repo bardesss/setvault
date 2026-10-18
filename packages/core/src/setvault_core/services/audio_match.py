@@ -27,6 +27,7 @@ outside the 0.012 shared intro), hence WORST_WINDOW_MAX_BER = 0.35.
 from __future__ import annotations
 
 import array
+import hashlib
 import json
 import subprocess
 import sys
@@ -114,6 +115,29 @@ def compute_raw_fingerprint(path: Path) -> tuple[array.array, float]:
         raise RuntimeError(f"fpcalc returned an empty fingerprint (exit {out.returncode})")
     # Some builds print the items as signed ints; normalise to uint32.
     return array.array(_TYPECODE, (int(v) & 0xFFFFFFFF for v in items)), duration
+
+
+def compute_legacy_digest(path: Path) -> str:
+    """The pre-7D exact-match hash: sha256 of plain ``fpcalc -json``'s
+    fingerprint string (default 120 s length).
+
+    Stored in ``SetFingerprint.fingerprint_hash`` so rows without a raw
+    fingerprint (ingested before 7D, not yet backfilled) still catch an
+    identical arrival. Same EOF exit-code caveat as compute_raw_fingerprint.
+    """
+    out = subprocess.run(  # noqa: S603
+        ["fpcalc", "-json", str(path)],  # noqa: S607
+        capture_output=True, text=True, timeout=_FPCALC_TIMEOUT,
+    )
+    try:
+        fp = json.loads(out.stdout)["fingerprint"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError(
+            f"fpcalc failed (exit {out.returncode}): {out.stderr.strip()[-500:]}",
+        ) from exc
+    if not fp:
+        raise RuntimeError(f"fpcalc returned an empty fingerprint (exit {out.returncode})")
+    return hashlib.sha256(fp.encode("ascii")).hexdigest()
 
 
 def _as_int(fp_bytes: bytes, start: int, n: int) -> int:

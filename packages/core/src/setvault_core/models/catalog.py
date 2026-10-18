@@ -219,6 +219,8 @@ class SetFingerprint(Base, UuidPkMixin, TimestampMixin):
         nullable=False,
         index=True,
     )
+    # sha256 of plain `fpcalc -json`'s fingerprint string (120 s), the pre-7D
+    # exact-match key; still how rows without `raw` are matched.
     fingerprint_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     duration_seconds: Mapped[float] = mapped_column(Float, nullable=False)
     # Raw chromaprint (little-endian uint32 items, `fpcalc -raw`) for fuzzy

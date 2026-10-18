@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import os
 import uuid
@@ -15,6 +14,7 @@ from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.progress import ProgressEvent, publish
 from setvault_core.services.audio_match import (
     MATCHER_VERSION,
+    compute_legacy_digest,
     compute_raw_fingerprint,
     raw_to_bytes,
 )
@@ -28,7 +28,10 @@ logger = logging.getLogger(__name__)
 async def store_fingerprint(
     s, live_set_id: uuid.UUID, raw_bytes: bytes, digest: str, duration: float,
 ) -> None:
-    """Create or update the set's single SetFingerprint row (never a second)."""
+    """Create or update the set's single SetFingerprint row (never a second).
+
+    ``digest`` is the legacy exact-match hash (audio_match.compute_legacy_digest).
+    """
     own = (await s.execute(
         select(SetFingerprint).where(SetFingerprint.live_set_id == live_set_id),
     )).scalars().first()
@@ -80,13 +83,13 @@ async def fingerprint_audio(live_set_id: str) -> None:
         # compute_raw_fingerprint tolerates chromaprint's exit-3-at-EOF quirk.
         raw, duration = await asyncio.to_thread(compute_raw_fingerprint, path)
         raw_bytes = raw_to_bytes(raw)
-        digest = hashlib.sha256(raw_bytes).hexdigest()
+        digest = await asyncio.to_thread(compute_legacy_digest, path)
 
         await store_fingerprint(s, live.id, raw_bytes, digest, duration)
 
         match = None
         if live.duplicate_of is None:
-            match = await find_original_match(s, live, raw, duration)
+            match = await find_original_match(s, live, raw, duration, legacy_hash=digest)
         if match is not None:
             existing_live, result = match
             audit_after = {
