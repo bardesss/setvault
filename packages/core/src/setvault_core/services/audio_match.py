@@ -56,7 +56,7 @@ _PROBE_POSITIONS = (0.25, 0.50, 0.75)
 _PROBE_MAX_BER = 0.35
 _AGREE_ITEMS = 8
 _SEARCH_EXTRA_SECONDS = 120
-_FPCALC_TIMEOUT = 1800  # a 3-hour set decodes in well under this
+_FPCALC_TIMEOUT = 900  # a 3-hour set decodes in well under this
 
 _TYPECODE = "I" if array.array("I").itemsize == 4 else "L"
 

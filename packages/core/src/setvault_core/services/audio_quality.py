@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -49,6 +50,9 @@ _CLIFF_DB_19K = 15.0
 _UPPER_SILENT_DB = -65.0
 _FLOOR_DB = -120.0  # band so quiet volumedetect reports nothing
 _FFMPEG_TIMEOUT = 120  # seconds per 30 s window decode
+# All window decodes of one file together (12 of them); past this the check
+# gives up and the file keeps its "lossless" rating.
+QUALITY_CHECK_BUDGET_SECONDS = 180
 _FFPROBE_TIMEOUT = 60
 
 _MEAN_RE = re.compile(r"mean_volume:\s*(-?[\d.]+|-inf)\s*dB")
@@ -92,15 +96,20 @@ def _int_or_none(v: object) -> int | None:
     return n if n > 0 else None
 
 
-def _band_volume(path: Path, start: float, band: tuple[int, int]) -> float:
+def _band_volume(path: Path, start: float, band: tuple[int, int],
+                 deadline: float) -> float:
     lo, hi = band
     stage = f"highpass=f={lo},lowpass=f={hi}"
     af = ",".join([stage] * _FILTER_STAGES) + f",volume={_GAIN_DB:g}dB,volumedetect"
     cmd = ["ffmpeg", "-hide_banner", "-nostats", "-ss", f"{start:.2f}",
            "-t", str(_WINDOW_SECONDS), "-i", str(path), "-vn", "-af", af,
            "-f", "null", "-"]
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise subprocess.TimeoutExpired(cmd, QUALITY_CHECK_BUDGET_SECONDS)
     res = subprocess.run(  # noqa: S603
-        cmd, capture_output=True, text=True, check=True, timeout=_FFMPEG_TIMEOUT)
+        cmd, capture_output=True, text=True, check=True,
+        timeout=min(_FFMPEG_TIMEOUT, left))
     m = _MEAN_RE.search(res.stderr)
     if not m or m.group(1) == "-inf":
         return _FLOOR_DB
@@ -108,10 +117,10 @@ def _band_volume(path: Path, start: float, band: tuple[int, int]) -> float:
 
 
 def _is_cut(path: Path, starts: list[float], bands: tuple[tuple[int, int], ...],
-            cliff_db: float) -> bool:
+            cliff_db: float, deadline: float) -> bool:
     below, above = bands
-    lows = [_band_volume(path, t, below) for t in starts]
-    highs = [_band_volume(path, t, above) for t in starts]
+    lows = [_band_volume(path, t, below, deadline) for t in starts]
+    highs = [_band_volume(path, t, above, deadline) for t in starts]
     cliff = sum(lo - hi for lo, hi in zip(lows, highs, strict=True)) / len(starts)
     return cliff > cliff_db and sum(highs) / len(highs) < _UPPER_SILENT_DB
 
@@ -121,9 +130,10 @@ def _fake_lossless_tier(path: Path, duration: float) -> str:
     last_start = max(0.0, duration - _WINDOW_SECONDS)
     starts = [min(max(0.0, duration * pos - _WINDOW_SECONDS / 2), last_start)
               for pos in _WINDOW_POSITIONS]
-    if _is_cut(path, starts, _BANDS_16K, _CLIFF_DB_16K):
+    deadline = time.monotonic() + QUALITY_CHECK_BUDGET_SECONDS
+    if _is_cut(path, starts, _BANDS_16K, _CLIFF_DB_16K, deadline):
         return "ok"
-    if _is_cut(path, starts, _BANDS_19K, _CLIFF_DB_19K):
+    if _is_cut(path, starts, _BANDS_19K, _CLIFF_DB_19K, deadline):
         return "good"
     return "lossless"
 

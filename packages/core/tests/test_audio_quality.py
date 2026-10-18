@@ -120,3 +120,27 @@ def test_measurement_timeout_raises_for_probe_to_handle(noise_dir, monkeypatch):
     monkeypatch.setattr(aq.subprocess, "run", slow)
     with pytest.raises(sp.TimeoutExpired):
         measure_quality(noise_dir / "noise.flac")
+
+
+def test_quality_check_has_one_overall_budget(monkeypatch, tmp_path):
+    """The window decodes share QUALITY_CHECK_BUDGET_SECONDS: each gets at
+    most what is left, and once it is spent the check stops."""
+    import subprocess as sp
+    from types import SimpleNamespace
+
+    from setvault_core.services import audio_quality as aq
+
+    clock = {"t": 0.0}
+    timeouts: list[float] = []
+
+    def fake_run(cmd, **kw):
+        timeouts.append(kw["timeout"])
+        clock["t"] += 100.0  # every decode takes 100 s
+        return sp.CompletedProcess(cmd, 0, stdout="", stderr="mean_volume: -20.0 dB")
+
+    monkeypatch.setattr(aq.subprocess, "run", fake_run)
+    monkeypatch.setattr(aq, "time", SimpleNamespace(monotonic=lambda: clock["t"]))
+
+    with pytest.raises(sp.TimeoutExpired):
+        aq._fake_lossless_tier(tmp_path / "x.flac", 3600.0)
+    assert timeouts == [120, 80]
