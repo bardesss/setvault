@@ -34,6 +34,11 @@ def noise_dir(tmp_path_factory) -> Path:
     # Music-like: most energy in the lows, gradual (12 dB/oct) roll-off, no cliff.
     _ffmpeg("-f", "lavfi", "-i", "anoisesrc=color=pink:d=60:r=44100:a=0.5",
             "-af", "lowpass=f=3000", "-ac", "2", "-sample_fmt", "s16", str(d / "sloped.flac"))
+    # Steep natural roll-off (pink through a 15 kHz lowpass) plus low white hiss.
+    _ffmpeg("-f", "lavfi", "-i", "anoisesrc=color=pink:d=60:r=44100:a=0.5",
+            "-f", "lavfi", "-i", "anoisesrc=color=white:d=60:r=44100:a=0.003",
+            "-filter_complex", "[0]lowpass=f=15000:poles=2[a];[a][1]amix=inputs=2:normalize=0",
+            "-ac", "2", "-sample_fmt", "s16", str(d / "hiss.flac"))
     _ffmpeg("-f", "lavfi", "-i", "anoisesrc=color=white:d=60:r=48000:a=0.5",
             "-ac", "2", "-sample_fmt", "s16", str(d / "white48.flac"))
     return d
@@ -96,3 +101,22 @@ def test_genuine_lossless_noise_stays_lossless(noise_dir, name):
     q = measure_quality(noise_dir / name)
     assert q.lossless is True
     assert q.tier == "lossless"
+
+
+def test_steep_natural_rolloff_with_hiss_stays_lossless(noise_dir):
+    q = measure_quality(noise_dir / "hiss.flac")
+    assert q.lossless is True
+    assert q.tier == "lossless"
+
+
+def test_measurement_timeout_raises_for_probe_to_handle(noise_dir, monkeypatch):
+    import subprocess as sp
+
+    from setvault_core.services import audio_quality as aq
+
+    def slow(*_a, **_k):
+        raise sp.TimeoutExpired("ffprobe", 1)
+
+    monkeypatch.setattr(aq.subprocess, "run", slow)
+    with pytest.raises(sp.TimeoutExpired):
+        measure_quality(noise_dir / "noise.flac")
