@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 TIERS: tuple[str, ...] = ("lossless", "high", "good", "ok", "low")
 
@@ -168,6 +171,10 @@ def measure_quality(path: Path) -> AudioQuality:
             tier = (_fake_lossless_tier(path, duration)
                     if duration > 0 and rate >= _MIN_SAMPLE_RATE else "lossless")
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            # Never downgrade on a failed check, but say so: a silent
+            # fallback would hide a fake FLAC.
+            logger.warning("fake-lossless check failed for %s; rating it lossless",
+                           path, exc_info=True)
             tier = "lossless"
     else:
         tier = tier_for(codec, kbps, False)

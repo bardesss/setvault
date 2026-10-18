@@ -164,3 +164,18 @@ def test_quality_check_has_one_overall_budget(monkeypatch, tmp_path):
     with pytest.raises(sp.TimeoutExpired):
         aq._fake_lossless_tier(tmp_path / "x.flac", 3600.0)
     assert timeouts == [120, 80]
+
+
+def test_failed_fake_lossless_check_logs_and_keeps_lossless(noise_dir, monkeypatch, caplog):
+    import subprocess as sp
+
+    from setvault_core.services import audio_quality as aq
+
+    def broken(*_a, **_k):
+        raise sp.TimeoutExpired("ffmpeg", 180)
+
+    monkeypatch.setattr(aq, "_fake_lossless_tier", broken)
+    with caplog.at_level("WARNING", logger="setvault_core.services.audio_quality"):
+        q = measure_quality(noise_dir / "noise.flac")
+    assert q.tier == "lossless"
+    assert "fake-lossless check failed" in caplog.text
