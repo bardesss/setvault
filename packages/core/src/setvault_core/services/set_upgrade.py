@@ -20,6 +20,7 @@ audio or not better, so its row and files go and the target records a
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -139,6 +140,27 @@ async def _swap_fingerprints(session: AsyncSession, a: LiveSet, b: LiveSet) -> N
             )
 
 
+class UpgradeNoLongerApplicable(ValueError):
+    """The swap's preconditions stopped holding (re-read under lock): the
+    target was recycled, or the arrival was already swapped or recycled."""
+
+
+async def _lock_sets(session: AsyncSession, *ids: uuid.UUID) -> dict[uuid.UUID, LiveSet]:
+    """Row-lock the given sets in id order (stable, so two swaps can't
+    deadlock) and return this session's copies, refreshed from the database.
+    A set that no longer exists is missing from the result."""
+    rows: dict[uuid.UUID, LiveSet] = {}
+    for set_id in sorted(ids):
+        live = (await session.execute(
+            select(LiveSet).where(LiveSet.id == set_id)
+            .with_for_update(of=LiveSet)
+            .execution_options(populate_existing=True)
+        )).scalar_one_or_none()
+        if live is not None:
+            rows[set_id] = live
+    return rows
+
+
 async def apply_upgrade(
     session: AsyncSession,
     *,
@@ -155,15 +177,30 @@ async def apply_upgrade(
     (published targets only) and the owner's notification go out after it.
     On a failure before the commit the transaction is rolled back and the
     error re-raised.
+
+    Both rows are re-read under ``SELECT ... FOR UPDATE`` first, so two
+    workers can't swap the same pair (or the same arrival) twice, and the
+    checks run against the database rather than the caller's possibly stale
+    objects. Raises :class:`UpgradeNoLongerApplicable` when the re-read state
+    no longer allows the swap; the caller should then treat the arrival as a
+    held duplicate.
     """
     if arrival.id == target.id:
         raise ValueError("an upgrade needs two different sets")
-    if not arrival.streaming_path or not arrival.waveform_path:
-        raise ValueError("arrival is not fully processed (no stream or waveform)")
-    if target.deleted_at is not None:
-        raise ValueError("target set is in the recycle bin")
 
     try:
+        locked = await _lock_sets(session, target.id, arrival.id)
+        if target.id not in locked or arrival.id not in locked:
+            raise UpgradeNoLongerApplicable("target or arrival no longer exists")
+        # Work on the session's locked, freshly read rows from here on.
+        target, arrival = locked[target.id], locked[arrival.id]
+        if target.deleted_at is not None:
+            raise UpgradeNoLongerApplicable("target set is in the recycle bin")
+        if arrival.deleted_at is not None:
+            raise UpgradeNoLongerApplicable("arrival was already swapped or recycled")
+        if not arrival.streaming_path or not arrival.waveform_path:
+            raise ValueError("arrival is not fully processed (no stream or waveform)")
+
         event = _event(
             target, arrival, outcome="upgraded", trigger=trigger, reason=None,
             candidate_source_kind=candidate_source_kind,
@@ -245,7 +282,18 @@ async def discard_arrival(
     """
     if target is not None and target.id == arrival.id:
         raise ValueError("cannot discard the target itself")
+    locked = await _lock_sets(session, arrival.id)
+    if arrival.id not in locked:
+        await session.rollback()
+        return  # already gone
+    arrival = locked[arrival.id]
+    if arrival.deleted_at is not None:
+        # A recycled row holds some set's old copy (e.g. after a swap); the
+        # purge job owns it, never this hard delete.
+        await session.rollback()
+        raise ValueError("refusing to discard a set in the recycle bin")
     if arrival.status == "published":
+        await session.rollback()
         raise ValueError("refusing to discard a published set")
 
     root = await session.get(MediaRoot, arrival.media_root_id)
@@ -269,6 +317,14 @@ async def discard_arrival(
                 candidate_source_kind=candidate_source_kind,
                 candidate_external_id=candidate_external_id,
             ))
+        # RipJob.live_set_id cascades on delete; keep the job (its status and
+        # error stay visible) by detaching it first.
+        await session.execute(
+            update(RipJob)
+            .where(RipJob.live_set_id == arrival_id)
+            .values(live_set_id=None)
+            .execution_options(synchronize_session="fetch")
+        )
         await session.delete(arrival)
         await session.flush()
         await session.commit()

@@ -379,9 +379,88 @@ async def test_partial_rip_discard_keeps_files_another_set_references(session, t
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / rel).write_bytes(b"x")
 
-    await _discard_partial_rip(session, job, root)
+    await _discard_partial_rip(session, job, root, created_live_set_id=draft.id)
 
     assert (tmp_path / keep_rel).exists()
     assert (tmp_path / "stream/shared.opus").exists()
     assert not (tmp_path / f"originals/{job_id}/gone.flac").exists()
     assert await session.get(LiveSet, other.id) is not None
+
+
+async def test_failure_after_a_committed_upgrade_deletes_neither_set(
+    session, monkeypatch, tmp_path,
+):
+    """If the rip fails after apply_upgrade committed (a later step raises),
+    the partial-rip cleanup must not hard-delete the upgraded target (which the
+    RipJob now points at) or the recycled old copy (the row this rip created)."""
+    from setvault_core.db import session_factory
+    from setvault_core.models.catalog import LiveSet, MediaRoot
+    from setvault_core.models.engagement_3c import Comment
+    from setvault_core.services import set_upgrade
+    from sqlalchemy import select
+
+    async def _no_webhooks(live, event):
+        return None
+
+    monkeypatch.setattr(set_upgrade, "fan_out_webhooks", _no_webhooks)
+    src = tmp_path / "src.flac"
+    src.write_bytes(b"new")
+    user = await _make_user(session)
+    await _make_root(session, tmp_path)
+    root = (await session.execute(select(MediaRoot))).scalars().first()
+    tid = uuid.uuid4()
+    target = LiveSet(id=tid, slug=f"t-{tid.hex[:6]}", title="Target", media_root_id=root.id,
+                     audio_path=f"originals/{tid}/old.mp3", streaming_path=f"stream/{tid}.opus",
+                     waveform_path=f"waveform/{tid}.json", status="published",
+                     source_type="upload", uploaded_by=user.id, quality_tier="ok")
+    session.add(target)
+    await session.flush()
+    session.add(Comment(live_set_id=tid, user_id=user.id, position_seconds=10, body="hi"))
+    await session.commit()
+    for rel in (target.audio_path, target.streaming_path, target.waveform_path):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_bytes(b"old")
+    job_id = await _queued_rip(session, user)
+
+    async def _ok(live_set_id):
+        return None
+
+    async def _swap_then_boom(live_set_id):
+        aid = uuid.UUID(live_set_id)
+        async with session_factory()() as s:
+            arrival = await s.get(LiveSet, aid)
+            arrival.streaming_path = f"stream/{aid}.opus"
+            arrival.waveform_path = f"waveform/{aid}.json"
+            arrival.quality_tier = "lossless"
+            await s.commit()
+            for rel in (arrival.streaming_path, arrival.waveform_path):
+                (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+                (tmp_path / rel).write_bytes(b"new")
+            t = await s.get(LiveSet, tid)
+            await set_upgrade.apply_upgrade(s, target=t, arrival=arrival, trigger="url_rip")
+        raise RuntimeError("boom after swap")
+
+    monkeypatch.setattr("setvault_core.jobs.url_rip_job._download", _fake_download(src))
+    for mod, fn in [("probe", "probe_audio"), ("fingerprint", "fingerprint_audio"),
+                    ("transcode", "transcode_audio"), ("normalize", "normalize_audio"),
+                    ("waveform", "generate_waveform")]:
+        monkeypatch.setattr(f"setvault_core.jobs.{mod}.{fn}", _ok)
+    monkeypatch.setattr("setvault_core.jobs.ready.mark_ready", _swap_then_boom)
+
+    await _run_rip_job(session, job_id)
+
+    async with session_factory()() as s:
+        job = await s.get(RipJob, job_id)
+        assert job.status == "failed"
+        t = await s.get(LiveSet, tid)
+        assert t is not None and t.deleted_at is None and t.quality_tier == "lossless"
+        comments = (await s.execute(select(Comment).where(Comment.live_set_id == tid)))
+        assert len(comments.scalars().all()) == 1
+        recycled = (await s.execute(select(LiveSet).where(
+            LiveSet.id != tid, LiveSet.uploaded_by == user.id))).scalars().all()
+        assert len(recycled) == 1 and recycled[0].deleted_at is not None
+        assert recycled[0].audio_path == f"originals/{tid}/old.mp3"
+        # Both copies' files are still on disk.
+        for rel in (t.audio_path, t.streaming_path, t.waveform_path,
+                    recycled[0].audio_path, recycled[0].streaming_path):
+            assert (tmp_path / rel).exists(), rel

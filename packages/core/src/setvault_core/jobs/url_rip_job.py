@@ -26,11 +26,12 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
+from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
 from setvault_core.services.storage import path_in_use
 
@@ -199,26 +200,47 @@ async def _create_draft_live_set(
     return live
 
 
-async def _discard_partial_rip(session: AsyncSession, job: RipJob, root: MediaRoot) -> None:
+async def _discard_partial_rip(
+    session: AsyncSession, job: RipJob, root: MediaRoot,
+    *, created_live_set_id: uuid.UUID | None,
+) -> None:
     """Undo what a rip that failed before publishing left behind: the draft
     LiveSet (nothing lists non-published sets, so it would sit invisible
     forever, plus one more per retry) and its files under the root. Best
-    effort; the RipJob row itself stays so the user sees the failure."""
+    effort; the RipJob row itself stays so the user sees the failure.
+
+    Only the set this run created is a candidate, and only while it is still
+    an unpublished, non-recycled draft that no upgrade has touched. A failure
+    after a committed quality swap (services/set_upgrade) leaves the job
+    pointing at the upgraded target and the created row holding the recycled
+    old copy; neither may be hard-deleted here. Files another set references
+    are always kept.
+    """
     host = Path(root.host_path)
-    live_id: uuid.UUID | None = None
-    if job.live_set_id is not None:
-        live = await session.get(LiveSet, job.live_set_id, populate_existing=True)
-        job.live_set_id = None
-        await session.flush()
-        if live is not None:
-            live_id = live.id
+    deleted_id: uuid.UUID | None = None
+    live = None
+    if created_live_set_id is not None:
+        live = await session.get(LiveSet, created_live_set_id, populate_existing=True)
+    if live is not None:
+        upgraded = await session.scalar(select(exists().where(
+            SetUpgradeEvent.live_set_id == live.id, SetUpgradeEvent.outcome == "upgraded",
+        )))
+        if live.status != "draft" or live.deleted_at is not None or upgraded:
+            logger.warning("rip discard: keeping set %s (status=%s, recycled=%s, upgraded=%s)",
+                           live.id, live.status, live.deleted_at is not None, bool(upgraded))
+        else:
+            deleted_id = live.id
+            # RipJob.live_set_id cascades; keep the job row by detaching it.
+            if job.live_set_id == live.id:
+                job.live_set_id = None
+                await session.flush()
             for rel in (live.streaming_path, live.waveform_path):
                 if rel and not await path_in_use(
-                    session, live.media_root_id, rel, exclude_live_set_id=live_id,
+                    session, live.media_root_id, rel, exclude_live_set_id=deleted_id,
                 ):
                     (host / rel).unlink(missing_ok=True)
             await session.delete(live)
-    await _remove_rip_dir(session, root, job.id, exclude_live_set_id=live_id)
+    await _remove_rip_dir(session, root, job.id, exclude_live_set_id=deleted_id)
     await session.commit()
 
 
@@ -259,6 +281,7 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
 
     tmp_dir = Path(tempfile.mkdtemp(prefix=f"setvault-rip-{job_id}-"))
     root: MediaRoot | None = None
+    created_live_set_id: uuid.UUID | None = None
     finished = False
     try:
         # Same rule as uploads: a disabled root never receives new ingests.
@@ -295,6 +318,9 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
         live = await _create_draft_live_set(
             session, job, root=root, audio_relpath=audio_relpath,
         )
+        # Remember what this run created; job.live_set_id can be repointed
+        # later (an upgrade swap moves it to the target).
+        created_live_set_id = live.id
         live_set_id = str(live.id)
 
         # The downstream stages each open their own session via session_factory()
@@ -342,7 +368,9 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
         logger.exception("rip job %s failed", job_id)
         if root is not None and not finished:
             try:
-                await _discard_partial_rip(session, job, root)
+                await _discard_partial_rip(
+                    session, job, root, created_live_set_id=created_live_set_id,
+                )
             except Exception:
                 logger.exception("rip job %s: failed to discard partial rip", job_id)
                 await session.rollback()

@@ -486,3 +486,90 @@ async def test_published_target_upgrade_fires_webhook(tmp_path: Path, webhooks):
     async with session_factory()() as s:
         await _apply(s, ids)
     assert webhooks == [(ids["target"], "set.published")]
+
+
+# --- review fix round 1 ------------------------------------------------------
+
+
+async def test_discard_arrival_keeps_its_rip_job(tmp_path: Path):
+    from setvault_core.models.url_rip import RipJob
+
+    ids = await _seed(tmp_path)
+    async with session_factory()() as s:
+        job = RipJob(
+            submitted_by=ids["user"], source_url="https://bandcamp.example/new",
+            status="waveform", progress_pct=90, live_set_id=ids["arrival"],
+            created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+        )
+        s.add(job)
+        await s.commit()
+        job_id = job.id
+    async with session_factory()() as s:
+        arrival = await s.get(LiveSet, ids["arrival"])
+        target = await s.get(LiveSet, ids["target"])
+        await set_upgrade.discard_arrival(
+            s, arrival, target=target, trigger="url_rip", reason="not better")
+    async with session_factory()() as s:
+        job = await s.get(RipJob, job_id)
+        assert job is not None and job.live_set_id is None
+        assert await s.get(LiveSet, ids["arrival"]) is None
+
+
+async def test_discard_arrival_refuses_a_recycled_row(tmp_path: Path, webhooks):
+    ids = await _seed(tmp_path)
+    async with session_factory()() as s:
+        await _apply(s, ids)  # the arrival now holds the old copy, soft-deleted
+    async with session_factory()() as s:
+        recycled = await s.get(LiveSet, ids["arrival"])
+        with pytest.raises(ValueError):
+            await set_upgrade.discard_arrival(
+                s, recycled, target=None, trigger="url_rip", reason="x")
+    async with session_factory()() as s:
+        assert await s.get(LiveSet, ids["arrival"]) is not None
+    tid = ids["target"]
+    for rel in (f"originals/{tid}/old.mp3", f"stream/{tid}.opus"):
+        assert (tmp_path / rel).exists()
+
+
+async def test_second_apply_for_same_arrival_is_refused(tmp_path: Path, webhooks):
+    ids = await _seed(tmp_path, offset=10.0)
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    # A second caller tries the same arrival again.
+    async with session_factory()() as s:
+        with pytest.raises(set_upgrade.UpgradeNoLongerApplicable):
+            await _apply(s, ids)
+    tid, aid = ids["target"], ids["arrival"]
+    async with session_factory()() as s:
+        t = await s.get(LiveSet, tid)
+        assert t.audio_path == f"originals/{aid}/new.flac"
+        bm = (await s.execute(select(Bookmark).where(Bookmark.live_set_id == tid))).scalar_one()
+        assert bm.position_seconds == 290  # shifted exactly once
+        evs = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == tid))).scalars().all()
+        assert len(evs) == 1
+        fp = (await s.execute(select(SetFingerprint).where(
+            SetFingerprint.live_set_id == tid))).scalar_one()
+        assert fp.fingerprint_hash == "new-hash"
+    assert len(webhooks) == 1
+
+
+async def test_apply_rechecks_state_from_the_db(tmp_path: Path, webhooks):
+    """The caller's in-memory rows are stale (loaded before another worker
+    recycled the target); the locked re-read must catch it."""
+    ids = await _seed(tmp_path)
+    async with session_factory()() as s:
+        target = await s.get(LiveSet, ids["target"])
+        arrival = await s.get(LiveSet, ids["arrival"])
+        await s.commit()  # end the read transaction, as a worker would
+        async with session_factory()() as other:
+            t2 = await other.get(LiveSet, ids["target"])
+            t2.deleted_at = datetime.now(UTC)
+            await other.commit()
+        assert target.deleted_at is None  # stale view
+        with pytest.raises(set_upgrade.UpgradeNoLongerApplicable):
+            await set_upgrade.apply_upgrade(s, target=target, arrival=arrival, trigger="upload")
+    async with session_factory()() as s:
+        a = await s.get(LiveSet, ids["arrival"])
+        assert a.audio_path == f"originals/{ids['arrival']}/new.flac" and a.deleted_at is None
+    assert webhooks == []
