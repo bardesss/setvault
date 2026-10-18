@@ -1,6 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { loginAs } from "./helpers/auth";
 
+// SW caches /api GETs and its fetches bypass page.route; block so stubs apply.
+test.use({ serviceWorkers: "block" });
+
 test("multi-source search lists candidates with chips, an unavailable notice, and ingest fires a rip", async ({
   page,
   request,
