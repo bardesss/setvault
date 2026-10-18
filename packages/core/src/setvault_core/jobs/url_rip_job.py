@@ -44,6 +44,10 @@ _ERROR_TEXT_MAX = 500
 # any real-length set. Every enqueue of run_rip_job must pass this.
 RIP_JOB_TIMEOUT = "1h"
 
+# Refuse downloads bigger than this (yt-dlp skips them). A six-hour lossless
+# set is ~3 GB; anything larger is almost certainly not a single set.
+MAX_DOWNLOAD_BYTES = 4 * 1024**3
+
 
 def _error_text(exc: BaseException) -> str:
     """Build the user-visible error_text for a failed rip.
@@ -114,6 +118,8 @@ async def _download(job: RipJob, tmp_dir: Path) -> Path:
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
+        "noplaylist": True,
+        "max_filesize": MAX_DOWNLOAD_BYTES,
     }
 
     def _run() -> dict:
@@ -127,7 +133,10 @@ async def _download(job: RipJob, tmp_dir: Path) -> Path:
     if not filepath or not Path(filepath).exists():  # noqa: ASYNC240
         candidates = list(tmp_dir.glob(f"{job.id}.*"))  # noqa: ASYNC240
         if not candidates:
-            raise RuntimeError("yt-dlp succeeded but no output file found")
+            raise RuntimeError(
+                "yt-dlp produced no file (larger than the "
+                f"{MAX_DOWNLOAD_BYTES // 1024**3} GiB limit, or nothing to download)",
+            )
         filepath = str(candidates[0])
     return Path(filepath)
 

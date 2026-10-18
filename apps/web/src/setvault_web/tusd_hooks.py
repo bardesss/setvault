@@ -32,6 +32,38 @@ def queue() -> Queue:
     return _queue
 
 
+def upload_dir() -> Path:
+    """tusd's ``-upload-dir``. Hook payloads may only point inside it."""
+    return Path(get_settings().cache_path) / "tus"
+
+
+def spool_path(raw: str) -> Path | None:
+    """Resolve the ``Storage.Path`` a post-finish hook claims and return it
+    only if it is a file inside the tus spool. The hook endpoint is reachable
+    by any logged-in browser session, so the payload is untrusted: without
+    this check a forged hook could import any file on the host."""
+    if not raw:
+        return None
+    try:
+        path = Path(raw).resolve(strict=True)
+        spool = upload_dir().resolve()
+    except OSError:
+        return None
+    if not path.is_relative_to(spool) or path == spool or not path.is_file():
+        return None
+    return path
+
+
+def remove_spooled(path: Path) -> None:
+    """Drop a finished upload (``<id>`` + tusd's ``<id>.info`` sidecar) from
+    the spool once its bytes live in the MediaRoot. Best effort."""
+    for p in (path, path.with_name(path.name + ".info")):
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 ALLOWED_MIMES = {
     "audio/flac",
     "audio/mpeg",

@@ -194,3 +194,25 @@ async def test_rip_of_known_audio_is_flagged_duplicate(
     assert dup.duplicate_of == first
     # Duplicates are held as drafts for admin review, never auto-published.
     assert dup.status == "draft"
+
+
+@pytest.mark.asyncio
+async def test_download_requests_single_video_with_size_cap(tmp_path):
+    import uuid
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    from setvault_core.jobs.url_rip_job import MAX_DOWNLOAD_BYTES, _download
+
+    out = tmp_path / "x.opus"
+    out.write_bytes(b"x")
+    ctx = MagicMock()
+    ctx.__enter__.return_value.extract_info.return_value = {"filepath": str(out)}
+    job = SimpleNamespace(id=uuid.uuid4(), source_url="https://www.youtube.com/watch?v=a&list=PL1")
+
+    with patch("yt_dlp.YoutubeDL", return_value=ctx) as ydl:
+        assert await _download(job, tmp_path) == out
+
+    opts = ydl.call_args.args[0]
+    assert opts["noplaylist"] is True
+    assert opts["max_filesize"] == MAX_DOWNLOAD_BYTES

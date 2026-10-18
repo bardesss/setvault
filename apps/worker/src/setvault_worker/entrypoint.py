@@ -29,6 +29,7 @@ _SCHEDULE: tuple[tuple[str, int], ...] = (
     ("setvault_core.jobs.github_version_poll.run_poll_github_releases", _DAILY),
     ("setvault_core.jobs.audit_retention.run_prune_audit_events", _DAILY),
     ("setvault_core.jobs.monitor_dispatch.run_dispatch_monitors", 5 * 60),
+    ("setvault_core.jobs.tus_spool_prune.run_prune_tus_spool", _DAILY),
 )
 
 

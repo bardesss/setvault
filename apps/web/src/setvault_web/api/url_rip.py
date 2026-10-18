@@ -92,6 +92,17 @@ async def submit_url_rip(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    await audit_log(
+        session, actor_user_id=user.id, actor_kind="user",
+        action="set.url_rip_submitted",
+        target_type="rip_job", target_id=str(job.id),
+        after={"url": body.url, "platform": job.source_platform},
+    )
+    # Commit BEFORE enqueueing: an idle worker can pick the job up within
+    # milliseconds, and a RipJob row it can't see yet is dropped as
+    # "not found", leaving the job stuck in "queued".
+    await session.commit()
+
     try:
         _queue().enqueue(
             "setvault_core.jobs.url_rip_job.run_rip_job",
@@ -106,15 +117,8 @@ async def submit_url_rip(
         logger.exception("url-rip enqueue failed for job %s", job.id)
         job.status = "failed"
         job.error_text = "failed to enqueue worker"
-        await session.flush()
+        await session.commit()
 
-    await audit_log(
-        session, actor_user_id=user.id, actor_kind="user",
-        action="set.url_rip_submitted",
-        target_type="rip_job", target_id=str(job.id),
-        after={"url": body.url, "platform": job.source_platform},
-    )
-    await session.commit()
     return _to_out(job)
 
 

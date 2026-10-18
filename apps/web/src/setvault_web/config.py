@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     # on). An explicit ``http://`` value is a deliberate VPN/LAN choice.
     base_url: str = ""
     allow_1001tl_scrape: bool = Field(default=False, alias="SETVAULT_ALLOW_1001TL_SCRAPE")
+    # tusd spools uploads under <cache>/tus (infra/docker/s6-rc.d/tusd/run).
+    cache_path: str = Field(default="/srv/cache", alias="SETVAULT_CACHE_PATH")
 
 
 @lru_cache

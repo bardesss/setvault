@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import uuid
 from dataclasses import dataclass
@@ -125,11 +126,21 @@ def probe_url(url: str) -> ProbeResult:
     metadata endpoints) otherwise.
     """
     require_supported_url(url)
-    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "extract_flat": False}
+    # noplaylist: a watch?v=X&list=Y link (the norm when copying from a
+    # playlist) would otherwise resolve to the whole playlist.
+    ydl_opts = {
+        "quiet": True, "no_warnings": True, "skip_download": True,
+        "extract_flat": "in_playlist", "noplaylist": True,
+    }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if info is None:
         raise ValueError("yt-dlp returned no info")
+    if info.get("_type") in {"playlist", "multi_video"}:
+        raise ValueError("playlists aren't supported; submit the URL of a single set")
+    if info.get("is_live") or info.get("live_status") in {"is_live", "is_upcoming"}:
+        # A live download only ends when the stream does.
+        raise ValueError("live streams can't be ripped; submit the recording once it has ended")
     extractor = (info.get("extractor_key") or "").lower()
     platform_from_extractor = {
         "youtube": "youtube", "youtubetab": "youtube",
@@ -193,7 +204,9 @@ async def submit_rip(
         if existing and existing.status != "failed":
             raise DuplicateRipError(existing)
 
-    probed = probe_url(url)
+    # yt-dlp's probe is blocking network I/O (seconds); keep it off the
+    # event loop so one submit doesn't stall every other request.
+    probed = await asyncio.to_thread(probe_url, url)
 
     if probed.external_id:
         existing = await find_existing_rip(
