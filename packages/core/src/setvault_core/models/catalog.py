@@ -151,6 +151,9 @@ class LiveSet(Base, UuidPkMixin, TimestampMixin):
     duplicate_of: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("live_sets.id", ondelete="SET NULL"), nullable=True
     )
+    # Set with duplicate_of by the fuzzy matcher: where this copy starts within
+    # the original (> 0: this copy starts later in the set). NULL otherwise.
+    match_offset_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     # draft|processing|published|failed
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
