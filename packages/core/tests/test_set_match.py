@@ -10,6 +10,7 @@ from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.models.identity import User
 from setvault_core.services.audio_match import MATCHER_VERSION, raw_to_bytes
 from setvault_core.services.set_match import find_original_match
+from sqlalchemy import select
 
 
 @pytest.fixture(autouse=True)
@@ -133,3 +134,32 @@ async def test_ignores_other_matcher_versions_and_missing_raw(world):
     await world.add()  # legacy row without raw
     arrival = await world.add()
     assert await find_original_match(world.s, arrival, a, 300.0) is None
+
+
+async def test_legacy_hash_only_row_matches_by_hash(world):
+    legacy = await world.add()  # no raw
+    fp = (await world.s.execute(
+        select(SetFingerprint).where(SetFingerprint.live_set_id == legacy.id),
+    )).scalars().one()
+    arrival = await world.add()
+    hit = await find_original_match(world.s, arrival, _items(1), 301.0,
+                                    legacy_hash=fp.fingerprint_hash)
+    assert hit is not None and hit[0].id == legacy.id
+    assert hit[1].offset_seconds == 0.0
+
+
+async def test_compare_cap_stops_and_logs(world, monkeypatch, caplog):
+    from setvault_core.services import set_match
+
+    for seed in range(2, 6):  # four unrelated candidates
+        await world.add(_items(seed))
+    arrival = await world.add()
+    calls = []
+    real = set_match.compare
+    monkeypatch.setattr(set_match, "compare", lambda a, b: calls.append(1) or real(a, b))
+    monkeypatch.setattr(set_match, "MAX_COMPARES", 2)
+
+    with caplog.at_level("WARNING", logger="setvault_core.services.set_match"):
+        assert await find_original_match(world.s, arrival, _items(1), 300.0) is None
+    assert len(calls) == 2
+    assert "cap" in caplog.text

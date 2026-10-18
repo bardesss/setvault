@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import array
 import asyncio
+import logging
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,8 +17,12 @@ from setvault_core.services.audio_match import (
     raw_from_bytes,
 )
 
+logger = logging.getLogger(__name__)
+
 DURATION_TOLERANCE_PCT = 0.10
 DURATION_TOLERANCE_SECONDS = 60.0
+# Upper bound on fuzzy compares per arrival (each is a few hundred ms of CPU).
+MAX_COMPARES = 200
 # The pre-7D exact rule for rows that only have the legacy hash.
 LEGACY_DURATION_SECONDS = 2.0
 LEGACY_EXACT_MATCH = MatchResult(
@@ -56,8 +61,9 @@ async def find_original_match(
             SetFingerprint.fingerprint_hash == legacy_hash,
             func.abs(SetFingerprint.duration_seconds - duration) < LEGACY_DURATION_SECONDS,
         ))
+    # Ids only: raw blobs (a few hundred KB each) are fetched one at a time.
     rows = (await session.execute(
-        select(LiveSet, SetFingerprint)
+        select(LiveSet.id, SetFingerprint.id, comparable)
         .join(SetFingerprint, SetFingerprint.live_set_id == LiveSet.id)
         .where(LiveSet.id != live.id, LiveSet.duplicate_of.is_(None), where)
         # Live sets first, then oldest; one set can hold several rows.
@@ -66,14 +72,26 @@ async def find_original_match(
     )).all()
 
     seen: set = set()
-    for candidate, fp in rows:
-        if candidate.id in seen:
+    compares = 0
+    for live_set_id, fp_id, is_comparable in rows:
+        if live_set_id in seen:
             continue
-        if fp.raw is None or fp.raw_version != MATCHER_VERSION:
-            return candidate, LEGACY_EXACT_MATCH  # matched by the legacy hash
+        if not is_comparable:
+            # Matched by the legacy hash.
+            return await session.get(LiveSet, live_set_id), LEGACY_EXACT_MATCH
+        if compares >= MAX_COMPARES:
+            logger.warning(
+                "match for %s: stopped after %d candidates (cap), %d left unchecked",
+                live.id, compares, len({r[0] for r in rows} - seen),
+            )
+            return None
+        fp_raw = (await session.execute(
+            select(SetFingerprint.raw).where(SetFingerprint.id == fp_id),
+        )).scalar_one()
+        compares += 1
         # compare() is CPU-bound pure Python; keep the event loop free.
-        result = await asyncio.to_thread(compare, raw_from_bytes(fp.raw), raw)
+        result = await asyncio.to_thread(compare, raw_from_bytes(fp_raw), raw)
         if is_same_audio(result):
-            return candidate, result
-        seen.add(candidate.id)
+            return await session.get(LiveSet, live_set_id), result
+        seen.add(live_set_id)
     return None
