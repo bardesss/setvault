@@ -2,7 +2,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from setvault_core.services.audio_quality import TIERS, measure_quality, tier_for
+from setvault_core.services.audio_quality import (
+    TIERS,
+    is_lossless_codec,
+    measure_quality,
+    tier_for,
+)
 
 
 def _ffmpeg(*args: str) -> None:
@@ -57,6 +62,21 @@ def noise_dir(tmp_path_factory) -> Path:
 def test_tier_for_table(codec, kbps, lossless, tier):
     assert tier_for(codec, kbps, lossless) == tier
     assert tier in TIERS
+
+
+@pytest.mark.parametrize("codec", [
+    "flac", "alac", "wavpack", "ape", "pcm_s16le", "pcm_s24be", "tta", "tak",
+    "truehd", "mlp", "wmalossless", "shorten", "mp4als", "dsd_lsbf", "dsd_msbf",
+    "dsd_lsbf_planar", "dsd_msbf_planar",
+])
+def test_lossless_codecs_rate_lossless(codec):
+    assert is_lossless_codec(codec) is True
+    assert tier_for(codec, None, is_lossless_codec(codec)) == "lossless"
+
+
+@pytest.mark.parametrize("codec", ["mp3", "aac", "opus", "vorbis", "wmav2", "ac3"])
+def test_lossy_codecs_are_not_lossless(codec):
+    assert is_lossless_codec(codec) is False
 
 
 def test_measure_quality_real_flac(noise_dir):

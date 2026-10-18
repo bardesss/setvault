@@ -10,7 +10,12 @@ from pathlib import Path
 
 TIERS: tuple[str, ...] = ("lossless", "high", "good", "ok", "low")
 
-_LOSSLESS_CODECS = {"flac", "alac", "wavpack", "ape"}
+# ffprobe codec names. DSD comes as dsd_lsbf, dsd_msbf and their _planar forms.
+_LOSSLESS_CODECS = {
+    "flac", "alac", "wavpack", "ape", "tta", "tak", "truehd", "mlp",
+    "wmalossless", "shorten", "mp4als",
+}
+_LOSSLESS_PREFIXES = ("pcm_", "dsd_")
 _HIGH_MP3_KBPS = 320
 _HIGH_OTHER_KBPS = 256
 _HIGH_OTHER_CODECS = {"aac", "opus", "vorbis"}
@@ -69,7 +74,7 @@ class AudioQuality:
 
 
 def is_lossless_codec(codec: str) -> bool:
-    return codec in _LOSSLESS_CODECS or codec.startswith("pcm_")
+    return codec in _LOSSLESS_CODECS or codec.startswith(_LOSSLESS_PREFIXES)
 
 
 def tier_for(codec: str, bitrate_kbps: int | None, lossless: bool) -> str:
