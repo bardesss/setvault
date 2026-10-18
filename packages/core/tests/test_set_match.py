@@ -163,3 +163,18 @@ async def test_compare_cap_stops_and_logs(world, monkeypatch, caplog):
         assert await find_original_match(world.s, arrival, _items(1), 300.0) is None
     assert len(calls) == 2
     assert "cap" in caplog.text
+
+
+async def test_exact_legacy_hash_matches_row_that_has_raw(world):
+    # A short clip: the fuzzy compare can't match, but the digest is identical.
+    a = await world.add(_items(1, 40), duration=5.0)
+    async with world.s.begin_nested():
+        fp = (await world.s.execute(
+            select(SetFingerprint).where(SetFingerprint.live_set_id == a.id),
+        )).scalar_one()
+        fp.fingerprint_hash = "samedigest"
+    await world.s.commit()
+    new = await world.add(_items(2, 40), duration=5.0)
+    got = await find_original_match(
+        world.s, new, _items(2, 40), 5.0, legacy_hash="samedigest")
+    assert got is not None and got[0].id == a.id
