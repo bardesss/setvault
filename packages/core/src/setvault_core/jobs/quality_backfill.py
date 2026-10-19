@@ -196,7 +196,7 @@ async def _backfill_one(live_set_id: uuid.UUID) -> tuple[bool, bool]:
     return need_fp, need_quality
 
 
-_COUNT_KEYS = ("fingerprinted", "measured", "merged", "skipped")
+_COUNT_KEYS = ("fingerprinted", "measured", "merged", "skipped", "errors")
 
 
 def enqueue_quality_backfill(**state):
@@ -236,6 +236,7 @@ async def _run_quality_backfill(
         res = await run_cleanup_batch(cursor=cursor, deadline=deadline)
         counts["merged"] += res["merged"]
         counts["skipped"] += res["skipped"]
+        counts["errors"] += res["errors"]  # cleanup pairs that failed
         if not res["done"]:
             enqueue_quality_backfill(
                 cleanup=True, phase="cleanup", counts=counts, cursor=res["cursor"],

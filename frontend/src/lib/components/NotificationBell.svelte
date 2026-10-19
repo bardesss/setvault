@@ -51,6 +51,7 @@
     measured?: number;
     merged?: number;
     skipped?: number;
+    errors?: number;
   };
 
   function getPayload(n: InAppNotification): NotifPayload {
@@ -112,6 +113,7 @@
                       measured: payload.measured ?? 0,
                       merged: payload.merged ?? 0,
                       skipped: payload.skipped ?? 0,
+                      errors: payload.errors ?? 0,
                     },
                   })}
                 </span>

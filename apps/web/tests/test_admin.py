@@ -114,7 +114,9 @@ async def test_quality_backfill_post_with_cleanup_carries_job_state(
     assert kwargs["job_timeout"] == "1h"
     assert kwargs["kwargs"] == {
         "cleanup": True, "phase": "fill", "cursor": None,
-        "counts": {"fingerprinted": 0, "measured": 0, "merged": 0, "skipped": 0},
+        "counts": {
+            "fingerprinted": 0, "measured": 0, "merged": 0, "skipped": 0, "errors": 0,
+        },
     }
 
 

@@ -196,7 +196,7 @@ async def notify_backfill_summary(session: AsyncSession, counts: dict) -> int:
     per-merge notifications). An admin whose ``maintenance`` preference is
     ``off`` gets none. Returns the number sent; the caller commits."""
     payload = {k: int(counts.get(k, 0))
-               for k in ("fingerprinted", "measured", "merged", "skipped")}
+               for k in ("fingerprinted", "measured", "merged", "skipped", "errors")}
     admins = (await session.execute(
         select(User.id).where(User.role == "admin", User.disabled_at.is_(None))
     )).scalars().all()

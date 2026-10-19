@@ -564,7 +564,27 @@ async def test_cleanup_sends_one_admin_summary(lib, fake_queue):
     assert admin1.id in by_user and admin2.id in by_user
     assert member.id not in by_user
     assert len([r for r in rows if r.user_id in (admin1.id, admin2.id)]) == 2
-    assert by_user[admin1.id] == {"fingerprinted": 3, "measured": 2, "merged": 1, "skipped": 0}
+    assert by_user[admin1.id] == {
+        "fingerprinted": 3, "measured": 2, "merged": 1, "skipped": 0, "errors": 0}
+
+
+async def test_summary_counts_cleanup_errors(lib, fake_queue, monkeypatch):
+    admin = await _user("admin")
+    a = _items(17)
+    await lib.add(a)
+    await lib.add(a[TRIM:])
+
+    async def boom(pair):
+        raise RuntimeError("merge failed")
+
+    monkeypatch.setattr(set_merge, "resolve_pair", boom)
+    res = await qb._run_quality_backfill(cleanup=True, phase="cleanup")
+    assert res["done"] and res["errors"] == 1
+    async with session_factory()() as s:
+        payload = (await s.execute(select(InAppNotification.payload).where(
+            InAppNotification.kind == "maintenance",
+            InAppNotification.user_id == admin.id))).scalar_one()
+    assert payload["errors"] == 1 and payload["merged"] == 0
 
 
 async def test_legacy_hash_never_pairs_two_raw_fingerprints(lib):
@@ -688,4 +708,5 @@ async def test_backfill_with_cleanup_on_real_audio(lib, tmp_path, fake_queue, re
     # The trimmed copy starts 20 s into the set: the old comment moves back.
     assert comments["new"] == 50
     assert comments["old"] == pytest.approx(80, abs=1)
-    assert summary == [{"fingerprinted": 4, "measured": 4, "merged": 1, "skipped": 0}]
+    assert summary == [
+        {"fingerprinted": 4, "measured": 4, "merged": 1, "skipped": 0, "errors": 0}]

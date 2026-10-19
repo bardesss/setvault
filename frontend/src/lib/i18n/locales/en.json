@@ -208,7 +208,7 @@
     "discovery_summary": "New discoveries for",
     "set_upgraded_generic": "A set in your library was upgraded",
     "set_upgraded": "Upgraded {title}: {from} → {to}",
-    "maintenance_summary": "Library backfill finished: {fingerprinted} fingerprinted, {measured} measured, {merged} duplicates merged, {skipped} left for review"
+    "maintenance_summary": "Library backfill finished: {fingerprinted} fingerprinted, {measured} measured, {merged} duplicates merged, {skipped} left for review, {errors} failed"
   },
   "monitors": {
     "admin_title": "Monitors",
