@@ -250,6 +250,7 @@ async def _run_quality_backfill(
     res = await run_backfill_batch(deadline=deadline)
     counts["fingerprinted"] += res["fingerprinted"]
     counts["measured"] += res["measured"]
+    counts["errors"] += res["errors"]  # sets that failed fingerprinting/measuring
     # Persisted failures mean every slice that did work shrinks `remaining`;
     # a slice that did nothing must not loop forever.
     if res["remaining"] > 0 and res["processed"] + res["errors"] > 0:
