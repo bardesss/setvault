@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { locale } from "svelte-i18n";
+  import { fmtLocalDateTime } from "$lib/wanted";
   import { api, ApiError } from "$lib/api/client";
   import AdminTable from "$lib/components/AdminTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
@@ -71,7 +73,7 @@
 
   function fmtDate(iso: string | null): string {
     if (!iso) return "";
-    return iso.slice(0, 16).replace("T", " ");
+    return fmtLocalDateTime(iso, $locale);
   }
 
   onMount(load);

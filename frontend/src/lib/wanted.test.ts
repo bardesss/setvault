@@ -44,8 +44,19 @@ describe("fmtLocalDateTime", () => {
   it("renders in the browser's time zone, not UTC", () => {
     const iso = "2026-10-18T23:30:00+00:00";
     expect(fmtLocalDateTime(iso)).toBe(
-      new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
+      new Date(iso).toLocaleString("en", { dateStyle: "medium", timeStyle: "short" }),
     );
+  });
+
+  it("follows the given UI language and falls back to en", () => {
+    const iso = "2026-10-18T12:00:00+00:00";
+    expect(fmtLocalDateTime(iso, "nl")).toContain("okt");
+    expect(fmtLocalDateTime(iso, "en")).toContain("Oct");
+    expect(fmtLocalDateTime(iso, null)).toContain("Oct");
+    expect(fmtLocalDateTime(iso, "")).toContain("Oct");
+  });
+
+  it("handles empty input", () => {
     expect(fmtLocalDateTime(null)).toBe("");
   });
 });

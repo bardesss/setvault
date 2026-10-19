@@ -32,6 +32,8 @@ test("admin duplicates tab lists held duplicates and keeps one", async ({ page, 
   await expect(page.getByText("Second copy.flac")).toBeVisible();
   await expect(page.getByRole("link", { name: "The Original" })).toHaveAttribute("href", "/sets/the-original");
   await expect(page.getByText("1:02:05")).toBeVisible();
+  // Dates follow the UI language ($locale, "en" fallback), not an ISO slice.
+  await expect(page.getByText(/Oct 17, 2026/)).toBeVisible();
 
   await page.getByRole("button", { name: /keep/i }).click();
   await expect.poll(() => kept).toBe(true);

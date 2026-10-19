@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { locale } from "svelte-i18n";
   import { api, ApiError } from "$lib/api/client";
   import AdminTable from "$lib/components/AdminTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
@@ -84,7 +85,7 @@
         <tr>
           <td><a href={`/sets/${encodeURIComponent(item.slug)}`}>{item.title}</a></td>
           <td>{item.quality_label}</td>
-          <td class="mono">{item.last_upgrade_search_at ? fmtLocalDateTime(item.last_upgrade_search_at) : "Never"}</td>
+          <td class="mono">{item.last_upgrade_search_at ? fmtLocalDateTime(item.last_upgrade_search_at, $locale) : "Never"}</td>
           <td>{wantedResult(item.last_event, item.last_upgrade_search_at)}</td>
           <td class="cell-actions">
             <button
