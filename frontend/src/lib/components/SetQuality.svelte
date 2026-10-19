@@ -1,6 +1,6 @@
 <script lang="ts">
   import { _, locale } from "svelte-i18n";
-  import { patchSet, type SetDetail } from "$lib/api/sets";
+  import { patchSet, type SetDetail, type SetUpgradeHistoryItem } from "$lib/api/sets";
   import { ApiError } from "$lib/api/client";
 
   export let set: SetDetail;
@@ -9,6 +9,13 @@
   let error: string | null = null;
 
   $: history = set.upgrade_history ?? [];
+
+  function historyKey(h: SetUpgradeHistoryItem): string {
+    if (h.outcome !== "merged") return "set.upgrades.history_line";
+    return h.tracklist_kept
+      ? "set.upgrades.history_merged_tracklist_kept"
+      : "set.upgrades.history_merged_line";
+  }
 
   function fmt(iso: string): string {
     try {
@@ -65,7 +72,7 @@
     <ul class="upgrade-history" data-testid="upgrade-history">
       {#each history as h (h.id)}
         <li>
-          {$_("set.upgrades.history_line", {
+          {$_(historyKey(h), {
             values: { date: fmt(h.created_at), from: h.from_label, to: h.to_label },
           })}
         </li>

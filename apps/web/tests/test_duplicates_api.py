@@ -26,13 +26,24 @@ async def _held_duplicate(original_id: str) -> tuple[str, uuid.UUID]:
 
 @pytest.mark.asyncio
 async def test_list_shows_held_duplicate_with_original(authed_admin_client, seeded_live_set):
-    slug, _ = await _held_duplicate(seeded_live_set["id"])
+    slug, sid = await _held_duplicate(seeded_live_set["id"])
+    async with session_factory()() as s:
+        original = await s.get(LiveSet, uuid.UUID(seeded_live_set["id"]))
+        original.quality_tier, original.audio_codec = "lossless", "flac"
+        original.source_type = "upload"
+        dup = await s.get(LiveSet, sid)
+        dup.quality_tier, dup.audio_codec, dup.audio_bitrate_kbps = "ok", "mp3", 128
+        dup.source_type, dup.source_url = "url_rip", "https://www.youtube.com/watch?v=abcdefghijk"
+        await s.commit()
 
     r = await authed_admin_client.get("/api/admin/duplicates")
 
     assert r.status_code == 200, r.text
     (item,) = [i for i in r.json()["items"] if i["slug"] == slug]
     assert item["original"]["slug"] == seeded_live_set["slug"]
+    # Both copies' quality, labelled as on the set page.
+    assert item["quality_label"] == "MP3 128 kbps (YouTube)"
+    assert item["original"]["quality_label"].startswith("FLAC")
 
 
 @pytest.mark.asyncio
@@ -58,7 +69,8 @@ async def test_discard_moves_to_recycle_bin(authed_admin_client, seeded_live_set
 
     r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/discard")
 
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
+    assert r.json() == {"slug": slug, "outcome": "recycled"}
     async with session_factory()() as s:
         row = await s.get(LiveSet, sid)
         assert row.deleted_at is not None
@@ -161,3 +173,157 @@ async def test_restored_replaced_copy_lands_on_the_duplicates_page(
     listed = (await authed_admin_client.get("/api/admin/duplicates")).json()["items"]
     (item,) = [i for i in listed if i["slug"] == aslug]
     assert item["original"]["slug"] == seeded_live_set["slug"]
+
+
+async def _published_match(original_id: str, *, by_backfill: bool) -> tuple[str, uuid.UUID]:
+    from datetime import UTC, datetime
+
+    async with session_factory()() as s:
+        original = await s.get(LiveSet, uuid.UUID(original_id))
+        dup = LiveSet(
+            slug=f"pub-{uuid.uuid4().hex[:6]}", title="published copy",
+            media_root_id=original.media_root_id, audio_path="originals/pub/a.flac",
+            status="published", source_type="upload", uploaded_by=original.uploaded_by,
+            duplicate_of=original.id,
+            backfill_matched_at=datetime.now(UTC) if by_backfill else None,
+        )
+        s.add(dup)
+        await s.commit()
+        return dup.slug, dup.id
+
+
+@pytest.mark.asyncio
+async def test_list_includes_published_sets_matched_by_backfill(
+    authed_admin_client, seeded_live_set,
+):
+    matched, _ = await _published_match(seeded_live_set["id"], by_backfill=True)
+    # Published with duplicate_of only = kept before 7D: not listed again.
+    kept, _ = await _published_match(seeded_live_set["id"], by_backfill=False)
+    held, _ = await _held_duplicate(seeded_live_set["id"])
+
+    items = {i["slug"]: i for i in
+             (await authed_admin_client.get("/api/admin/duplicates")).json()["items"]}
+
+    assert items[matched]["reason"] == "matched by backfill"
+    assert items[matched]["status"] == "published"
+    assert items[matched]["original"]["slug"] == seeded_live_set["slug"]
+    assert items[held]["reason"] is None
+    assert kept not in items
+
+
+@pytest.mark.asyncio
+async def test_keep_backfill_match_leaves_the_list_without_republishing(
+    authed_admin_client, seeded_live_set,
+):
+    slug, sid = await _published_match(seeded_live_set["id"], by_backfill=True)
+
+    r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/keep")
+
+    assert r.status_code == 200, r.text
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.status == "published"
+        assert row.duplicate_kept_at is not None and row.backfill_matched_at is None
+        events = (await s.execute(
+            select(ActivityEvent).where(ActivityEvent.subject_id == sid),
+        )).scalars().all()
+        assert not any(e.kind == "set.published" for e in events)
+    listed = (await authed_admin_client.get("/api/admin/duplicates")).json()["items"]
+    assert slug not in {i["slug"] for i in listed}
+
+
+@pytest.mark.asyncio
+async def test_discard_backfill_match_merges_into_the_original(
+    authed_admin_client, seeded_live_set,
+):
+    """R40: discarding a published backfill match merges what users
+    attached to it into the original before it goes to the recycle bin."""
+    from setvault_core.models.engagement_3c import Bookmark, Comment
+    from setvault_core.models.upgrades import SetUpgradeEvent
+
+    slug, sid = await _published_match(seeded_live_set["id"], by_backfill=True)
+    oid = uuid.UUID(seeded_live_set["id"])
+    async with session_factory()() as s:
+        dup = await s.get(LiveSet, sid)
+        dup.match_offset_seconds = 10.0  # the copy starts 10 s into the original
+        s.add_all([
+            Comment(live_set_id=sid, user_id=dup.uploaded_by, position_seconds=60, body="hi"),
+            Bookmark(live_set_id=sid, user_id=dup.uploaded_by, position_seconds=30, label="b"),
+        ])
+        await s.commit()
+
+    r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/discard")
+
+    assert r.status_code == 200, r.text
+    assert r.json() == {"slug": slug, "outcome": "merged"}
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.deleted_at is not None and row.duplicate_of == oid
+        assert row.backfill_matched_at is None
+        comment = (await s.execute(select(Comment).where(Comment.body == "hi"))).scalar_one()
+        assert (comment.live_set_id, comment.position_seconds) == (oid, 70)
+        bm = (await s.execute(select(Bookmark).where(Bookmark.label == "b"))).scalar_one()
+        assert (bm.live_set_id, bm.position_seconds) == (oid, 40)
+        ev = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == oid))).scalar_one()
+        assert (ev.outcome, ev.trigger) == ("merged", "duplicates")
+    listed = (await authed_admin_client.get("/api/admin/duplicates")).json()["items"]
+    assert slug not in {i["slug"] for i in listed}
+
+
+@pytest.mark.asyncio
+async def test_discard_backfill_match_with_original_gone_just_recycles(
+    authed_admin_client, seeded_live_set,
+):
+    from datetime import UTC, datetime
+
+    from setvault_core.models.engagement_3c import Comment
+
+    slug, sid = await _published_match(seeded_live_set["id"], by_backfill=True)
+    async with session_factory()() as s:
+        original = await s.get(LiveSet, uuid.UUID(seeded_live_set["id"]))
+        original.deleted_at = datetime.now(UTC)
+        dup = await s.get(LiveSet, sid)
+        s.add(Comment(live_set_id=sid, user_id=dup.uploaded_by, body="stays"))
+        await s.commit()
+
+    r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/discard")
+
+    assert r.status_code == 200, r.text
+    assert r.json() == {"slug": slug, "outcome": "recycled_original_gone"}
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, sid)).deleted_at is not None
+        comment = (await s.execute(select(Comment).where(Comment.body == "stays"))).scalar_one()
+        assert comment.live_set_id == sid
+
+
+@pytest.mark.asyncio
+async def test_discard_conflicts_when_the_original_changes_meanwhile(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    """The original is recycled between the endpoint's check and the
+    merge's lock: 409, nothing changed."""
+    from datetime import UTC, datetime
+
+    from setvault_web.api import duplicates
+
+    slug, sid = await _published_match(seeded_live_set["id"], by_backfill=True)
+    oid = uuid.UUID(seeded_live_set["id"])
+    real_merge = duplicates.merge_pair
+
+    async def racing_merge(session, **kw):
+        async with session_factory()() as other:
+            (await other.get(LiveSet, oid)).deleted_at = datetime.now(UTC)
+            await other.commit()
+        return await real_merge(session, **kw)
+
+    monkeypatch.setattr(duplicates, "merge_pair", racing_merge)
+
+    r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/discard")
+
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == "The original changed; reload and try again."
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.deleted_at is None and row.status == "published"
+        assert row.backfill_matched_at is not None

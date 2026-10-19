@@ -31,6 +31,7 @@
     soundcloud: "SoundCloud",
     mixcloud: "Mixcloud",
     internet_archive: "Internet Archive",
+    bandcamp: "Bandcamp",
   };
   const sourceLabel = (kind: string) => SOURCE_LABELS[kind] ?? kind;
 

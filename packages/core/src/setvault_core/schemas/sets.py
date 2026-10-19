@@ -40,6 +40,10 @@ class SetUpgradeHistoryOut(BaseModel):
     created_at: datetime
     from_label: str
     to_label: str
+    outcome: str = "upgraded"  # upgraded | merged
+    # A merge left the merged copy's tracklist with the recycled copy (the
+    # set already had one).
+    tracklist_kept: bool = False
 
 
 class SetDetailOut(SetSummaryOut):

@@ -57,7 +57,8 @@
       "account_security": "Account security",
       "mention": "Mentions",
       "comment_reply": "Replies to your comments",
-      "set_upgraded": "Set upgraded to better quality"
+      "set_upgraded": "Set upgraded to better quality",
+      "maintenance": "Library maintenance (admins)"
     },
     "channel": {
       "in_app": "In-app",
@@ -207,7 +208,8 @@
     "replied_to_you": "replied to your comment",
     "discovery_summary": "New discoveries for",
     "set_upgraded_generic": "A set in your library was upgraded",
-    "set_upgraded": "Upgraded {title}: {from} → {to}"
+    "set_upgraded": "Upgraded {title}: {from} → {to}",
+    "maintenance_summary": "Library backfill finished: {fingerprinted} fingerprinted, {measured} measured, {merged} duplicates merged, {skipped} left for review, {errors} failed"
   },
   "monitors": {
     "admin_title": "Monitors",
@@ -322,7 +324,9 @@
     "upgrades": {
       "toggle": "Find better copies automatically",
       "library_off": "Automatic upgrades are switched off for the whole library",
-      "history_line": "Upgraded {date} from {from} to {to}"
+      "history_line": "Upgraded {date} from {from} to {to}",
+      "history_merged_line": "Merged a duplicate copy ({from}) into this set on {date}",
+      "history_merged_tracklist_kept": "Merged a duplicate copy ({from}) into this set on {date}; its tracklist stayed with the recycled copy"
     }
   }
 }

@@ -26,6 +26,7 @@ from setvault_core.schemas.sets import (
 from setvault_core.services.audio_quality import quality_label
 from setvault_core.services.notifications import event_labels, source_name
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
+from setvault_core.services.set_merge import TRACKLIST_KEPT
 from setvault_core.services.sets import replace_artists, replace_tags
 from setvault_core.services.signed_urls import verify_stream_sig
 from setvault_core.services.system_config import get_config
@@ -218,7 +219,8 @@ async def show_set(
         from_label, to_label = event_labels(ev)
         history.append(SetUpgradeHistoryOut(
             id=str(ev.id), created_at=ev.created_at,
-            from_label=from_label, to_label=to_label))
+            from_label=from_label, to_label=to_label, outcome=ev.outcome,
+            tracklist_kept=ev.outcome == "merged" and ev.reason == TRACKLIST_KEPT))
     return SetDetailOut(
         id=str(row.id),
         slug=row.slug,

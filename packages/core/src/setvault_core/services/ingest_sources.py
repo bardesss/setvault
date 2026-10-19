@@ -45,13 +45,23 @@ def _record_failure(st: IngestSourceState, err: Exception) -> None:
         st.state = "degraded"
 
 
+# Default rate limits where the model default (30 per 60 s) is too fast:
+# Bandcamp is scraped HTML, so keep it to 30 requests an hour.
+_SEED_RATE_LIMITS: dict[str, dict[str, int]] = {
+    "bandcamp": {"rate_limit_max": 30, "rate_limit_window_seconds": 3600},
+}
+
+
 async def ensure_seed_states(session: AsyncSession) -> None:
     """Create an IngestSourceState row for every registered source kind that
     doesn't have one yet. Idempotent."""
     existing = {s.kind for s in (await session.execute(select(IngestSourceState))).scalars()}
     for kind in all_source_kinds():
         if kind not in existing:
-            session.add(IngestSourceState(kind=kind, enabled=True, state="healthy"))
+            session.add(IngestSourceState(
+                kind=kind, enabled=True, state="healthy",
+                **_SEED_RATE_LIMITS.get(kind, {}),
+            ))
     await session.flush()
 
 

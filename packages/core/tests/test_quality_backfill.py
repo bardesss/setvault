@@ -247,3 +247,19 @@ async def test_failed_set_is_marked_and_not_retried(tmp_path: Path, monkeypatch,
 
     res = await qb._run_quality_backfill()
     assert (res["processed"], res["errors"]) == (0, 0)
+
+
+async def test_cleanup_run_carries_fill_errors_into_summary(
+    tmp_path: Path, monkeypatch, fake_queue,
+):
+    await _seed(tmp_path, ["missing.flac"])  # no file on disk -> fill error
+    _stub_tools(monkeypatch)
+
+    res = await qb._run_quality_backfill(cleanup=True, phase="fill")
+
+    assert res["errors"] == 1
+    # The cleanup slice is queued with the fill errors in its running counts.
+    assert len(fake_queue) == 1
+    state = fake_queue[0][2]["kwargs"]
+    assert state["phase"] == "cleanup"
+    assert state["counts"]["errors"] == 1

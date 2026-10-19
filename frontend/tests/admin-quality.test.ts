@@ -29,12 +29,32 @@ test("quality tab reorders tiers and saves the new order", async ({ page, reques
     }
     return r.fulfill(json(settings));
   });
-  await page.route(/\/api\/admin\/maintenance\/quality-backfill$/, (r) =>
-    r.fulfill(json({ to_fingerprint: 4, to_measure: 7 })),
-  );
+  let backfillPost: Record<string, unknown> | null = null;
+  let backfillGets = 0;
+  await page.route(/\/api\/admin\/maintenance\/quality-backfill$/, (r) => {
+    if (r.request().method() === "POST") {
+      backfillPost = r.request().postDataJSON();
+      return r.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({
+        status: "queued", cleanup: true, to_fingerprint: 2, to_measure: 5,
+      }) });
+    }
+    backfillGets += 1;
+    return r.fulfill(json({
+      to_fingerprint: 4, to_measure: 7, duplicate_pairs: 3, duplicate_pairs_complete: true,
+    }));
+  });
 
   await page.goto("/admin/quality");
   await expect(page.getByTestId("backfill-counts")).toContainText("4 to fingerprint, 7 to measure");
+  await expect(page.getByTestId("backfill-pairs")).toHaveText("3 duplicate pairs found.");
+
+  await page.getByLabel("Clean up duplicates").check();
+  await page.getByRole("button", { name: "Run backfill" }).click();
+  await expect.poll(() => backfillPost).toEqual({ cleanup: true });
+  await expect(page.getByText("Duplicates are cleaned up when it finishes")).toBeVisible();
+  // Counts come from the POST; the slow duplicate-pair scan isn't re-run.
+  await expect(page.getByTestId("backfill-counts")).toContainText("2 to fingerprint, 5 to measure");
+  expect(backfillGets).toBe(1);
 
   await page.getByRole("button", { name: "Move High up" }).click();
   await page.getByLabel("Upgrade search").selectOption("daily");
@@ -76,4 +96,30 @@ test("wanted tab lists a set and posts Search now", async ({ page, request }) =>
   await page.getByRole("button", { name: "Search now" }).click();
   await expect.poll(() => searched).toBe(true);
   await expect(page.getByText("Queued")).toBeVisible();
+});
+
+test("wanted tab shows a refused search on that set's row", async ({ page, request }) => {
+  await loginAs(page, request);
+
+  await page.route(/\/api\/admin\/wanted\?/, (r) =>
+    r.fulfill(json({ items: [{
+      id: "44444444-0000-0000-0000-000000000005",
+      slug: "new-mix",
+      title: "New Mix",
+      quality_label: "MP3 128 kbps (YouTube)",
+      quality_tier: "ok",
+      last_upgrade_search_at: null,
+      last_event: null,
+    }] })),
+  );
+  await page.route(/\/api\/admin\/wanted\/new-mix\/search$/, (r) =>
+    r.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: "not fingerprinted yet" }) }),
+  );
+
+  await page.goto("/admin/wanted");
+  await page.getByRole("button", { name: "Search now" }).click();
+  await expect(page.getByTestId("wanted-status")).toHaveText(
+    "Not fingerprinted yet — run the backfill on the Quality tab",
+  );
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });

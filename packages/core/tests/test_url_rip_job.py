@@ -221,6 +221,16 @@ async def test_download_requests_single_video_with_size_cap(tmp_path):
     assert opts["max_filesize"] == MAX_DOWNLOAD_BYTES
 
 
+def test_download_prefers_lossless_but_falls_back_to_bestaudio():
+    from setvault_core.jobs.url_rip_job import _AUDIO_FORMAT
+
+    parts = _AUDIO_FORMAT.split("/")
+    assert parts[0] == "bestaudio[acodec=flac]"
+    assert {"bestaudio[ext=flac]", "bestaudio[acodec=alac]",
+            "bestaudio[ext=wav]", "bestaudio[ext=aiff]"} <= set(parts[:6])
+    assert parts[-2:] == ["bestaudio", "best"]  # YouTube etc. still get bestaudio
+
+
 @pytest.mark.asyncio
 async def test_download_aborts_once_written_bytes_pass_the_cap(tmp_path, monkeypatch):
     """max_filesize is only checked when the size is known up front, so the

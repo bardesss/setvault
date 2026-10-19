@@ -71,6 +71,12 @@ jobs:
           CONTAINER: sv
           BASE: http://localhost:1970
 
+      - name: Upload the same clip twice (MP3 then FLAC) and check the quality upgrade
+        run: bash infra/docker/test/smoke_upgrade.sh
+        env:
+          CONTAINER: sv
+          BASE: http://localhost:1970
+
       - name: Dump logs on failure
         if: failure()
         run: docker logs sv || true

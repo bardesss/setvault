@@ -3,7 +3,7 @@
   import { api, ApiError } from "$lib/api/client";
   import AdminTable from "$lib/components/AdminTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
-  import { fmtLocalDateTime, wantedResult, type WantedEvent } from "$lib/wanted";
+  import { fmtLocalDateTime, searchRefusal, wantedResult, type WantedEvent } from "$lib/wanted";
 
   interface WantedItem {
     id: string;
@@ -45,7 +45,9 @@
       );
       status[slug] = r.status === "queued" ? "Queued" : "Already queued";
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "Search failed.";
+      // A refusal is about this set: say so on its row.
+      if (e instanceof ApiError && e.status === 409) status[slug] = searchRefusal(e.detail);
+      else error = e instanceof ApiError ? e.detail : "Search failed.";
     } finally {
       busy[slug] = false;
       busy = busy;
@@ -91,7 +93,7 @@
               disabled={busy[item.slug]}
               on:click={() => searchNow(item.slug)}
             >Search now</button>
-            {#if status[item.slug]}<span class="muted" role="status">{status[item.slug]}</span>{/if}
+            {#if status[item.slug]}<span class="muted" role="status" data-testid="wanted-status">{status[item.slug]}</span>{/if}
           </td>
         </tr>
       {/each}

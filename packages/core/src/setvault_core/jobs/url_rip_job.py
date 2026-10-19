@@ -46,6 +46,13 @@ DATABASE_URL_ENV = "DATABASE_URL"
 
 _ERROR_TEXT_MAX = 500
 
+# Prefer a lossless stream when a source offers one (Bandcamp free downloads,
+# Internet Archive originals); sources without one fall back to bestaudio.
+_AUDIO_FORMAT = (
+    "bestaudio[acodec=flac]/bestaudio[ext=flac]/bestaudio[acodec=alac]/"
+    "bestaudio[ext=wav]/bestaudio[ext=aiff]/bestaudio/best"
+)
+
 # Download + the full pipeline run inside one RQ job; RQ's 180s default kills
 # any real-length set. Every enqueue of run_rip_job must pass this.
 RIP_JOB_TIMEOUT = "1h"
@@ -138,7 +145,7 @@ async def _download(job: RipJob, tmp_dir: Path) -> Path:
             )
 
     ydl_opts = {
-        "format": "bestaudio/best",
+        "format": _AUDIO_FORMAT,
         "outtmpl": output_template,
         "quiet": True,
         "no_warnings": True,

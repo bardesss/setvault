@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -120,10 +121,15 @@ async def _shift_positions(session: AsyncSession, live: LiveSet, offset: float) 
     whole = round(offset)
     for model, col, is_int in _POSITION_COLUMNS:
         delta = whole if is_int else offset
+        values = {col.key: func.greatest(col - delta, 0)}
+        if model is UserSetState:
+            # Not a user action: keep the timestamp (onupdate would bump it),
+            # which decides which play state wins when sets are merged.
+            values["updated_at"] = UserSetState.updated_at
         await session.execute(
             update(model)
             .where(model.live_set_id == live.id, col.is_not(None))
-            .values({col.key: func.greatest(col - delta, 0)})
+            .values(values)
             .execution_options(synchronize_session="fetch")
         )
 
@@ -216,12 +222,19 @@ async def apply_upgrade(
     trigger: str,
     candidate_source_kind: str | None = None,
     candidate_external_id: str | None = None,
+    notify: bool = True,
+    before_commit: Callable[[LiveSet, LiveSet], Awaitable[None]] | None = None,
 ) -> SetUpgradeEvent:
     """Give ``target`` the arrival's audio and recycle the old copy.
 
     Preconditions: the arrival is fully processed (stream and waveform exist)
     and the caller has checked the match and the tier. One commit; webhooks
     (published targets only) and the owner's notification go out after it.
+    ``notify=False`` skips the notification (the backfill's duplicate cleanup
+    sends one admin summary instead, spec §4.7). ``before_commit(target,
+    arrival)`` runs inside the swap's transaction, after the swap, so extra
+    row changes (the cleanup's merge) commit or roll back together with it;
+    it must not commit and must not do file I/O.
     On a failure before the commit the transaction is rolled back and the
     error re-raised.
 
@@ -289,6 +302,8 @@ async def apply_upgrade(
         arrival.match_offset_seconds = None
         arrival.deleted_at = now
         arrival.purge_after_at = now + RECYCLE_GRACE
+        if before_commit is not None:
+            await before_commit(target, arrival)
 
         session.add(event)
         await session.flush()
@@ -302,6 +317,8 @@ async def apply_upgrade(
     # to external webhook receivers.
     if target.status == "published" and target.deleted_at is None:
         await fan_out_webhooks(target, "set.published")
+    if not notify:
+        return event
     try:
         await notify_set_upgraded(session, target, event)
         await session.commit()

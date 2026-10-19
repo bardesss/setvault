@@ -172,3 +172,10 @@ async def test_search_all_propagates_non_sourceerror_bugs(session, monkeypatch):
 
     with pytest.raises(ValueError):
         await svc.search_all_sources(session, query="x")
+
+
+@pytest.mark.asyncio
+async def test_bandcamp_seeded_with_hourly_rate_limit(session):
+    await svc.ensure_seed_states(session)
+    st = await svc.get_state(session, "bandcamp")
+    assert (st.rate_limit_max, st.rate_limit_window_seconds) == (30, 3600)

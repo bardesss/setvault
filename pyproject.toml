@@ -14,4 +14,5 @@ dev = ["ruff>=0.6"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 addopts = "-ra --import-mode=importlib"
+markers = ["network: live network tests, run only with SETVAULT_NETWORK_TESTS=1"]
 testpaths = ["apps/web/tests", "apps/worker/tests", "packages/core/tests", "packages/providers/tests", "packages/ingest_sources/tests"]

@@ -356,6 +356,24 @@ async def test_search_upgrade_skips_candidates_already_rejected(seeded, sources)
     assert await _stamp(seeded["set"]) is not None
 
 
+async def test_search_upgrade_skips_candidates_whose_rip_failed(seeded, sources):
+    """A failed upgrade rip's URL counts as tried even when the rip's yt-dlp id
+    differs from the search id (Mixcloud: user/slug vs user_slug)."""
+    cand = _cand("user/slug")
+    async with session_factory()() as s:
+        s.add(RipJob(
+            submitted_by=seeded["user"],
+            source_url=cand.webpage_url, status="failed", progress_pct=0,
+            probed_metadata={}, upgrade_target_set_id=seeded["set"],
+        ))
+        await s.commit()
+    sources["results"] = [cand]
+    async with session_factory()() as s:
+        assert await job.search_upgrade_for_set(
+            s, seeded["set"], trigger="scheduled") == "no_candidate"
+    assert sources["submitted"] == []
+
+
 async def test_rate_limited_set_is_not_stamped(seeded, sources):
     sources["raise"] = SourceRateLimitedError("youtube")
     async with session_factory()() as s:

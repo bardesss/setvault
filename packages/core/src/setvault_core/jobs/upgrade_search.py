@@ -260,10 +260,12 @@ async def _tried_keys(
 ) -> set[tuple[str, str]]:
     """Candidates not to download again: rejected before (upgrade history),
     already ripped for this set (a rip's external id can differ from the
-    search's, so match on the URL too), or the set's own source."""
+    search's, so match on the URL too; failed rips count as well, or a
+    Mixcloud candidate whose rip failed would be retried forever), or the
+    set's own source."""
     prior_urls = set((await session.execute(
         select(RipJob.source_url).where(
-            RipJob.upgrade_target_set_id == live.id, RipJob.status != "failed",
+            RipJob.upgrade_target_set_id == live.id,
         )
     )).scalars())
     tried: set[tuple[str, str]] = set()

@@ -181,6 +181,15 @@ class LiveSet(Base, UuidPkMixin, TimestampMixin):
     duplicate_kept_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Stamped (with duplicate_of) when the backfill's duplicate cleanup found
+    # this published set to be the same audio as an older one but left the
+    # pair unmerged (upgrades off, kept, other owner...). Such sets stay
+    # published and are listed on the Duplicates page as "matched by
+    # backfill"; Keep & publish clears it. Published sets that only carry
+    # duplicate_of (kept before 7D) are not listed.
+    backfill_matched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     upgrades_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )

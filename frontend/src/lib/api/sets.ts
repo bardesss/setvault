@@ -24,6 +24,10 @@ export interface SetUpgradeHistoryItem {
   created_at: string;
   from_label: string;
   to_label: string;
+  /** "upgraded", or "merged" when a duplicate set was merged into this one. */
+  outcome?: string;
+  /** A merge left the merged copy's tracklist with the recycled copy. */
+  tracklist_kept?: boolean;
 }
 
 export interface SetDetail extends SetSummary {

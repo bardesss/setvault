@@ -7,6 +7,7 @@ import shutil
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from setvault_core.models.api_token import ApiToken
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.enrichment import ProviderConfig
@@ -189,10 +190,23 @@ async def quality_backfill_candidates(
     session: Annotated[AsyncSession, Depends(db_session)],
     _: Annotated[object, Depends(require_admin)],
 ):
-    """Dry run: how many sets still need a fingerprint and a quality reading."""
-    from setvault_core.jobs.quality_backfill import backfill_candidates
+    """Dry run: how many sets still need a fingerprint and a quality reading,
+    and how many duplicate pairs the cleanup would look at (published sets
+    that are the same audio). Changes nothing."""
+    from setvault_core.jobs.quality_backfill import (
+        backfill_candidates,
+        duplicate_pair_counts,
+    )
 
-    return await backfill_candidates(session)
+    return {
+        **await backfill_candidates(session),
+        **await duplicate_pair_counts(session),
+    }
+
+
+class QualityBackfillIn(BaseModel):
+    # Also merge published sets that turn out to be the same audio.
+    cleanup: bool = False
 
 
 @router.post("/maintenance/quality-backfill", status_code=202)
@@ -200,24 +214,27 @@ async def quality_backfill(
     session: Annotated[AsyncSession, Depends(db_session)],
     admin: Annotated[User, Depends(current_user)],
     _: Annotated[object, Depends(require_admin)],
+    body: QualityBackfillIn | None = None,
 ):
     """Enqueue the first slice of the fingerprint + quality backfill; each
-    slice queues the next one until nothing is left."""
+    slice queues the next one until nothing is left. With ``cleanup`` the
+    duplicate cleanup runs after it, also in slices."""
     from setvault_core.jobs.quality_backfill import (
         backfill_candidates,
-        enqueue_quality_backfill,
+        start_quality_backfill,
     )
 
+    cleanup = bool(body and body.cleanup)
     candidates = await backfill_candidates(session)
-    rq_job = enqueue_quality_backfill()
+    rq_job = start_quality_backfill(cleanup=cleanup)
     await audit_log(
         session,
         actor_user_id=admin.id,
         action="maintenance.quality_backfill_requested",
-        after=candidates,
+        after={**candidates, "cleanup": cleanup},
     )
     await session.commit()
-    return {"status": "queued", "job_id": rq_job.id, **candidates}
+    return {"status": "queued", "job_id": rq_job.id, "cleanup": cleanup, **candidates}
 
 
 def _disk_usage_for(host_path: str) -> dict | None:

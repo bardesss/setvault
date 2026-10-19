@@ -11,8 +11,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from setvault_core.jobs.upgrade_search import enqueue_search_upgrade_now
-from setvault_core.models.catalog import LiveSet
+from setvault_core.models.catalog import LiveSet, SetFingerprint
 from setvault_core.models.upgrades import SetUpgradeEvent
+from setvault_core.services.audio_match import MATCHER_VERSION
 from setvault_core.services.audio_quality import quality_label
 from setvault_core.services.notifications import source_name
 from setvault_core.services.quality_profile import cutoff_unmet, get_profile, rank
@@ -107,5 +108,16 @@ async def search_now(
     profile = await get_profile(session)
     if not cutoff_unmet(profile, live.quality_tier):
         raise HTTPException(status_code=409, detail="set already meets the quality cutoff")
+    # Without a current-version raw fingerprint every candidate is rejected as
+    # "different audio" and burned, so wait for the fingerprint job.
+    has_fp = (await session.execute(
+        select(SetFingerprint.id).where(
+            SetFingerprint.live_set_id == live.id,
+            SetFingerprint.raw.is_not(None),
+            SetFingerprint.raw_version == MATCHER_VERSION,
+        ).limit(1)
+    )).first()
+    if has_fp is None:
+        raise HTTPException(status_code=409, detail="not fingerprinted yet")
     queued = enqueue_search_upgrade_now(live.id)
     return {"status": "queued" if queued else "already_queued"}
