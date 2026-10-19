@@ -22,22 +22,33 @@ def test_satisfies_protocol():
     assert (src.kind, src.name) == ("bandcamp", "Bandcamp")
 
 
-def test_parses_album_and_track_results():
+def test_parses_track_results():
     with patch("setvault_ingest_sources.bandcamp.httpx.post", return_value=_resp(_DATA)) as p:
         out = BandcampSource().search("techno")
-    # one request per filter (albums, tracks); duplicates collapse
-    assert [c.kwargs["json"]["search_filter"] for c in p.call_args_list] == ["a", "t"]
-    assert p.call_args_list[0].kwargs["json"]["search_text"] == "techno"
+    # one request, tracks only; duplicates collapse
+    assert p.call_count == 1
+    assert p.call_args.kwargs["json"]["search_filter"] == "t"
+    assert p.call_args.kwargs["json"]["search_text"] == "techno"
     urls = [c.webpage_url for c in out]
-    assert urls[0] == "https://dlvmusic.bandcamp.com/album/rave-instructor-ep"
-    assert "https://djfoo.bandcamp.com/track/some-track" in urls  # query dropped
-    assert len(urls) == len(set(urls))
+    assert urls == [
+        "https://dlvmusic.bandcamp.com/track/rave-instructor",
+        "https://djfoo.bandcamp.com/track/some-track",  # query dropped
+        "https://yancook.bandcamp.com/track/raw-techno-tool",
+    ]
     first = out[0]
-    assert (first.title, first.uploader) == ("Rave Instructor EP", "DLV")
-    assert first.external_id == "a280824188"
+    assert (first.title, first.uploader) == ("Rave Instructor", "DLV")
+    assert first.external_id == "t1427035473"
     assert first.thumbnail_url == "https://f4.bcbits.com/img/3327689887_3.jpg"
     assert first.duration_seconds is None
     assert {c.expected_tier for c in out} == {None}
+
+
+def test_album_results_are_dropped():
+    # yt-dlp returns an album as a playlist, which the rip probe refuses.
+    with patch("setvault_ingest_sources.bandcamp.httpx.post", return_value=_resp(_DATA)):
+        out = BandcampSource().search("techno")
+    assert not any("/album/" in c.webpage_url for c in out)
+    assert not any(c.external_id.startswith("a") for c in out)
 
 
 def test_rejects_non_bandcamp_urls_and_other_types():

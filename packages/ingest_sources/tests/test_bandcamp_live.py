@@ -62,4 +62,4 @@ def test_bandcamp_search_live_returns_candidates():
     for c in out:
         print("   ", ascii((c.external_id, c.title, c.uploader, c.webpage_url)))
     assert len(out) >= 1
-    assert all(".bandcamp.com/" in c.webpage_url for c in out)
+    assert all(".bandcamp.com/track/" in c.webpage_url for c in out)

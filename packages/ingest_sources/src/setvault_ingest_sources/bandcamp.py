@@ -17,8 +17,11 @@ _HOST_RE = re.compile(r"(^|\.)bandcamp\.com$")
 
 def _parse(data: dict, limit: int) -> list[Candidate]:
     out: list[Candidate] = []
+    seen: set[str] = set()
     for item in ((data.get("auto") or {}).get("results") or []):
-        if item.get("type") not in ("a", "t"):
+        # Tracks only: yt-dlp returns an album as a playlist, which the
+        # URL-rip probe refuses, so an album result could never be ripped.
+        if item.get("type") != "t":
             continue
         raw = item.get("item_url_path")
         if not raw or item.get("id") is None:
@@ -27,6 +30,10 @@ def _parse(data: dict, limit: int) -> list[Candidate]:
         host = (parsed.hostname or "").lower()
         if parsed.scheme not in {"http", "https"} or not _HOST_RE.search(host):
             continue
+        url = f"https://{host}{parsed.path}"  # drop query/fragment
+        if url in seen:
+            continue
+        seen.add(url)
         img = item.get("img")
         out.append(Candidate(
             source_kind="bandcamp",
@@ -35,7 +42,7 @@ def _parse(data: dict, limit: int) -> list[Candidate]:
             uploader=item.get("band_name"),
             duration_seconds=None,
             thumbnail_url=str(img) if img else None,
-            webpage_url=f"https://{host}{parsed.path}",  # drop query/fragment
+            webpage_url=url,
             # The data can't tell a paid item (mp3-128) from a free one
             # (lossless): unknown, and the measured tier decides after download.
             expected_tier=None,
@@ -54,24 +61,17 @@ class BandcampSource:
         if not query:
             return []
         limit = max(1, min(limit, 50))
-        out: list[Candidate] = []
-        seen: set[str] = set()
         try:
-            for search_filter in ("a", "t"):
-                r = httpx.post(
-                    _URL,
-                    json={
-                        "search_text": query, "search_filter": search_filter,
-                        "full_page": False, "fan_id": None,
-                    },
-                    headers={"User-Agent": _UA},
-                    timeout=_TIMEOUT,
-                )
-                r.raise_for_status()
-                for c in _parse(r.json(), limit):
-                    if c.webpage_url not in seen:
-                        seen.add(c.webpage_url)
-                        out.append(c)
+            r = httpx.post(
+                _URL,
+                json={
+                    "search_text": query, "search_filter": "t",
+                    "full_page": False, "fan_id": None,
+                },
+                headers={"User-Agent": _UA},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            return _parse(r.json(), limit)
         except Exception as e:  # network / HTTP / parse -> domain error
             raise SourceError(f"bandcamp search failed: {e}") from e
-        return out[:limit]
