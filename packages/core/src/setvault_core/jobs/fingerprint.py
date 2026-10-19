@@ -73,41 +73,65 @@ async def fingerprint_audio(
     """
     if "DATABASE_URL" in os.environ:
         init_engine(os.environ["DATABASE_URL"])
+    sid = uuid.UUID(live_set_id)
 
+    # Short sessions only (like the quality backfill): read, let the
+    # connection go for the whole-file fpcalc runs and the compares, then
+    # write in a fresh session.
     async with session_factory()() as s:
-        live = await s.get(LiveSet, uuid.UUID(live_set_id))
+        live = await s.get(LiveSet, sid)
         if live is None:
             raise RuntimeError(f"LiveSet {live_set_id} missing")
         root = await s.get(MediaRoot, live.media_root_id)
         if root is None:
             raise RuntimeError("MediaRoot vanished")
         path = Path(root.host_path) / live.audio_path
+        already_duplicate = live.duplicate_of is not None
 
-        publish(ProgressEvent(
-            kind="fingerprint", live_set_id=live_set_id, job_id=live_set_id,
-            progress_pct=20, message="fingerprinting",
-        ))
+    publish(ProgressEvent(
+        kind="fingerprint", live_set_id=live_set_id, job_id=live_set_id,
+        progress_pct=20, message="fingerprinting",
+    ))
 
-        # compute_raw_fingerprint tolerates chromaprint's exit-3-at-EOF quirk.
-        raw, duration = await asyncio.to_thread(compute_raw_fingerprint, path)
-        raw_bytes = raw_to_bytes(raw)
-        digest = await asyncio.to_thread(compute_legacy_digest, path)
+    # compute_raw_fingerprint tolerates chromaprint's exit-3-at-EOF quirk.
+    raw, duration = await asyncio.to_thread(compute_raw_fingerprint, path)
+    raw_bytes = raw_to_bytes(raw)
+    digest = await asyncio.to_thread(compute_legacy_digest, path)
 
+    # Match (reads only): the matcher releases its connection around each
+    # compare. Only the matched set's id and the result leave this session.
+    match_id: uuid.UUID | None = None
+    result = None
+    async with session_factory()() as s:
+        if upgrade_target_id is not None:
+            match = await match_upgrade_target(
+                s, upgrade_target_id, raw, duration,
+                legacy_hash=digest, release_connection=True,
+            )
+        elif not already_duplicate:
+            match = await find_original_match(
+                s, live, raw, duration, legacy_hash=digest, release_connection=True,
+            )
+        else:
+            match = None
+        if match is not None:
+            match_id, result = match[0].id, match[1]
+
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, sid)
+        if live is None:
+            raise RuntimeError(f"LiveSet {live_set_id} missing")
         await store_fingerprint(s, live.id, raw_bytes, digest, duration)
+        matched = await s.get(LiveSet, match_id) if match_id is not None else None
 
         if upgrade_target_id is not None:
-            await _flag_upgrade_target_match(
-                s, live, upgrade_target_id, raw, duration, legacy_hash=digest,
-            )
+            await _flag_upgrade_target_match(s, live, matched, result, duration)
             await s.commit()
             _publish_done(live)
             return
 
-        match = None
-        if live.duplicate_of is None:
-            match = await find_original_match(s, live, raw, duration, legacy_hash=digest)
-        if match is not None:
-            existing_live, result = match
+        if matched is not None and live.duplicate_of is None:
+            existing_live = matched
             audit_after = {
                 "duplicate_of": str(existing_live.id),
                 "duration_seconds": duration,
@@ -163,14 +187,12 @@ def _publish_done(live: LiveSet) -> None:
 
 
 async def _flag_upgrade_target_match(
-    s, live: LiveSet, target_id: uuid.UUID, raw, duration: float, *, legacy_hash: str,
+    s, live: LiveSet, target: LiveSet | None, result, duration: float,
 ) -> None:
-    match = await match_upgrade_target(s, target_id, raw, duration, legacy_hash=legacy_hash)
-    if match is None:
+    if target is None:
         live.duplicate_of = None
         live.match_offset_seconds = None
         return
-    target, result = match
     live.duplicate_of = target.id
     live.match_offset_seconds = result.offset_seconds
     await audit_log(
