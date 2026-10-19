@@ -76,7 +76,7 @@ async def test_history_says_when_a_merge_kept_the_tracklist(authed_admin_client,
 
 
 @pytest.mark.asyncio
-async def test_patch_upgrades_enabled_requires_edit_permission(
+async def test_patch_upgrades_enabled_persists_and_anonymous_is_refused(
     authed_admin_client, seeded_live_set, client,
 ):
     slug = seeded_live_set["slug"]
