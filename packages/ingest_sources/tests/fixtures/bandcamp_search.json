@@ -1,0 +1,54 @@
+{
+ "auto": {
+  "results": [
+   {
+    "type": "a",
+    "id": 280824188,
+    "name": "Rave Instructor EP",
+    "band_name": "DLV",
+    "item_url_path": "https://dlvmusic.bandcamp.com/album/rave-instructor-ep",
+    "img": "https://f4.bcbits.com/img/3327689887_3.jpg"
+   },
+   {
+    "type": "t",
+    "id": 3,
+    "name": "Some Track",
+    "band_name": "DJ Foo",
+    "item_url_path": "https://djfoo.bandcamp.com/track/some-track?from=x",
+    "img": null
+   },
+   {
+    "type": "a",
+    "id": 2686844124,
+    "name": "Raw Techno Sample Pack \ud83d\udcbe",
+    "band_name": "Yan Cook",
+    "item_url_path": "https://yancook.bandcamp.com/album/raw-techno-sample-pack",
+    "img": "https://f4.bcbits.com/img/2005465933_3.jpg"
+   },
+   {
+    "type": "a",
+    "id": 2315732573,
+    "name": "Techno But Not Techno 2",
+    "band_name": "Various",
+    "item_url_path": "https://neinrecords.bandcamp.com/album/techno-but-not-techno-2",
+    "img": "https://f4.bcbits.com/img/2861332470_3.jpg"
+   },
+   {
+    "type": "b",
+    "id": 1,
+    "name": "A Band",
+    "band_name": "A Band",
+    "item_url_path": "https://aband.bandcamp.com",
+    "img": null
+   },
+   {
+    "type": "a",
+    "id": 2,
+    "name": "Offsite",
+    "band_name": "Mallory",
+    "item_url_path": "https://evil.example.com/album/nope",
+    "img": null
+   }
+  ]
+ }
+}

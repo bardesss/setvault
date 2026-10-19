@@ -53,3 +53,13 @@ def test_bandcamp_formats_reachable(label):
     print(f"    lossless reachable: {bool(lossless)}")
     # Only the stable fact: at least one audio format is listed.
     assert any(f.get("vcodec") in (None, "none") for f in formats)
+
+
+def test_bandcamp_search_live_returns_candidates():
+    from setvault_ingest_sources.bandcamp import BandcampSource
+
+    out = BandcampSource().search("techno", limit=5)
+    for c in out:
+        print("   ", ascii((c.external_id, c.title, c.uploader, c.webpage_url)))
+    assert len(out) >= 1
+    assert all(".bandcamp.com/" in c.webpage_url for c in out)
