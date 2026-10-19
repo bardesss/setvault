@@ -177,7 +177,10 @@ def pick_candidate(
     Plausible: duration close, title/uploader matching the set's query, not
     tried before, and an expected tier that is unknown ("maybe") or strictly
     better. Known-better beats maybe, then tier rank, then the soundboard
-    hint, then search order."""
+    hint, then search order.
+
+    Accepted (A4): lossless-first can pick a large original (an Internet
+    Archive WAV); the rip is bounded by url_rip_job.MAX_DOWNLOAD_BYTES."""
     query = build_query(live)
     best: tuple[tuple[int, int, int, int], Candidate] | None = None
     for order, c in enumerate(candidates):
@@ -400,6 +403,8 @@ async def search_upgrade_for_set(
         except DuplicateRipError:
             # Already ripped (any set, any time): not a new copy. It doesn't
             # count against the cap, so a fresh lower-ranked pick is reached.
+            # Accepted (A2): not recorded as rejected, since that other rip
+            # may still succeed or fail (and then become retryable).
             continue
         except SQLAlchemyError:
             raise
