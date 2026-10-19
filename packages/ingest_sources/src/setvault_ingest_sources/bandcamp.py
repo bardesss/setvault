@@ -36,8 +36,9 @@ def _parse(data: dict, limit: int) -> list[Candidate]:
             duration_seconds=None,
             thumbnail_url=str(img) if img else None,
             webpage_url=f"https://{host}{parsed.path}",  # drop query/fragment
-            # No free-download marker in this data, so never claim lossless.
-            expected_tier="ok",
+            # The data can't tell a paid item (mp3-128) from a free one
+            # (lossless): unknown, and the measured tier decides after download.
+            expected_tier=None,
         ))
         if len(out) >= limit:
             break

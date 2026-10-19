@@ -37,7 +37,7 @@ def test_parses_album_and_track_results():
     assert first.external_id == "a280824188"
     assert first.thumbnail_url == "https://f4.bcbits.com/img/3327689887_3.jpg"
     assert first.duration_seconds is None
-    assert {c.expected_tier for c in out} == {"ok"}
+    assert {c.expected_tier for c in out} == {None}
 
 
 def test_rejects_non_bandcamp_urls_and_other_types():
