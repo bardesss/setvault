@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtLocalDateTime, wantedResult } from "./wanted";
+import { fmtLocalDateTime, searchRefusal, wantedResult } from "./wanted";
 
 const ev = (outcome: string, reason: string | null = null) => ({
   outcome, reason, created_at: "2026-10-18T10:00:00+00:00",
@@ -24,6 +24,19 @@ describe("wantedResult", () => {
     expect(wantedResult(ev("rejected", "something new"), null)).toBe("Rejected: something new");
     expect(wantedResult(ev("rejected"), null)).toBe("Rejected");
     expect(wantedResult(ev("merged"), null)).toBe("Merged");
+  });
+});
+
+describe("searchRefusal", () => {
+  it("explains a refused search for that set, capitalised", () => {
+    expect(searchRefusal("not fingerprinted yet")).toBe(
+      "Not fingerprinted yet — run the backfill on the Quality tab",
+    );
+    expect(searchRefusal("quality not measured yet")).toBe(
+      "Quality not measured yet — run the backfill on the Quality tab",
+    );
+    expect(searchRefusal("upgrades are off for this set")).toBe("Upgrades are off for this set");
+    expect(searchRefusal("something new")).toBe("Something new");
   });
 });
 

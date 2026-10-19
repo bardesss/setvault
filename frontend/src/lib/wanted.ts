@@ -28,6 +28,20 @@ export function wantedResult(ev: WantedEvent | null, lastSearchedAt: string | nu
   return reason ? `Rejected: ${reason}` : "Rejected";
 }
 
+const SEARCH_REFUSED: Record<string, string> = {
+  "not fingerprinted yet": "Not fingerprinted yet — run the backfill on the Quality tab",
+  "quality not measured yet": "Quality not measured yet — run the backfill on the Quality tab",
+  "upgrades are off for this set": "Upgrades are off for this set",
+  "set already meets the quality cutoff": "Already meets the quality cutoff",
+};
+
+/** Why Search now was refused (a 409), as that row's status. */
+export function searchRefusal(detail: string): string {
+  const known = SEARCH_REFUSED[detail];
+  if (known) return known;
+  return detail ? detail.charAt(0).toUpperCase() + detail.slice(1) : "Can't search this set now";
+}
+
 /** A timestamp in the browser's locale and time zone. */
 export function fmtLocalDateTime(iso: string | null): string {
   if (!iso) return "";

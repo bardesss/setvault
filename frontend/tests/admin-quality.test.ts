@@ -90,3 +90,29 @@ test("wanted tab lists a set and posts Search now", async ({ page, request }) =>
   await expect.poll(() => searched).toBe(true);
   await expect(page.getByText("Queued")).toBeVisible();
 });
+
+test("wanted tab shows a refused search on that set's row", async ({ page, request }) => {
+  await loginAs(page, request);
+
+  await page.route(/\/api\/admin\/wanted\?/, (r) =>
+    r.fulfill(json({ items: [{
+      id: "44444444-0000-0000-0000-000000000005",
+      slug: "new-mix",
+      title: "New Mix",
+      quality_label: "MP3 128 kbps (YouTube)",
+      quality_tier: "ok",
+      last_upgrade_search_at: null,
+      last_event: null,
+    }] })),
+  );
+  await page.route(/\/api\/admin\/wanted\/new-mix\/search$/, (r) =>
+    r.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: "not fingerprinted yet" }) }),
+  );
+
+  await page.goto("/admin/wanted");
+  await page.getByRole("button", { name: "Search now" }).click();
+  await expect(page.getByTestId("wanted-status")).toHaveText(
+    "Not fingerprinted yet — run the backfill on the Quality tab",
+  );
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
