@@ -58,7 +58,7 @@ async def test_quality_backfill_dry_run_counts(authed_admin_client, seeded_live_
     r = await authed_admin_client.get("/api/admin/maintenance/quality-backfill")
     assert r.status_code == 200, r.text
     assert r.json() == {
-        "to_fingerprint": 1, "to_measure": 1,
+        "to_fingerprint": 1, "to_measure": 1, "failed": 0,
         "duplicate_pairs": 0, "duplicate_pairs_complete": True,
     }
 
@@ -82,7 +82,7 @@ async def test_quality_backfill_post_enqueues_with_timeout(
     assert r.status_code == 202, r.text
     assert r.json() == {
         "status": "queued", "job_id": "job-q", "cleanup": False,
-        "to_fingerprint": 1, "to_measure": 1,
+        "to_fingerprint": 1, "to_measure": 1, "failed": 0,
     }
     assert calls == [(
         "setvault_core.jobs.quality_backfill.run_quality_backfill", {"job_timeout": "1h"},
@@ -118,6 +118,67 @@ async def test_quality_backfill_post_with_cleanup_carries_job_state(
             "fingerprinted": 0, "measured": 0, "merged": 0, "skipped": 0, "errors": 0,
         },
     }
+
+
+async def test_quality_backfill_retry_failed_clears_markers(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    import uuid
+    from datetime import UTC, datetime
+
+    import rq
+    from setvault_core.db import session_factory
+    from setvault_core.models.catalog import LiveSet
+
+    class _Job:
+        id = "job-r"
+
+    monkeypatch.setattr(rq.Queue, "enqueue", lambda self, func, **kw: _Job())
+    sid = uuid.UUID(seeded_live_set["id"])
+    for retry, expect_failed in ((False, 1), (True, 0)):
+        async with session_factory()() as s:
+            (await s.get(LiveSet, sid)).quality_backfill_failed_at = datetime.now(UTC)
+            await s.commit()
+        body = {"retry_failed": True} if retry else {}
+        r = await authed_admin_client.post(
+            "/api/admin/maintenance/quality-backfill", json=body,
+        )
+        assert r.status_code == 202, r.text
+        assert r.json()["failed"] == expect_failed
+        async with session_factory()() as s:
+            live = await s.get(LiveSet, sid)
+            assert (live.quality_backfill_failed_at is None) is retry
+
+
+async def test_quality_backfill_post_while_running_says_already_running(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    import uuid
+    from datetime import UTC, datetime
+
+    import rq
+    from setvault_core.db import session_factory
+    from setvault_core.jobs import quality_backfill as qb
+    from setvault_core.models.catalog import LiveSet
+
+    calls = []
+    monkeypatch.setattr(rq.Queue, "enqueue", lambda self, func, **kw: calls.append(func))
+    monkeypatch.setattr(qb, "quality_backfill_in_flight", lambda: True)
+    sid = uuid.UUID(seeded_live_set["id"])
+    async with session_factory()() as s:
+        (await s.get(LiveSet, sid)).quality_backfill_failed_at = datetime.now(UTC)
+        await s.commit()
+
+    r = await authed_admin_client.post(
+        "/api/admin/maintenance/quality-backfill",
+        json={"retry_failed": True, "cleanup": True},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"status": "already_running"}
+    assert calls == []
+    async with session_factory()() as s:
+        # Nothing changes while a chain runs, failure markers included.
+        assert (await s.get(LiveSet, sid)).quality_backfill_failed_at is not None
 
 
 async def test_quality_backfill_member_forbidden(client, seeded_admin):

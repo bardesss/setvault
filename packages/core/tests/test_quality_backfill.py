@@ -55,7 +55,7 @@ async def test_backfill_fills_missing_fingerprint_and_quality(tmp_path: Path, re
 
     async with session_factory()() as s:
         before = await qb.backfill_candidates(s)
-    assert before == {"to_fingerprint": 1, "to_measure": 1}
+    assert before == {"to_fingerprint": 1, "to_measure": 1, "failed": 0}
 
     res = await qb.run_backfill_batch()
     assert res["processed"] == 1 and res["errors"] == 0 and res["remaining"] == 0
@@ -89,7 +89,9 @@ async def test_backfill_skips_already_done(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(qb, "measure_quality", boom)
 
     async with session_factory()() as s:
-        assert await qb.backfill_candidates(s) == {"to_fingerprint": 0, "to_measure": 0}
+        assert await qb.backfill_candidates(s) == {
+            "to_fingerprint": 0, "to_measure": 0, "failed": 0,
+        }
     res = await qb.run_backfill_batch()
     assert (res["processed"], res["errors"], res["remaining"]) == (0, 0, 0)
 
@@ -119,7 +121,9 @@ async def test_backfill_continues_after_one_bad_file(tmp_path: Path, monkeypatch
 
         # The failure is persisted, so the set is not picked up again.
         assert gone.quality_backfill_failed_at is not None
-        assert await qb.backfill_candidates(s) == {"to_fingerprint": 0, "to_measure": 0}
+        assert await qb.backfill_candidates(s) == {
+            "to_fingerprint": 0, "to_measure": 0, "failed": 1,
+        }
 
     res = await qb.run_backfill_batch()
     assert (res["processed"], res["errors"], res["remaining"]) == (0, 0, 0)
@@ -288,3 +292,70 @@ async def test_set_hard_deleted_during_fpcalc_is_skipped(tmp_path: Path, monkeyp
         assert (await s.execute(
             select(SetFingerprint).where(SetFingerprint.live_set_id == ids["a.flac"])
         )).first() is None
+
+
+async def _mark(live_set_id: uuid.UUID, when: datetime) -> None:
+    async with session_factory()() as s:
+        (await s.get(LiveSet, live_set_id)).quality_backfill_failed_at = when
+        await s.commit()
+
+
+async def test_clear_backfill_failures_resets_every_marker(tmp_path: Path):
+    ids = await _seed(tmp_path, ["a.flac", "b.flac"])
+    for sid in ids.values():
+        await _mark(sid, datetime.now(UTC))
+    async with session_factory()() as s:
+        assert (await qb.backfill_candidates(s))["failed"] == 2
+        assert await qb.clear_backfill_failures(s) == 2
+        await s.commit()
+        assert (await qb.backfill_candidates(s))["failed"] == 0
+        assert (await qb.backfill_candidates(s))["to_measure"] == 2
+
+
+async def test_marker_cleared_when_file_changed_after_the_failure(
+    tmp_path: Path, monkeypatch,
+):
+    from datetime import timedelta
+
+    for n in ("fixed.flac", "same.flac"):
+        (tmp_path / n).write_bytes(b"x")
+    ids = await _seed(tmp_path, ["fixed.flac", "same.flac"])
+    now = datetime.now(UTC)
+    # fixed.flac was replaced after it failed; same.flac hasn't changed since.
+    await _mark(ids["fixed.flac"], now - timedelta(hours=1))
+    await _mark(ids["same.flac"], now + timedelta(hours=1))
+    _stub_tools(monkeypatch)
+
+    res = await qb.run_backfill_batch()
+
+    assert res["processed"] == 1 and res["errors"] == 0
+    async with session_factory()() as s:
+        fixed = await s.get(LiveSet, ids["fixed.flac"])
+        assert fixed.quality_backfill_failed_at is None
+        assert fixed.quality_tier == "lossless"
+        same = await s.get(LiveSet, ids["same.flac"])
+        assert same.quality_backfill_failed_at is not None
+        assert same.quality_measured_at is None
+
+
+async def test_backfill_chain_is_a_singleton():
+    from redis import Redis
+    from rq.job import Job
+
+    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis.delete(qb.CHAIN_KEY)
+    first = qb.start_quality_backfill()
+    try:
+        assert first is not None
+        assert qb.quality_backfill_in_flight() is True
+        assert qb.start_quality_backfill() is None
+        assert qb.start_quality_backfill(cleanup=True) is None
+    finally:
+        Job.fetch(first.id, connection=redis).delete()
+    assert qb.quality_backfill_in_flight() is False
+    second = qb.start_quality_backfill()
+    try:
+        assert second is not None and second.id != first.id
+    finally:
+        Job.fetch(second.id, connection=redis).delete()
+        redis.delete(qb.CHAIN_KEY)

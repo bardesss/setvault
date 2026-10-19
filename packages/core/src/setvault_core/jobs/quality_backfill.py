@@ -11,7 +11,10 @@ admins get one summary notification at the end.
 Gentle on the single worker: each RQ job runs one bounded slice (time and
 set count), then re-enqueues itself at the back of the queue so uploads
 queued meanwhile run in between. A set that fails is marked
-(``quality_backfill_failed_at``) and not retried. The cleanup phase is
+(``quality_backfill_failed_at``) and not retried, unless its audio file
+changes after the failure or an admin asks for a retry
+(:func:`clear_backfill_failures`). Only one chain runs at a time
+(:func:`quality_backfill_in_flight`). The cleanup phase is
 sliced the same way and carries its position (a cursor over the sets, oldest
 first) and the running counts from slice to slice in the job's kwargs.
 """
@@ -26,7 +29,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.db import init_engine, run_job, session_factory
@@ -52,6 +55,9 @@ BATCH_MAX_SETS = 50
 # Time budget for counting duplicate pairs in the admin dry run (a request).
 DRY_RUN_SECONDS = 20
 JOB_FUNC = "setvault_core.jobs.quality_backfill.run_quality_backfill"
+# Redis key holding the id of the chain's latest slice (singleton check).
+CHAIN_KEY = "setvault:quality-backfill:chain"
+_IN_FLIGHT = {"queued", "started", "deferred", "scheduled"}
 
 
 def _has_current_fingerprint():
@@ -79,7 +85,55 @@ async def backfill_candidates(session: AsyncSession) -> dict:
         select(func.count()).select_from(LiveSet)
         .where(LiveSet.quality_measured_at.is_(None), _not_failed())
     )).scalar_one()
-    return {"to_fingerprint": int(to_fingerprint), "to_measure": int(to_measure)}
+    failed = (await session.execute(
+        select(func.count()).select_from(LiveSet)
+        .where(LiveSet.quality_backfill_failed_at.is_not(None))
+    )).scalar_one()
+    return {
+        "to_fingerprint": int(to_fingerprint), "to_measure": int(to_measure),
+        "failed": int(failed),
+    }
+
+
+async def clear_backfill_failures(session: AsyncSession) -> int:
+    """Admin retry: forget every failure marker so the next run tries those
+    sets again. Returns how many were cleared; the caller commits."""
+    res = await session.execute(
+        update(LiveSet).where(LiveSet.quality_backfill_failed_at.is_not(None))
+        .values(quality_backfill_failed_at=None)
+    )
+    return int(res.rowcount or 0)
+
+
+def _changed_since(path: Path, when: datetime) -> bool:
+    try:
+        return path.stat().st_mtime > when.timestamp()
+    except OSError:
+        return False
+
+
+async def clear_stale_failures(session: AsyncSession) -> int:
+    """Clear the marker of each failed set whose audio file was modified
+    after it failed (the file was fixed or replaced). Returns how many; the
+    caller commits. Failed sets are few, so stat-ing each one is cheap."""
+    rows = (await session.execute(
+        select(LiveSet.id, MediaRoot.host_path, LiveSet.audio_path,
+               LiveSet.quality_backfill_failed_at)
+        .join(MediaRoot, MediaRoot.id == LiveSet.media_root_id)
+        .where(LiveSet.quality_backfill_failed_at.is_not(None))
+    )).all()
+    if not rows:
+        return 0
+    changed = await asyncio.to_thread(lambda: [
+        sid for sid, root, rel, failed_at in rows
+        if _changed_since(Path(root) / rel, failed_at)
+    ])
+    if changed:
+        await session.execute(
+            update(LiveSet).where(LiveSet.id.in_(changed))
+            .values(quality_backfill_failed_at=None)
+        )
+    return len(changed)
 
 
 async def duplicate_pair_counts(session: AsyncSession) -> dict:
@@ -118,6 +172,8 @@ async def run_backfill_batch(
         _not_failed(),
     )
     async with session_factory()() as s:
+        if await clear_stale_failures(s):
+            await s.commit()
         ids = list((await s.execute(
             select(LiveSet.id).where(pending)
             .order_by(LiveSet.created_at, LiveSet.id)
@@ -206,21 +262,48 @@ async def _backfill_one(live_set_id: uuid.UUID) -> tuple[bool, bool]:
 _COUNT_KEYS = ("fingerprinted", "measured", "merged", "skipped", "errors")
 
 
+def _redis():
+    from redis import Redis
+
+    return Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+
+
 def enqueue_quality_backfill(**state):
     """Put one backfill slice at the back of the default queue. ``state``
-    (cleanup runs only) is passed on to :func:`run_quality_backfill`."""
-    from redis import Redis
+    (cleanup runs only) is passed on to :func:`run_quality_backfill`.
+    Records the slice as the chain's latest (:data:`CHAIN_KEY`)."""
     from rq import Queue
 
-    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis = _redis()
     queue = Queue("default", connection=redis)
     if state:
-        return queue.enqueue(JOB_FUNC, job_timeout=QUALITY_BACKFILL_TIMEOUT, kwargs=state)
-    return queue.enqueue(JOB_FUNC, job_timeout=QUALITY_BACKFILL_TIMEOUT)
+        job = queue.enqueue(JOB_FUNC, job_timeout=QUALITY_BACKFILL_TIMEOUT, kwargs=state)
+    else:
+        job = queue.enqueue(JOB_FUNC, job_timeout=QUALITY_BACKFILL_TIMEOUT)
+    redis.set(CHAIN_KEY, job.id)
+    return job
+
+
+def quality_backfill_in_flight() -> bool:
+    """True while a backfill chain is queued or running: its latest slice is
+    still queued, or running (it may yet queue the next one). Slice ids
+    change from slice to slice, so the chain's latest id is kept in Redis
+    instead of a fixed job id (like monitor polls use)."""
+    from rq.job import Job
+
+    redis = _redis()
+    job_id = redis.get(CHAIN_KEY)
+    if job_id is None:
+        return False
+    job = Job.fetch_many([job_id.decode()], connection=redis)[0]
+    return job is not None and job.get_status(refresh=True) in _IN_FLIGHT
 
 
 def start_quality_backfill(*, cleanup: bool = False):
-    """Queue the first slice of a backfill run."""
+    """Queue the first slice of a backfill run; ``None`` (nothing queued)
+    when a chain is already queued or running."""
+    if quality_backfill_in_flight():
+        return None
     if cleanup:
         return enqueue_quality_backfill(
             cleanup=True, phase="fill", counts=dict.fromkeys(_COUNT_KEYS, 0), cursor=None,
