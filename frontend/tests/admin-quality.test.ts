@@ -30,11 +30,15 @@ test("quality tab reorders tiers and saves the new order", async ({ page, reques
     return r.fulfill(json(settings));
   });
   let backfillPost: Record<string, unknown> | null = null;
+  let backfillGets = 0;
   await page.route(/\/api\/admin\/maintenance\/quality-backfill$/, (r) => {
     if (r.request().method() === "POST") {
       backfillPost = r.request().postDataJSON();
-      return r.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ status: "queued" }) });
+      return r.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({
+        status: "queued", cleanup: true, to_fingerprint: 2, to_measure: 5,
+      }) });
     }
+    backfillGets += 1;
     return r.fulfill(json({
       to_fingerprint: 4, to_measure: 7, duplicate_pairs: 3, duplicate_pairs_complete: true,
     }));
@@ -48,6 +52,9 @@ test("quality tab reorders tiers and saves the new order", async ({ page, reques
   await page.getByRole("button", { name: "Run backfill" }).click();
   await expect.poll(() => backfillPost).toEqual({ cleanup: true });
   await expect(page.getByText("Duplicates are cleaned up when it finishes")).toBeVisible();
+  // Counts come from the POST; the slow duplicate-pair scan isn't re-run.
+  await expect(page.getByTestId("backfill-counts")).toContainText("2 to fingerprint, 5 to measure");
+  expect(backfillGets).toBe(1);
 
   await page.getByRole("button", { name: "Move High up" }).click();
   await page.getByLabel("Upgrade search").selectOption("daily");

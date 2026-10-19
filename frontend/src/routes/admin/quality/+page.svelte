@@ -106,14 +106,18 @@
     backfillBusy = true;
     backfillMsg = null;
     try {
-      await api("/api/admin/maintenance/quality-backfill", {
+      const r = await api<Partial<BackfillDryRun>>("/api/admin/maintenance/quality-backfill", {
         method: "POST",
         body: JSON.stringify({ cleanup }),
       });
       backfillMsg = cleanup
         ? "Backfill started. Duplicates are cleaned up when it finishes."
         : "Backfill started.";
-      await loadBackfill();
+      // The response carries fresh fingerprint/measure counts; the duplicate
+      // pair count is a slow scan and isn't re-run here.
+      if (backfill && r && typeof r.to_fingerprint === "number" && typeof r.to_measure === "number") {
+        backfill = { ...backfill, to_fingerprint: r.to_fingerprint, to_measure: r.to_measure };
+      }
     } catch (e) {
       backfillMsg = msg(e, "Could not start the backfill.");
     } finally {
