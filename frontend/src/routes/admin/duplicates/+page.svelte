@@ -9,6 +9,8 @@
     title: string;
     status: string;
     duration_seconds: number | null;
+    /** e.g. "FLAC (Bandcamp)", as on the set page. */
+    quality_label?: string;
   }
 
   interface HeldDuplicate {
@@ -21,6 +23,7 @@
     status?: string;
     /** "matched by backfill": a published set the library cleanup left unmerged. */
     reason?: string | null;
+    quality_label?: string;
     original: OriginalSet | null;
   }
 
@@ -84,10 +87,16 @@
     </p>
     <p class="muted">
       The quality backfill's duplicate cleanup also lists published sets here
-      that are the same audio as an older set but weren't merged (upgrades off,
-      kept earlier, or another owner). They stay published: Keep removes them
-      from this list, Discard merges their comments, bookmarks and history into
-      the original and moves them to the recycle bin.
+      that are the same audio as an older set but weren't merged automatically
+      (for example: upgrades are off, the copies belong to different owners, or
+      there isn't enough information to compare them). They stay published:
+      Keep removes them from this list, Discard merges their comments,
+      bookmarks and history into the original and moves them to the recycle
+      bin.
+    </p>
+    <p class="muted" data-testid="dup-discard-note">
+      Discard always keeps the original's audio, even when the listed copy has
+      better quality. Each row shows both copies' quality so you can compare.
     </p>
   </header>
 
@@ -108,6 +117,9 @@
             {#if item.reason === "matched by backfill"}
               <span class="muted note" data-testid="dup-reason">Published · matched by backfill</span>
             {/if}
+            {#if item.quality_label}
+              <span class="muted note" data-testid="dup-quality">{item.quality_label}</span>
+            {/if}
           </td>
           <td class="mono">{item.source_type}</td>
           <td class="mono">{fmtDuration(item.duration_seconds)}</td>
@@ -116,6 +128,9 @@
             {#if item.original}
               <a href={`/sets/${encodeURIComponent(item.original.slug)}`}>{item.original.title}</a>
               <span class="mono muted">{fmtDuration(item.original.duration_seconds)}</span>
+              {#if item.original.quality_label}
+                <span class="muted note" data-testid="dup-original-quality">{item.original.quality_label}</span>
+              {/if}
             {:else}
               <span class="muted">(original removed)</span>
             {/if}

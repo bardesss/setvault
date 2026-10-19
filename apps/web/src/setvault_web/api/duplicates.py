@@ -26,7 +26,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from setvault_core.jobs.ready import fan_out_webhooks, publish_live_set
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.identity import User
+from setvault_core.services.audio_quality import quality_label
 from setvault_core.services.audit import log as audit_log
+from setvault_core.services.notifications import source_name
 from setvault_core.services.set_merge import merge_pair
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +43,12 @@ _RECYCLE_GRACE = timedelta(days=14)
 
 
 REASON_BACKFILL = "matched by backfill"
+
+
+def _quality(live: LiveSet) -> str:
+    """The set page's quality label, e.g. ``MP3 128 kbps (YouTube)``."""
+    return quality_label(live.quality_tier, live.audio_codec, live.audio_bitrate_kbps,
+                         source_name(live.source_type, live.source_url))
 
 
 def _held_duplicates():
@@ -89,11 +97,13 @@ async def list_duplicates(
             "created_at": dup.created_at.isoformat() if dup.created_at else None,
             "status": dup.status,
             "reason": REASON_BACKFILL if dup.backfill_matched_at is not None else None,
+            "quality_label": _quality(dup),
             "original": None if orig is None else {
                 "slug": orig.slug,
                 "title": orig.title,
                 "status": orig.status,
                 "duration_seconds": orig.duration_seconds,
+                "quality_label": _quality(orig),
             },
         }
         for dup, orig in rows

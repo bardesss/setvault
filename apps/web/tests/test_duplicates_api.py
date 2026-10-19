@@ -26,13 +26,24 @@ async def _held_duplicate(original_id: str) -> tuple[str, uuid.UUID]:
 
 @pytest.mark.asyncio
 async def test_list_shows_held_duplicate_with_original(authed_admin_client, seeded_live_set):
-    slug, _ = await _held_duplicate(seeded_live_set["id"])
+    slug, sid = await _held_duplicate(seeded_live_set["id"])
+    async with session_factory()() as s:
+        original = await s.get(LiveSet, uuid.UUID(seeded_live_set["id"]))
+        original.quality_tier, original.audio_codec = "lossless", "flac"
+        original.source_type = "upload"
+        dup = await s.get(LiveSet, sid)
+        dup.quality_tier, dup.audio_codec, dup.audio_bitrate_kbps = "ok", "mp3", 128
+        dup.source_type, dup.source_url = "url_rip", "https://www.youtube.com/watch?v=abcdefghijk"
+        await s.commit()
 
     r = await authed_admin_client.get("/api/admin/duplicates")
 
     assert r.status_code == 200, r.text
     (item,) = [i for i in r.json()["items"] if i["slug"] == slug]
     assert item["original"]["slug"] == seeded_live_set["slug"]
+    # Both copies' quality, labelled as on the set page.
+    assert item["quality_label"] == "MP3 128 kbps (YouTube)"
+    assert item["original"]["quality_label"].startswith("FLAC")
 
 
 @pytest.mark.asyncio

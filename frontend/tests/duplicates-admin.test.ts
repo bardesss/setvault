@@ -52,7 +52,11 @@ test("admin duplicates tab marks sets matched by the backfill", async ({ page, r
         created_at: "2026-10-17T10:00:00+00:00",
         status: "published",
         reason: "matched by backfill",
-        original: { slug: "the-original", title: "The Original", status: "published", duration_seconds: 3724 },
+        quality_label: "FLAC (Bandcamp)",
+        original: {
+          slug: "the-original", title: "The Original", status: "published", duration_seconds: 3724,
+          quality_label: "MP3 128 kbps (YouTube)",
+        },
       }],
     }) }),
   );
@@ -61,4 +65,9 @@ test("admin duplicates tab marks sets matched by the backfill", async ({ page, r
   await expect(page.getByText("Published twin")).toBeVisible();
   await expect(page.getByTestId("dup-reason")).toHaveText("Published · matched by backfill");
   await expect(page.getByRole("button", { name: "Keep", exact: true })).toBeVisible();
+  // Both copies' quality, and what Discard does with the audio.
+  await expect(page.getByTestId("dup-quality")).toHaveText("FLAC (Bandcamp)");
+  await expect(page.getByTestId("dup-original-quality")).toHaveText("MP3 128 kbps (YouTube)");
+  await expect(page.getByTestId("dup-discard-note")).toContainText("keeps the original's audio");
+  await expect(page.getByText(/there isn't enough information to compare them/)).toBeVisible();
 });
