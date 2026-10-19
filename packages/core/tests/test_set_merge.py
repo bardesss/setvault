@@ -567,6 +567,17 @@ async def test_cleanup_sends_one_admin_summary(lib, fake_queue):
     assert by_user[admin1.id] == {"fingerprinted": 3, "measured": 2, "merged": 1, "skipped": 0}
 
 
+async def test_legacy_hash_never_pairs_two_raw_fingerprints(lib):
+    """Both sides comparable: the fuzzy matcher alone decides, even when
+    the legacy digests happen to be equal (R28)."""
+    await lib.add(_items(18), legacy_hash="same")
+    await lib.add(_items(19), legacy_hash="same")
+    async with session_factory()() as s:
+        assert await qb.duplicate_pair_counts(s) == {
+            "duplicate_pairs": 0, "duplicate_pairs_complete": True}
+    assert await _cleanup() == {"merged": 0, "skipped": 0, "errors": 0}
+
+
 async def test_backfill_without_cleanup_sends_nothing(lib, fake_queue):
     a = _items(16)
     await lib.add(a)

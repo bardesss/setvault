@@ -193,15 +193,17 @@ async def _match(older: _Entry, newer: _Entry, cache: _RawCache,
                  ) -> tuple[MatchResult, bool] | None:
     o_cur, n_cur = older.current_fp(), newer.current_fp()
     if o_cur is not None and n_cur is not None:
+        # Both comparable: the fuzzy matcher alone decides (as R28).
         tol = max(DURATION_TOLERANCE_PCT * n_cur.duration, DURATION_TOLERANCE_SECONDS)
-        if abs(o_cur.duration - n_cur.duration) <= tol:
-            a, b = await cache.get(o_cur.id), await cache.get(n_cur.id)
-            # compare() is CPU-bound pure Python; keep the event loop free.
-            result = await asyncio.to_thread(compare, a, b)
-            if is_same_audio(result):
-                return result, True
-    # The pre-7D exact rule (same 120 s digest, duration within 2 s). Only
-    # ever sends a pair to the Duplicates page (R38).
+        if abs(o_cur.duration - n_cur.duration) > tol:
+            return None
+        a, b = await cache.get(o_cur.id), await cache.get(n_cur.id)
+        # compare() is CPU-bound pure Python; keep the event loop free.
+        result = await asyncio.to_thread(compare, a, b)
+        return (result, True) if is_same_audio(result) else None
+    # One side has no current raw fingerprint: the pre-7D exact rule (same
+    # 120 s digest, duration within 2 s). Only ever sends a pair to the
+    # Duplicates page (R38).
     if any(
         a.hash == b.hash and abs(a.duration - b.duration) < LEGACY_DURATION_SECONDS
         for a in older.fps for b in newer.fps
