@@ -20,6 +20,7 @@ audio or not better, so its row and files go and the target records a
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
@@ -112,16 +113,23 @@ def _event(
 
 
 async def _shift_positions(session: AsyncSession, live: LiveSet, offset: float) -> None:
-    """Move every time position on ``live`` by ``-offset``, clamping at 0.
+    """Move every time position on ``live`` by ``-offset``, clamped to
+    [0, the new duration] (``live`` already holds the new audio).
 
     ``offset > 0`` means the new copy starts later in the set, so existing
     time t is at t - offset in the new audio. NULL positions stay NULL (Postgres
-    GREATEST ignores NULLs and would turn them into 0).
+    GREATEST/LEAST ignore NULLs and would turn them into a bound). Integer
+    positions shift by the offset rounded half-up (``round()`` would round
+    2.5 to 2, banker's rounding).
     """
-    whole = round(offset)
+    whole = math.floor(offset + 0.5)
+    end = live.duration_seconds
     for model, col, is_int in _POSITION_COLUMNS:
         delta = whole if is_int else offset
-        values = {col.key: func.greatest(col - delta, 0)}
+        shifted = func.greatest(col - delta, 0)
+        if end is not None:
+            shifted = func.least(shifted, end)
+        values = {col.key: shifted}
         if model is UserSetState:
             # Not a user action: keep the timestamp (onupdate would bump it),
             # which decides which play state wins when sets are merged.

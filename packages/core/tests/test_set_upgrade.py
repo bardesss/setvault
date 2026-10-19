@@ -212,6 +212,41 @@ async def test_swap_negative_offset_shifts_later(tmp_path: Path, webhooks):
         assert [(e.start_seconds, e.end_seconds) for e in tl] == [(5, 10), (65, None)]
 
 
+async def test_swap_rounds_half_offsets_up(tmp_path: Path, webhooks):
+    # 2.5 s: round-half-up shifts int positions by 3 (banker's rounding: 2).
+    ids = await _seed(tmp_path, offset=2.5)
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    async with session_factory()() as s:
+        bm = (await s.execute(select(Bookmark).where(
+            Bookmark.live_set_id == ids["target"]))).scalar_one()
+        assert bm.position_seconds == 297
+        st = await s.get(UserSetState, (ids["user"], ids["target"]))
+        assert st.position_seconds == pytest.approx(998.0)  # floats shift exactly
+
+
+async def test_swap_clamps_positions_to_the_new_duration(tmp_path: Path, webhooks):
+    # The new copy (3590 s) starts 20 s earlier: late positions would land
+    # past its end and are clamped to it.
+    ids = await _seed(tmp_path, offset=-20.0)
+    async with session_factory()() as s:
+        s.add(Comment(live_set_id=ids["target"], user_id=ids["user"],
+                      position_seconds=3580, body="encore"))
+        st = await s.get(UserSetState, (ids["user"], ids["target"]))
+        st.position_seconds = 3585.5
+        await s.commit()
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    async with session_factory()() as s:
+        cs = (await s.execute(select(Comment).where(
+            Comment.live_set_id == ids["target"]))).scalars().all()
+        assert sorted(c.position_seconds for c in cs if c.position_seconds is not None) == [
+            140, 3590,
+        ]
+        st = await s.get(UserSetState, (ids["user"], ids["target"]))
+        assert st.position_seconds == pytest.approx(3590.0)
+
+
 async def test_swap_ignores_sub_second_offset(tmp_path: Path, webhooks):
     ids = await _seed(tmp_path, offset=0.6)
     async with session_factory()() as s:
