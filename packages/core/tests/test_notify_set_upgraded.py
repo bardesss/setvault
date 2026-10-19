@@ -120,5 +120,7 @@ def test_quality_label_examples():
     assert quality_label("lossless", "pcm_s16le", 1411, "upload") == "PCM (Upload)"
     assert quality_label("ok", "mp3", 128, "url_rip") == "MP3 128 kbps (Web link)"
     assert quality_label("good", None, None, "watch_folder") == "Good quality (Watch folder)"
+    # One spelling for the ok tier everywhere (en.json: "OK quality").
+    assert quality_label("ok", None, None, None) == "OK quality"
     assert quality_label(None, None, None, None) == "Unknown quality"
     assert quality_label("ok", "mp3", 128, "odd_thing") == "MP3 128 kbps (Odd thing)"

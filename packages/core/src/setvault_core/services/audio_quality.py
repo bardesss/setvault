@@ -128,7 +128,7 @@ def quality_label(tier: str | None, codec: str | None, bitrate_kbps: int | None,
     """Human label such as ``MP3 128 kbps (YouTube)`` or ``FLAC (Bandcamp)``.
 
     Lossless codecs omit the bitrate, a lossy one without a known bitrate shows
-    just the codec. With no codec the tier stands in ("Ok quality"), and with
+    just the codec. With no codec the tier stands in ("OK quality"), and with
     nothing known at all the result is "Unknown quality". The source suffix
     uses a readable name for the known source types; an unknown type is
     shown prettified (``some_thing`` -> "Some thing"), a missing one is
@@ -149,7 +149,8 @@ def quality_label(tier: str | None, codec: str | None, bitrate_kbps: int | None,
         if bitrate_kbps and not is_lossless_codec(c):
             label = f"{name} {bitrate_kbps} kbps"
     elif tier:
-        label = f"{tier.capitalize()} quality"
+        # "OK", as the tier is spelled in the UI (en.json sources.quality.ok).
+        label = "OK quality" if tier == "ok" else f"{tier.capitalize()} quality"
     else:
         label = "Unknown quality"
     if source_type:
