@@ -284,3 +284,35 @@ async def test_discard_backfill_match_with_original_gone_just_recycles(
         assert (await s.get(LiveSet, sid)).deleted_at is not None
         comment = (await s.execute(select(Comment).where(Comment.body == "stays"))).scalar_one()
         assert comment.live_set_id == sid
+
+
+@pytest.mark.asyncio
+async def test_discard_conflicts_when_the_original_changes_meanwhile(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    """The original is recycled between the endpoint's check and the
+    merge's lock: 409, nothing changed."""
+    from datetime import UTC, datetime
+
+    from setvault_web.api import duplicates
+
+    slug, sid = await _published_match(seeded_live_set["id"], by_backfill=True)
+    oid = uuid.UUID(seeded_live_set["id"])
+    real_merge = duplicates.merge_pair
+
+    async def racing_merge(session, **kw):
+        async with session_factory()() as other:
+            (await other.get(LiveSet, oid)).deleted_at = datetime.now(UTC)
+            await other.commit()
+        return await real_merge(session, **kw)
+
+    monkeypatch.setattr(duplicates, "merge_pair", racing_merge)
+
+    r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/discard")
+
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == "The original changed; reload and try again."
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.deleted_at is None and row.status == "published"
+        assert row.backfill_matched_at is not None

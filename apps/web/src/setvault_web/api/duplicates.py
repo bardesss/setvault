@@ -153,10 +153,17 @@ async def discard_duplicate(
             )
             # Locks both rows, moves what users attached, recycles `live`
             # and commits (with the audit row above).
-            await merge_pair(
-                session, survivor=original, loser=live,
-                offset_seconds=live.match_offset_seconds or 0.0, trigger="duplicates",
-            )
+            try:
+                await merge_pair(
+                    session, survivor=original, loser=live,
+                    offset_seconds=live.match_offset_seconds or 0.0, trigger="duplicates",
+                )
+            except ValueError as e:
+                # The original was recycled (or the copy changed) between
+                # the check above and merge_pair's lock; it rolled back.
+                raise HTTPException(
+                    status_code=409, detail="The original changed; reload and try again.",
+                ) from e
             return {"slug": slug, "outcome": "merged"}
         outcome = "recycled_original_gone"
     else:
