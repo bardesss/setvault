@@ -174,8 +174,10 @@ class LiveSet(Base, UuidPkMixin, TimestampMixin):
     quality_backfill_failed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # Stamped when an admin chose "Keep & publish" on a held duplicate, so the
-    # upgrade engine does not treat it as a duplicate to swap again.
+    # Stamped when an admin chose "Keep & publish" on a held duplicate (admin
+    # Duplicates page). Nothing in the upgrade engine reads it; the backfill
+    # duplicate cleanup (Phase 7D Task 17) uses it to leave such pairs
+    # unmerged.
     duplicate_kept_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
