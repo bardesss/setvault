@@ -97,13 +97,17 @@
                 <span>{$_("notifications.discovery_summary")} {payload.monitor_label ?? ""}</span>
               {:else if n.kind === "set_upgraded"}
                 <span>
-                  {$_("notifications.set_upgraded", {
-                    values: {
-                      title: payload.set_title ?? "",
-                      from: payload.from_label ?? "",
-                      to: payload.to_label ?? "",
-                    },
-                  })}
+                  {#if !payload.set_title || !payload.from_label || !payload.to_label}
+                    {$_("notifications.set_upgraded_generic")}
+                  {:else}
+                    {$_("notifications.set_upgraded", {
+                      values: {
+                        title: payload.set_title,
+                        from: payload.from_label,
+                        to: payload.to_label,
+                      },
+                    })}
+                  {/if}
                 </span>
               {:else}
                 <strong>{payload.author_username ?? ""}</strong>

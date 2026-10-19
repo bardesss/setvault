@@ -70,36 +70,44 @@ async def test_notify_set_upgraded_in_app_payload(emails):
             "set_slug": "set-x", "set_title": "Set X",
             "from_label": "MP3 128 kbps (YouTube)", "to_label": "FLAC (Bandcamp)",
         }
-        # No preference row defaults to both, so an email goes out too.
+        # No preference row: in-app only, email is opt-in.
+        assert emails == []
+        await s.rollback()
+
+
+async def test_email_content(emails):
+    async with session_factory()() as s:
+        owner = await _owner(s)
+        s.add(NotificationPreference(user_id=owner.id, kind="set_upgraded", channel="email"))
+        await s.flush()
+        await notifications.notify_set_upgraded(s, _target(owner), _event())
         assert [e["subject"] for e in emails] == ["A set in your SetVault library was upgraded"]
         assert emails[0]["to"] == owner.email
         assert "MP3 128 kbps (YouTube) -> FLAC (Bandcamp)" in emails[0]["text"]
         await s.rollback()
 
 
+async def test_no_owner_notifies_nobody(emails):
+    async with session_factory()() as s:
+        target = SimpleNamespace(id=uuid.uuid4(), slug="s", title="S", uploaded_by=None)
+        await notifications.notify_set_upgraded(s, target, _event())
+        assert emails == []
+        await s.rollback()
+
+
 @pytest.mark.parametrize(
     ("channel", "in_app", "email"),
-    [("off", 0, 0), ("in_app", 1, 0), ("email", 0, 1), ("both", 1, 1)],
+    [(None, 1, 0), ("off", 0, 0), ("in_app", 1, 0), ("email", 0, 1), ("both", 1, 1)],
 )
 async def test_notify_respects_preference(emails, channel, in_app, email):
     async with session_factory()() as s:
         owner = await _owner(s)
-        s.add(NotificationPreference(user_id=owner.id, kind="set_upgraded", channel=channel))
-        await s.flush()
+        if channel:
+            s.add(NotificationPreference(user_id=owner.id, kind="set_upgraded", channel=channel))
+            await s.flush()
         await notifications.notify_set_upgraded(s, _target(owner), _event())
         assert len(await _notes(s, owner.id)) == in_app
         assert len(emails) == email
-        await s.rollback()
-
-
-async def test_notify_respects_off_preference(emails):
-    async with session_factory()() as s:
-        owner = await _owner(s)
-        s.add(NotificationPreference(user_id=owner.id, kind="set_upgraded", channel="off"))
-        await s.flush()
-        await notifications.notify_set_upgraded(s, _target(owner), _event())
-        assert await _notes(s, owner.id) == []
-        assert emails == []
         await s.rollback()
 
 

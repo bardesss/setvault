@@ -263,7 +263,7 @@
             <dt>{$_(`settings.notification_kinds.${kind}`)}</dt>
             <dd>
               <select
-                value={prefs[kind] ?? "both"}
+                value={prefs[kind] ?? (kind === "set_upgraded" ? "in_app" : "both")}
                 on:change={(e) => onPrefChange(kind, e)}
                 aria-label={$_(`settings.notification_kinds.${kind}`)}
               >

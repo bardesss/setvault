@@ -206,6 +206,7 @@
     "mentioned_you": "mentioned you",
     "replied_to_you": "replied to your comment",
     "discovery_summary": "New discoveries for",
+    "set_upgraded_generic": "A set in your library was upgraded",
     "set_upgraded": "Upgraded {title}: {from} → {to}"
   },
   "monitors": {

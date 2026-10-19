@@ -164,11 +164,14 @@ async def notify_set_upgraded(
     """Tell the set's owner a better copy replaced its audio (Phase 7D).
 
     Channel follows the owner's ``set_upgraded`` preference; no row means
-    ``both``, as for the engagement kinds. The caller commits.
+    in-app only (email is opt-in, since a sweep can upgrade many sets). A set
+    with no owner has no recipient. The caller commits.
     """
     uid = target.uploaded_by
+    if uid is None:
+        return
     pref = await _preference_for(session, uid, "set_upgraded")
-    channel = pref.channel if pref else "both"
+    channel = pref.channel if pref else "in_app"
     if channel == "off":
         return
     payload = {
