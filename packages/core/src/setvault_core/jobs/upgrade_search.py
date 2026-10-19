@@ -90,7 +90,12 @@ _RIP_DONE = ("ready", "failed")
 
 Outcome = Literal[
     "queued", "no_candidate", "rate_limited", "no_space", "not_eligible", "busy",
+    "sources_failed",
 ]
+
+
+class AllSourcesFailedError(Exception):
+    """Every enabled source errored: nothing was actually searched."""
 
 
 async def due_sets(
@@ -205,18 +210,24 @@ async def _enabled_kinds(session: AsyncSession) -> list[str]:
 
 async def _search(session: AsyncSession, query: str) -> list[Candidate]:
     """Every enabled source, one after another (no fan-out burst). A rate
-    limit propagates: the caller stops and retries next run."""
+    limit propagates: the caller stops and retries next run. So does an
+    outage of every source (:class:`AllSourcesFailedError`)."""
     out: list[Candidate] = []
+    searched = failed = 0
     for kind in await _enabled_kinds(session):
         try:
             out.extend(await search_source(
                 session, kind=kind, query=query, limit=_RESULTS_PER_SOURCE,
             ))
+            searched += 1
         except SourceDisabledError:
             continue
         except SourceError as e:
             # search_source already counted the failure against the source.
+            failed += 1
             logger.warning("upgrade search: %s failed: %s", kind, e)
+    if failed and not searched:
+        raise AllSourcesFailedError(f"all {failed} sources failed")
     return out
 
 
@@ -361,6 +372,12 @@ async def search_upgrade_for_set(
                     live.id, e)
         await session.commit()  # keep the source health updates
         return "rate_limited"
+    except AllSourcesFailedError as e:
+        # Not stamped, like a rate limit: an outage says nothing about
+        # whether a better copy exists.
+        logger.info("upgrade search for set %s: %s; retrying next run", live.id, e)
+        await session.commit()  # keep the source health updates
+        return "sources_failed"
 
     tried = await _tried_keys(session, live, candidates)
     now = datetime.now(UTC)
@@ -448,9 +465,9 @@ async def _run_batch() -> dict:
                     await s.commit()
         summary["searched"] += 1
         summary[outcome] = summary.get(outcome, 0) + 1
-        if outcome in ("rate_limited", "busy"):
-            # The source budget is spent, or enough upgrade rips are waiting:
-            # the rest keep their place for next hour.
+        if outcome in ("rate_limited", "busy", "sources_failed"):
+            # The source budget is spent, the sources are down, or enough
+            # upgrade rips are waiting: the rest keep their place for next hour.
             break
     return summary
 

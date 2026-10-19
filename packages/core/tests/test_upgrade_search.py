@@ -620,3 +620,51 @@ def test_run_upgrade_search_stops_the_batch_when_busy(monkeypatch):
     summary = job.run_upgrade_search()
     assert seen == ids[:1]
     assert summary["busy"] == 1
+
+
+async def test_set_is_not_stamped_when_every_source_errored(seeded, sources):
+    """Like a rate limit: an outage is no evidence that no better copy exists."""
+    from setvault_ingest_sources.base import SourceError
+
+    sources["raise"] = SourceError("youtube is down")
+    async with session_factory()() as s:
+        outcome = await job.search_upgrade_for_set(s, seeded["set"], trigger="scheduled")
+    assert outcome == "sources_failed"
+    assert await _stamp(seeded["set"]) is None
+
+
+async def test_one_failing_source_still_counts_as_a_search(seeded, sources, monkeypatch):
+    from setvault_ingest_sources.base import SourceError
+
+    async def two_kinds(session):
+        return ["youtube", "soundcloud"]
+
+    async def half_down(session, *, kind, query, limit):
+        if kind == "youtube":
+            raise SourceError("down")
+        return []
+
+    monkeypatch.setattr(job, "_enabled_kinds", two_kinds)
+    monkeypatch.setattr(job, "search_source", half_down)
+    async with session_factory()() as s:
+        assert await job.search_upgrade_for_set(
+            s, seeded["set"], trigger="scheduled") == "no_candidate"
+    assert await _stamp(seeded["set"]) is not None
+
+
+def test_run_upgrade_search_stops_when_sources_fail(monkeypatch):
+    ids = [uuid.uuid4() for _ in range(3)]
+    seen: list[uuid.UUID] = []
+
+    async def fake_due(session, *, now, schedule, limit):
+        return [LiveSet(id=i) for i in ids]
+
+    async def fake_search(session, live_set_id, *, trigger):
+        seen.append(live_set_id)
+        return "sources_failed"
+
+    monkeypatch.setattr(job, "due_sets", fake_due)
+    monkeypatch.setattr(job, "search_upgrade_for_set", fake_search)
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    summary = job.run_upgrade_search()
+    assert seen == ids[:1] and summary["sources_failed"] == 1
