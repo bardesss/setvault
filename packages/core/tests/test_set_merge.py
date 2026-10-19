@@ -590,3 +590,65 @@ async def test_summary_skips_admins_who_turned_maintenance_off(lib):
         users = (await s.execute(select(InAppNotification.user_id).where(
             InAppNotification.kind == "maintenance"))).scalars().all()
     assert on.id in users and off.id not in users
+
+
+# --- real audio (fpcalc; run via the Linux runner) --------------------------
+
+async def test_backfill_with_cleanup_on_real_audio(lib, tmp_path, fake_queue, require_tools):
+    """End to end on the synthetic fixture sets: an MP3 128 set and a later
+    lossless copy trimmed by 20 s merge (the older id gets the FLAC); a set
+    sharing only the intro, and an unrelated set, are left alone."""
+    import importlib.util
+    from pathlib import Path
+
+    require_tools("ffmpeg", "ffprobe", "fpcalc")
+    spec = importlib.util.spec_from_file_location(
+        "fixtures_audio", Path(__file__).with_name("fixtures_audio.py"))
+    fixtures_audio = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixtures_audio)
+    paths = fixtures_audio.build_sets(tmp_path)
+    admin = await _user("admin")
+
+    ids = {}
+    async with session_factory()() as s:
+        t = datetime(2024, 1, 1, tzinfo=UTC)
+        for n, name in enumerate(["a_mp3_128", "a_trim20", "b", "c"]):
+            sid = uuid.uuid4()
+            s.add(LiveSet(
+                id=sid, slug=f"r-{sid.hex[:8]}", title=name, media_root_id=lib.root.id,
+                audio_path=paths[name].name, streaming_path=f"stream/{sid}.opus",
+                waveform_path=f"waveform/{sid}.json", uploaded_by=lib.owner.id,
+                source_type="upload", status="published", created_at=t + timedelta(days=n),
+            ))
+            ids[name] = sid
+        await s.flush()
+        s.add_all([
+            Comment(live_set_id=ids["a_mp3_128"], user_id=lib.owner.id,
+                    position_seconds=100, body="old"),
+            Comment(live_set_id=ids["a_trim20"], user_id=lib.owner.id,
+                    position_seconds=50, body="new"),
+        ])
+        await s.commit()
+
+    await qb._run_quality_backfill(cleanup=True, phase="fill")
+    while fake_queue:
+        _, kwargs = fake_queue.pop(0)
+        await qb._run_quality_backfill(**kwargs["kwargs"])
+
+    older, newer = await _get(ids["a_mp3_128"]), await _get(ids["a_trim20"])
+    assert older.deleted_at is None and older.quality_tier == "lossless"
+    assert older.audio_path == "a_trim20.flac"
+    assert newer.deleted_at is not None and newer.duplicate_of == older.id
+    for name in ("b", "c"):
+        live = await _get(ids[name])
+        assert live.deleted_at is None and live.duplicate_of is None
+    async with session_factory()() as s:
+        comments = dict((await s.execute(select(Comment.body, Comment.position_seconds)
+                                         .where(Comment.live_set_id == older.id))).all())
+        summary = (await s.execute(select(InAppNotification.payload).where(
+            InAppNotification.kind == "maintenance",
+            InAppNotification.user_id == admin.id))).scalars().all()
+    # The trimmed copy starts 20 s into the set: the old comment moves back.
+    assert comments["new"] == 50
+    assert comments["old"] == pytest.approx(80, abs=1)
+    assert summary == [{"fingerprinted": 4, "measured": 4, "merged": 1, "skipped": 0}]
