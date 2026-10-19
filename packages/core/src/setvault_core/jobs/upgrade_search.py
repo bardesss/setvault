@@ -40,6 +40,7 @@ from setvault_core.services.monitor_match import score_confidence
 from setvault_core.services.quality_profile import (
     QualityProfile,
     cutoff_unmet,
+    effective_cutoff,
     get_profile,
     is_better,
     rank,
@@ -113,10 +114,8 @@ async def due_sets(
     if not (await get_config(session)).auto_upgrades_enabled:
         return []
     profile = await get_profile(session)
-    if profile.cutoff not in profile.order:
-        return []
     # cutoff_unmet() in SQL: a measured tier that isn't the cutoff or above.
-    at_or_above = list(profile.order[: rank(profile, profile.cutoff) + 1])
+    at_or_above = list(profile.order[: rank(profile, effective_cutoff(profile)) + 1])
     stmt = (
         select(LiveSet)
         .where(

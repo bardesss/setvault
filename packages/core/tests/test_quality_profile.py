@@ -65,3 +65,13 @@ def test_lossless_flags_are_required():
 
     with pytest.raises(TypeError):
         is_better(DEFAULT, "lossless", "high")  # type: ignore[call-arg]
+
+
+def test_unknown_stored_cutoff_is_treated_as_best_tier():
+    """A cutoff not in the order (stale/hand-edited config) acts as the best
+    tier, so anything below the top tier still counts as cutoff-unmet."""
+    p = QualityProfile(order=TIERS, cutoff="bogus")
+    assert cutoff_unmet(p, TIERS[0]) is False
+    assert cutoff_unmet(p, TIERS[1]) is True
+    assert cutoff_unmet(p, "low") is True
+    assert cutoff_unmet(p, None) is False
