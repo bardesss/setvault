@@ -35,6 +35,12 @@ jobs:
           done
           echo "health never came up"; docker logs sv; exit 1
 
+      - name: Periodic jobs run (rq-scheduler service moves due jobs to the worker)
+        run: bash infra/docker/test/smoke_scheduler.sh
+        env:
+          CONTAINER: sv
+          BASE: http://localhost:1970
+
       - name: Uploads route reaches tusd (not 404)
         run: |
           code=$(curl -sS -o /dev/null -w '%{http_code}' -X OPTIONS http://localhost:1970/uploads/)
