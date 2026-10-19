@@ -46,9 +46,33 @@ async def test_set_detail_includes_quality_and_history(authed_admin_client, seed
     assert hist[0]["from_label"].startswith("MP3 134 kbps")  # newest first
     assert hist[0]["to_label"].startswith("FLAC")
     assert hist[0]["outcome"] == "upgraded"
+    assert hist[0]["tracklist_kept"] is False
     # Unique keys for the page's list, even for events written in one
     # transaction (same now()).
     assert len({h["id"] for h in hist}) == 5
+
+
+@pytest.mark.asyncio
+async def test_history_says_when_a_merge_kept_the_tracklist(authed_admin_client, seeded_live_set):
+    """Spec §4.7: nothing visible silently disappears. A merge whose
+    tracklist stayed with the recycled copy says so on the set page."""
+    from setvault_core.services.set_merge import TRACKLIST_KEPT
+
+    sid, slug = seeded_live_set["id"], seeded_live_set["slug"]
+    now = datetime.now(UTC)
+    async with session_factory()() as s:
+        for i, reason in enumerate((TRACKLIST_KEPT, None)):
+            s.add(SetUpgradeEvent(
+                live_set_id=uuid.UUID(sid), trigger="backfill", outcome="merged",
+                reason=reason, created_at=now - timedelta(minutes=i),
+                from_tier="ok", from_codec="mp3", from_bitrate_kbps=128,
+                to_tier="ok", to_codec="mp3", to_bitrate_kbps=128,
+            ))
+        await s.commit()
+
+    hist = (await authed_admin_client.get(f"/api/sets/{slug}")).json()["upgrade_history"]
+    assert [(h["outcome"], h["tracklist_kept"]) for h in hist] == [
+        ("merged", True), ("merged", False)]
 
 
 @pytest.mark.asyncio
