@@ -637,3 +637,61 @@ async def test_recycled_upgrade_rip_ends_before_transcode(session, monkeypatch, 
         arrival = await s.get(LiveSet, job.live_set_id)
         assert arrival is not None and arrival.deleted_at is not None
         assert (await s.get(LiveSet, tid)).quality_tier == "ok"
+
+
+@pytest.mark.parametrize("stage", ["_download", "transcode"])
+async def test_failed_upgrade_rip_records_a_rejected_event(
+    session, monkeypatch, tmp_path, stage,
+):
+    """R31: a download/probe/transcode failure on an upgrade attempt writes a
+    rejected event for the target, so the next sweep doesn't re-pick the same
+    candidate forever."""
+    from setvault_core.db import session_factory
+    from setvault_core.models.upgrades import SetUpgradeEvent, already_tried
+    from sqlalchemy import select
+
+    tid, job_id, _user, _calls = await _upgrade_rip_setup(
+        session, monkeypatch, tmp_path, arrival_tier="lossless", matches=True,
+    )
+
+    async def _boom(*a, **kw):
+        raise RuntimeError("boom at " + stage)
+
+    if stage == "_download":
+        monkeypatch.setattr("setvault_core.jobs.url_rip_job._download", _boom)
+    else:
+        monkeypatch.setattr("setvault_core.jobs.transcode.transcode_audio", _boom)
+
+    await _run_rip_job(session, job_id)
+
+    async with session_factory()() as s:
+        job = await s.get(RipJob, job_id)
+        assert job.status == "failed"
+        [event] = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == tid))).scalars().all()
+        assert event.outcome == "rejected"
+        assert event.reason.startswith("rip failed: ")
+        assert "boom at" in event.reason
+        assert event.trigger == "scheduled"
+        assert (event.candidate_source_kind, event.candidate_external_id) == (
+            "bandcamp", "bc-1")
+        assert event.to_source_url == "https://x.bandcamp.com/track/t"
+        assert await already_tried(s, tid, source_kind="bandcamp", external_id="bc-1")
+
+
+async def test_failed_plain_rip_records_no_upgrade_event(session, monkeypatch, tmp_path):
+    from setvault_core.models.upgrades import SetUpgradeEvent
+    from sqlalchemy import func, select
+
+    user = await _make_user(session)
+    await _make_root(session, tmp_path)
+    job_id = await _queued_rip(session, user)
+    before = await session.scalar(select(func.count()).select_from(SetUpgradeEvent))
+
+    async def _boom(*a, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("setvault_core.jobs.url_rip_job._download", _boom)
+    await _run_rip_job(session, job_id)
+    after = await session.scalar(select(func.count()).select_from(SetUpgradeEvent))
+    assert after == before

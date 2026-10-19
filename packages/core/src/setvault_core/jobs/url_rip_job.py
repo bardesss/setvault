@@ -405,6 +405,8 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
                 await session.refresh(job)  # rollback expired it; reload async
         try:
             job.error_text = _error_text(exc)
+            if job.upgrade_target_set_id is not None:
+                await _record_failed_upgrade_attempt(session, job)
             await _set_status(session, job, "failed", message="rip failed")
         except Exception:
             logger.exception("rip job %s: failed to record failure status", job_id)
@@ -413,6 +415,27 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         except Exception:
             logger.exception("rip job %s: tmp cleanup failed", job_id)
+
+
+async def _record_failed_upgrade_attempt(session: AsyncSession, job: RipJob) -> None:
+    """R31: a failed upgrade attempt is a rejected candidate for its target,
+    so ``already_tried`` keeps later sweeps from re-picking it every run.
+    The caller commits (with the job's failed status)."""
+    target = await session.get(LiveSet, job.upgrade_target_set_id)
+    if target is None:
+        return
+    session.add(SetUpgradeEvent(
+        live_set_id=target.id, trigger=job.trigger or "url_rip", outcome="rejected",
+        reason=f"rip failed: {job.error_text or 'unknown error'}"[:200],
+        from_tier=target.quality_tier, from_codec=target.audio_codec,
+        from_bitrate_kbps=target.audio_bitrate_kbps, from_source_type=target.source_type,
+        from_source_url=target.source_url,
+        to_source_url=job.source_url[:2048],
+        candidate_source_kind=job.source_platform,
+        candidate_external_id=(
+            job.source_external_id[:255] if job.source_external_id else None
+        ),
+    ))
 
 
 async def _discard_unless_upgrade(
