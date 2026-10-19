@@ -173,13 +173,17 @@ class _RawCache:
         self._items: OrderedDict[uuid.UUID, tuple] = OrderedDict()
 
     async def get(self, fp_id: uuid.UUID):
+        """The raw fingerprint, or None when the row is gone (its set was
+        purged since the index was loaded)."""
         hit = self._items.get(fp_id)
         if hit is not None:
             self._items.move_to_end(fp_id)
             return hit[0]
         raw = (await self._session.execute(
             select(SetFingerprint.raw).where(SetFingerprint.id == fp_id)
-        )).scalar_one()
+        )).scalar_one_or_none()
+        if raw is None:
+            return None
         fp = raw_from_bytes(raw)
         self._items[fp_id] = (fp, len(raw))
         self._size += len(raw)
@@ -198,6 +202,8 @@ async def _match(older: _Entry, newer: _Entry, cache: _RawCache,
         if abs(o_cur.duration - n_cur.duration) > tol:
             return None
         a, b = await cache.get(o_cur.id), await cache.get(n_cur.id)
+        if a is None or b is None:
+            return None  # a side was purged meanwhile: no match
         # compare() is CPU-bound pure Python; keep the event loop free.
         result = await asyncio.to_thread(compare, a, b)
         return (result, True) if is_same_audio(result) else None

@@ -710,3 +710,19 @@ async def test_backfill_with_cleanup_on_real_audio(lib, tmp_path, fake_queue, re
     assert comments["old"] == pytest.approx(80, abs=1)
     assert summary == [
         {"fingerprinted": 4, "measured": 4, "merged": 1, "skipped": 0, "errors": 0}]
+
+
+async def test_purged_fingerprint_is_no_match(lib):
+    """A set purged after the index was loaded: its raw is gone, which is
+    no match, not an error that ends the slice."""
+    a = _items(21)
+    older = await lib.add(a)
+    newer = await lib.add(a[TRIM:])
+    async with session_factory()() as s:
+        index = await set_merge._load_index(s)
+        await s.execute(delete(SetFingerprint).where(SetFingerprint.live_set_id == older))
+        await s.commit()
+        cache = set_merge._RawCache(s)
+        assert await cache.get(uuid.uuid4()) is None
+        by_id = {e.id: e for e in index}
+        assert await set_merge._match(by_id[older], by_id[newer], cache) is None
