@@ -141,6 +141,14 @@
     "tab_sources": "Sources",
     "search_placeholder": "Search all sources for sets…",
     "partial_unavailable": "Some sources are unavailable: {sources}",
+    "quality": {
+      "lossless": "Lossless",
+      "high": "High quality",
+      "good": "Good quality",
+      "ok": "OK quality",
+      "low": "Low quality",
+      "unknown": "Quality unknown"
+    },
     "ingest": "Ingest",
     "in_library": "In library",
     "ingesting": "Ingesting…",

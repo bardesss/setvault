@@ -10,6 +10,7 @@ from setvault_core.services.ingest_sources import (
     search_all_sources,
     set_enabled,
 )
+from setvault_core.services.quality_profile import get_profile, rank
 from setvault_ingest_sources.base import Candidate
 from setvault_ingest_sources.registry import get_source
 from sqlalchemy import false, or_, select
@@ -53,7 +54,9 @@ async def search(
     result = await search_all_sources(
         session, query=body.q, limit_per_source=body.limit_per_source
     )
-    cands = result.candidates
+    profile = await get_profile(session)
+    # Stable sort: best expected quality first, unknown last.
+    cands = sorted(result.candidates, key=lambda c: rank(profile, c.expected_tier))
 
     id_keys: set[tuple[str, str]] = set()
     urls: set[str] = set()
@@ -92,6 +95,7 @@ async def search(
                 thumbnail_url=build_proxied_image_url(c.thumbnail_url),
                 webpage_url=c.webpage_url,
                 already_in_library=_in_lib(c),
+                expected_tier=c.expected_tier,
             )
             for c in cands
         ],

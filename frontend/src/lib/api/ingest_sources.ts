@@ -9,6 +9,7 @@ export interface SourceCandidate {
   thumbnail_url: string | null;
   webpage_url: string;
   already_in_library: boolean;
+  expected_tier?: string | null;
 }
 
 export interface SourceState {

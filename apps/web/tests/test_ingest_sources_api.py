@@ -114,3 +114,20 @@ async def test_admin_can_list_and_toggle_sources(authed_admin_client):
         "/api/admin/ingest-sources/youtube", json={"enabled": False}
     )
     assert r2.status_code == 200 and r2.json()["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_search_results_ranked_by_expected_quality(authed_admin_client):
+    def mk(ext, tier):
+        return Candidate("youtube", ext, ext, "U", 60, None, f"https://youtu.be/{ext}",
+                         expected_tier=tier)
+
+    cands = [mk("unk", None), mk("low", "low"), mk("ll", "lossless"),
+             mk("hi", "high"), mk("unk2", None)]
+    result = SimpleNamespace(candidates=cands, errored_kinds=[])
+    with patch("setvault_web.api.ingest_sources.search_all_sources", return_value=result):
+        r = await authed_admin_client.post("/api/ingest-sources/search", json={"q": "x"})
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert [i["external_id"] for i in items] == ["ll", "hi", "low", "unk", "unk2"]
+    assert items[0]["expected_tier"] == "lossless" and items[3]["expected_tier"] is None
