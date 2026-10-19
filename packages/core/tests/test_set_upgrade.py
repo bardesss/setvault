@@ -431,6 +431,11 @@ async def test_purge_of_recycled_copy_spares_files_the_live_target_now_uses(
     # Files only the recycled row referenced are gone.
     assert not (tmp_path / f"originals/{tid}/old.mp3").exists()
     assert not (tmp_path / f"waveform/{tid}.json").exists()
+    # The recycled copy's audio lived under the target's id: that now-empty
+    # dir goes too, the dir holding the target's live audio stays.
+    assert not (tmp_path / f"originals/{tid}").exists()
+    assert (tmp_path / "originals").is_dir()
+    assert (tmp_path / "waveform").is_dir()
 
 
 async def test_plain_purge_still_deletes_unreferenced_files(tmp_path: Path):
