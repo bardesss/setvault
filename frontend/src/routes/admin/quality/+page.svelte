@@ -207,8 +207,9 @@
       </label>
       <p class="muted">
         When two published sets turn out to be the same audio, keep the better copy and move the
-        other to the recycle bin. Comments, tracklists, bookmarks and play history move to the set
-        that stays. Sets with upgrades off, duplicates you chose to keep, and copies from another
+        other to the recycle bin. Comments, bookmarks and play history move to the set that stays;
+        a tracklist moves only when the set that stays has none (otherwise it stays with the
+        recycled copy). Sets with upgrades off, duplicates you chose to keep, and copies from another
         owner are not merged; they show up on the Duplicates page instead. Sets that still need a fingerprint are
         only counted after the backfill.
       </p>
