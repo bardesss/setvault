@@ -15,10 +15,15 @@ def _first(value):
 
 
 def _has_flac(doc: dict) -> bool:
-    fmts = doc.get("format") or []
+    """Whether the item lists a FLAC file ("Flac", "24bit Flac", ...). The
+    search API returns ``format`` as a list, or a plain string for a single
+    value; any other shape counts as no FLAC rather than raising."""
+    fmts = doc.get("format")
     if isinstance(fmts, str):
         fmts = [fmts]
-    return any("flac" in str(f).lower() for f in fmts)
+    elif not isinstance(fmts, (list, tuple)):
+        return False
+    return any(isinstance(f, str) and "flac" in f.lower() for f in fmts)
 
 
 class InternetArchiveSource:
