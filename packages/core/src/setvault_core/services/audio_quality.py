@@ -112,6 +112,52 @@ def tier_for(codec: str, bitrate_kbps: int | None, lossless: bool) -> str:
     return "low"
 
 
+_CODEC_NAMES = {
+    "mp3": "MP3", "aac": "AAC", "alac": "ALAC", "flac": "FLAC", "opus": "Opus",
+    "vorbis": "Vorbis", "wavpack": "WavPack", "wmav2": "WMA",
+}
+_SOURCE_NAMES = {
+    "youtube": "YouTube", "soundcloud": "SoundCloud", "mixcloud": "Mixcloud",
+    "bandcamp": "Bandcamp", "internet_archive": "Internet Archive",
+    "upload": "Upload", "watch_folder": "Watch folder", "url_rip": "Web link",
+}
+
+
+def quality_label(tier: str | None, codec: str | None, bitrate_kbps: int | None,
+                  source_type: str | None) -> str:
+    """Human label such as ``MP3 128 kbps (YouTube)`` or ``FLAC (Bandcamp)``.
+
+    Lossless codecs omit the bitrate, a lossy one without a known bitrate shows
+    just the codec. With no codec the tier stands in ("Ok quality"), and with
+    nothing known at all the result is "Unknown quality". The source suffix
+    uses a readable name for the known source types; an unknown type is
+    shown prettified (``some_thing`` -> "Some thing"), a missing one is
+    left out. ``url_rip`` reads "Web link" unless the caller passes the
+    platform (e.g. ``youtube``) instead, which is what the notifier does.
+    """
+    if codec:
+        c = codec.lower()
+        if c in _CODEC_NAMES:
+            name = _CODEC_NAMES[c]
+        elif c.startswith("pcm_"):
+            name = "PCM"
+        elif c.startswith("dsd_"):
+            name = "DSD"
+        else:
+            name = c.upper()
+        label = name
+        if bitrate_kbps and not is_lossless_codec(c):
+            label = f"{name} {bitrate_kbps} kbps"
+    elif tier:
+        label = f"{tier.capitalize()} quality"
+    else:
+        label = "Unknown quality"
+    if source_type:
+        src = _SOURCE_NAMES.get(source_type) or source_type.replace("_", " ").capitalize()
+        label = f"{label} ({src})"
+    return label
+
+
 def _int_or_none(v: object) -> int | None:
     try:
         n = int(float(str(v)))

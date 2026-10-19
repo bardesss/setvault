@@ -56,7 +56,8 @@
     "notification_kinds": {
       "account_security": "Account security",
       "mention": "Mentions",
-      "comment_reply": "Replies to your comments"
+      "comment_reply": "Replies to your comments",
+      "set_upgraded": "Set upgraded to better quality"
     },
     "channel": {
       "in_app": "In-app",
@@ -204,7 +205,8 @@
     "empty": "Nothing here.",
     "mentioned_you": "mentioned you",
     "replied_to_you": "replied to your comment",
-    "discovery_summary": "New discoveries for"
+    "discovery_summary": "New discoveries for",
+    "set_upgraded": "Upgraded {title}: {from} → {to}"
   },
   "monitors": {
     "admin_title": "Monitors",

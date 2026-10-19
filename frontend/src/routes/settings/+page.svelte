@@ -76,7 +76,7 @@
     }
   }
 
-  type Kind = "account_security" | "mention" | "comment_reply";
+  type Kind = "account_security" | "mention" | "comment_reply" | "set_upgraded";
   type Channel = "in_app" | "email" | "both" | "off";
 
   interface Pref {
@@ -85,7 +85,7 @@
     connector_id: string | null;
   }
 
-  const KINDS: Kind[] = ["account_security", "mention", "comment_reply"];
+  const KINDS: Kind[] = ["account_security", "mention", "comment_reply", "set_upgraded"];
 
   let prefs: Record<string, Channel> = {};
   let prefsLoaded = false;
