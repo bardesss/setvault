@@ -42,6 +42,8 @@ test("set page shows quality, upgrade history and the switch sends PATCH", async
     /from MP3 128 kbps \(YouTube\) to MP3 320 kbps \(YouTube\)/,
   ]);
 
+  await expect(page.getByTestId("upgrade-history").locator("li").nth(2)).toContainText("Mar 5, 2026");
+
   const toggle = page.getByLabel("Find better copies automatically");
   await expect(toggle).toBeChecked();
   const patch = page.waitForRequest((r) => r.method() === "PATCH" && url.test(r.url()));
