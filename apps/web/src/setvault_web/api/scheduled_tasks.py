@@ -18,6 +18,7 @@ from redis import Redis
 from rq import Queue
 from rq.exceptions import NoSuchJobError
 from rq_scheduler import Scheduler
+from setvault_core.jobs.upgrade_search import UPGRADE_SEARCH_JOB_TIMEOUT
 
 from setvault_web.deps import current_user, require_admin
 
@@ -28,6 +29,14 @@ router = APIRouter(prefix="/api/admin/tasks", tags=["admin"])
 
 def _redis() -> Redis:
     return Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+
+
+# Timeouts for long scheduled jobs whose rq-scheduler entry carries none
+# (e.g. registered before the timeout was added). Mirrors the worker's
+# _SCHEDULE; without one RQ kills the job after its 180 s default.
+_RUN_NOW_TIMEOUTS: dict[str, int] = {
+    "setvault_core.jobs.upgrade_search.run_upgrade_search": UPGRADE_SEARCH_JOB_TIMEOUT,
+}
 
 
 def _short_name(func_path: str) -> str:
@@ -84,7 +93,7 @@ async def run_now(
         raise HTTPException(status_code=400, detail="func_name required")
 
     scheduler = Scheduler(connection=_redis())
-    known = {j.func_name for j in scheduler.get_jobs()}
+    known = {j.func_name: j for j in scheduler.get_jobs()}
     if func_path not in known:
         raise HTTPException(
             status_code=400,
@@ -93,7 +102,9 @@ async def run_now(
 
     try:
         queue = Queue("default", connection=_redis())
-        rq_job = queue.enqueue(func_path)
+        # Same timeout as the scheduled run.
+        timeout = known[func_path].timeout or _RUN_NOW_TIMEOUTS.get(func_path)
+        rq_job = queue.enqueue(func_path, job_timeout=timeout)
     except NoSuchJobError as exc:
         raise HTTPException(status_code=500, detail="enqueue failed") from exc
 

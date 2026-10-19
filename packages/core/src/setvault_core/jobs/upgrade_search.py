@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -26,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
-from setvault_core.models.upgrades import already_tried
+from setvault_core.models.upgrades import SetUpgradeEvent, already_tried
 from setvault_core.models.url_rip import RipJob
 from setvault_core.services.ingest_sources import (
     SourceDisabledError,
@@ -64,9 +65,13 @@ _WINDOWS = {"daily": timedelta(hours=24), "weekly": timedelta(hours=168)}
 _RESULTS_PER_SOURCE = 10
 _DURATION_TOLERANCE = 0.10
 _DURATION_MIN_SLACK_SECONDS = 120
-# Each submit probes the URL with yt-dlp; a duplicate or broken pick falls
-# through to the next candidate, but only this many times per set.
+# Each submit probes the URL with yt-dlp; a pick whose probe fails falls
+# through to the next candidate, but only this many times per set. Picks that
+# turn out already ripped (DuplicateRipError) don't count.
 _MAX_SUBMIT_ATTEMPTS = 3
+# The batch stops starting new sets after this long, so it ends well inside
+# UPGRADE_SEARCH_JOB_TIMEOUT and doesn't hold the single worker for half an hour.
+UPGRADE_SEARCH_BATCH_BUDGET_SECONDS = 20 * 60
 # Same in-flight set as jobs/monitor_dispatch.py.
 _IN_FLIGHT = {"queued", "started", "deferred", "scheduled"}
 
@@ -253,6 +258,20 @@ async def _rip_owner(session: AsyncSession, live: LiveSet) -> uuid.UUID | None:
     )).scalar_one_or_none()
 
 
+def _probe_failed_event(
+    live: LiveSet, c: Candidate, exc: Exception, *, trigger: str,
+) -> SetUpgradeEvent:
+    return SetUpgradeEvent(
+        live_set_id=live.id, trigger=trigger, outcome="rejected",
+        reason=f"probe failed: {exc}"[:200],
+        from_tier=live.quality_tier, from_codec=live.audio_codec,
+        from_bitrate_kbps=live.audio_bitrate_kbps, from_source_type=live.source_type,
+        from_source_url=live.source_url,
+        to_source_url=c.webpage_url[:2048],
+        candidate_source_kind=c.source_kind, candidate_external_id=c.external_id[:255],
+    )
+
+
 def _enqueue_rip(rip_job_id: uuid.UUID) -> None:
     from redis import Redis
     from rq import Queue
@@ -301,7 +320,8 @@ async def search_upgrade_for_set(
 
     tried = await _tried_keys(session, live, candidates)
     now = datetime.now(UTC)
-    for _ in range(_MAX_SUBMIT_ATTEMPTS):
+    failed_probes = 0
+    while failed_probes < _MAX_SUBMIT_ATTEMPTS:
         pick = pick_candidate(live, candidates, profile=profile, tried=tried)
         if pick is None:
             break
@@ -312,13 +332,19 @@ async def search_upgrade_for_set(
                 upgrade_target_set_id=live.id, trigger=trigger,
             )
         except DuplicateRipError:
+            # Already ripped (any set, any time): not a new copy. It doesn't
+            # count against the cap, so a fresh lower-ranked pick is reached.
             continue
         except SQLAlchemyError:
             raise
-        except Exception:
-            # Unsupported URL, probe failure, playlist, live stream.
+        except Exception as exc:
+            # Unsupported URL, probe failure (geo-blocked, private), playlist,
+            # live stream. Record it so already_tried() skips it next sweep.
+            failed_probes += 1
             logger.warning("upgrade search for set %s: submit failed for %s",
                            live.id, pick.webpage_url, exc_info=True)
+            session.add(_probe_failed_event(live, pick, exc, trigger=trigger))
+            await session.flush()
             continue
         live.last_upgrade_search_at = now
         # Commit BEFORE enqueueing: a worker that can't see the RipJob row
@@ -338,6 +364,10 @@ async def search_upgrade_for_set(
     return "no_candidate"
 
 
+def _clock() -> float:
+    return time.monotonic()
+
+
 async def _run_batch() -> dict:
     if DATABASE_URL_ENV in os.environ:
         init_engine(os.environ[DATABASE_URL_ENV])
@@ -351,7 +381,12 @@ async def _run_batch() -> dict:
         await s.commit()
 
     summary: dict[str, int] = {"searched": 0}
+    started = _clock()
     for set_id in ids:
+        if _clock() - started >= UPGRADE_SEARCH_BATCH_BUDGET_SECONDS:
+            # Out of time: the rest keep their place for the next run.
+            summary["deferred"] = len(ids) - summary["searched"]
+            break
         # One session per set, so one bad set can't poison the rest.
         async with session_factory()() as s:
             try:

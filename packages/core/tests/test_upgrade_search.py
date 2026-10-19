@@ -244,7 +244,8 @@ async def seeded(tmp_path):
 @pytest.fixture
 def sources(monkeypatch):
     """Stub the source search and rip submission; plenty of disk by default."""
-    state = {"results": [], "raise": None, "searched": [], "submitted": [], "enqueued": []}
+    state = {"results": [], "raise": None, "searched": [], "submitted": [], "enqueued": [],
+             "attempted": [], "submit_errors": {}}
 
     async def fake_kinds(session):
         return ["youtube"]
@@ -256,6 +257,9 @@ def sources(monkeypatch):
         return list(state["results"])
 
     async def fake_submit(session, **kw):
+        state["attempted"].append(kw["url"])
+        if (err := state["submit_errors"].get(kw["url"])) is not None:
+            raise err
         state["submitted"].append(kw)
         rip = RipJob(submitted_by=kw["user_id"], source_url=kw["url"], status="queued",
                      progress_pct=0, probed_metadata={},
@@ -390,3 +394,107 @@ async def test_submit_rip_records_the_upgrade_target(monkeypatch):
     rip = await url_rip.submit_rip(session, user_id=uuid.uuid4(), url="https://soundcloud.com/a/b",
                                    upgrade_target_set_id=target, trigger="search_now")
     assert (rip.upgrade_target_set_id, rip.trigger) == (target, "search_now")
+
+
+# --- review round 1 -------------------------------------------------------------
+
+
+async def test_already_ripped_candidates_do_not_use_up_the_attempts(seeded, sources):
+    from setvault_core.services.url_rip import DuplicateRipError
+
+    dups = [_cand(f"dup{i}", tier="lossless") for i in range(3)]
+    fresh = _cand("fresh", tier="high")
+    sources["results"] = [*dups, fresh]
+    for c in dups:
+        sources["submit_errors"][c.webpage_url] = DuplicateRipError(RipJob())
+    async with session_factory()() as s:
+        outcome = await job.search_upgrade_for_set(s, seeded["set"], trigger="scheduled")
+    assert outcome == "queued"
+    assert [x["url"] for x in sources["submitted"]] == [fresh.webpage_url]
+
+
+async def test_probe_failure_is_recorded_and_skipped_next_run(seeded, sources):
+    from sqlalchemy import select
+
+    broken = _cand("geo", tier="lossless")
+    sources["results"] = [broken]
+    sources["submit_errors"][broken.webpage_url] = ValueError("Video unavailable in your country")
+    async with session_factory()() as s:
+        assert await job.search_upgrade_for_set(
+            s, seeded["set"], trigger="scheduled") == "no_candidate"
+    async with session_factory()() as s:
+        [event] = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == seeded["set"]))).scalars().all()
+    assert (event.outcome, event.candidate_source_kind, event.candidate_external_id) == (
+        "rejected", "youtube", "geo")
+    assert event.reason.startswith("probe failed: Video unavailable")
+
+    sources["attempted"].clear()
+    async with session_factory()() as s:
+        assert await job.search_upgrade_for_set(
+            s, seeded["set"], trigger="scheduled") == "no_candidate"
+    assert sources["attempted"] == []
+
+
+async def test_probe_failures_are_capped_per_set(seeded, sources):
+    broken = [_cand(f"b{i}", tier="lossless") for i in range(job._MAX_SUBMIT_ATTEMPTS + 1)]
+    sources["results"] = broken
+    for c in broken:
+        sources["submit_errors"][c.webpage_url] = ValueError("private")
+    async with session_factory()() as s:
+        assert await job.search_upgrade_for_set(
+            s, seeded["set"], trigger="scheduled") == "no_candidate"
+    assert len(sources["attempted"]) == job._MAX_SUBMIT_ATTEMPTS
+
+
+def test_run_upgrade_search_stops_starting_sets_when_out_of_time(monkeypatch):
+    ids = [uuid.uuid4() for _ in range(4)]
+    seen: list[uuid.UUID] = []
+    clock = {"t": 1000.0}
+
+    async def fake_due(session, *, now, schedule, limit):
+        return [LiveSet(id=i) for i in ids]
+
+    async def fake_search(session, live_set_id, *, trigger):
+        seen.append(live_set_id)
+        clock["t"] += job.UPGRADE_SEARCH_BATCH_BUDGET_SECONDS / 2   # each set takes 10 min
+        return "no_candidate"
+
+    monkeypatch.setattr(job, "due_sets", fake_due)
+    monkeypatch.setattr(job, "search_upgrade_for_set", fake_search)
+    monkeypatch.setattr(job, "_clock", lambda: clock["t"])
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    summary = job.run_upgrade_search()
+    assert seen == ids[:2]
+    assert summary["searched"] == 2 and summary["deferred"] == 2
+
+
+def test_enqueue_search_upgrade_now_skips_while_in_flight(monkeypatch):
+    from rq import Queue
+    from rq.job import Job
+
+    status = {"value": None}
+    enqueued: list[dict] = []
+
+    class FakeJob:
+        def get_status(self, refresh=True):
+            return status["value"]
+
+    monkeypatch.setattr(Job, "fetch_many", staticmethod(
+        lambda ids, connection: [FakeJob() if status["value"] else None]))
+    monkeypatch.setattr(Queue, "enqueue", lambda self, func, **kw: enqueued.append(
+        {"func": func, **kw}))
+
+    set_id = uuid.uuid4()
+    assert job.enqueue_search_upgrade_now(set_id) is True
+    assert enqueued == [{
+        "func": "setvault_core.jobs.upgrade_search.run_search_upgrade_now",
+        "live_set_id": str(set_id), "job_id": f"upgrade-search-now-{set_id}",
+        "job_timeout": job.SEARCH_NOW_JOB_TIMEOUT,
+    }]
+    for in_flight in ("queued", "started"):
+        status["value"] = in_flight
+        assert job.enqueue_search_upgrade_now(set_id) is False
+    status["value"] = "finished"
+    assert job.enqueue_search_upgrade_now(set_id) is True
+    assert len(enqueued) == 2
