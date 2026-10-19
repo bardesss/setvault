@@ -418,7 +418,9 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
                 await session.refresh(job)  # rollback expired it; reload async
         try:
             job.error_text = _error_text(exc)
-            if job.upgrade_target_set_id is not None:
+            # Once finish_arrival (or the early discard) has recorded the
+            # outcome, a later failure must not add a "rip failed" event.
+            if job.upgrade_target_set_id is not None and not finished:
                 await _record_failed_upgrade_attempt(session, job)
             await _set_status(session, job, "failed", message="rip failed")
         except Exception:

@@ -84,8 +84,11 @@ UPGRADE_QUEUE = "low"
 # queued or running, so a sweep can't fill the low queue with hours of
 # downloads.
 MAX_UPGRADE_RIPS_IN_FLIGHT = 2
-# A rip row not updated for this long is not running: RQ killed it at its
-# timeout (RIP_JOB_TIMEOUT, 1 h) without the job marking itself failed.
+# A rip started (or, still queued, created) longer ago than this is not
+# running: RQ kills a rip at RIP_JOB_TIMEOUT (1 h) without the job marking
+# itself failed; the extra hour covers the wait in the low queue. Measured
+# from the start, not ``updated_at``: any later write to the row (a swap
+# repointing it) bumps that without the rip being alive.
 UPGRADE_RIP_STALE_AFTER = timedelta(hours=2)
 _RIP_DONE = ("ready", "failed")
 
@@ -295,12 +298,12 @@ async def _rip_owner(session: AsyncSession, live: LiveSet) -> uuid.UUID | None:
     )).scalar_one_or_none()
 
 
-def _probe_failed_event(
-    live: LiveSet, c: Candidate, exc: Exception, *, trigger: str,
+def _rejected_event(
+    live: LiveSet, c: Candidate, reason: str, *, trigger: str,
 ) -> SetUpgradeEvent:
     return SetUpgradeEvent(
         live_set_id=live.id, trigger=trigger, outcome="rejected",
-        reason=f"probe failed: {exc}"[:200],
+        reason=reason[:200],
         from_tier=live.quality_tier, from_codec=live.audio_codec,
         from_bitrate_kbps=live.audio_bitrate_kbps, from_source_type=live.source_type,
         from_source_url=live.source_url,
@@ -315,7 +318,8 @@ async def upgrade_rips_in_flight(session: AsyncSession, *, now: datetime) -> int
         select(func.count()).select_from(RipJob).where(
             RipJob.upgrade_target_set_id.is_not(None),
             RipJob.status.not_in(_RIP_DONE),
-            RipJob.updated_at >= now - UPGRADE_RIP_STALE_AFTER,
+            func.coalesce(RipJob.started_at, RipJob.created_at)
+            >= now - UPGRADE_RIP_STALE_AFTER,
         )
     ) or 0)
 
@@ -405,7 +409,7 @@ async def search_upgrade_for_set(
             failed_probes += 1
             logger.warning("upgrade search for set %s: submit failed for %s",
                            live.id, pick.webpage_url, exc_info=True)
-            session.add(_probe_failed_event(live, pick, exc, trigger=trigger))
+            session.add(_rejected_event(live, pick, f"probe failed: {exc}", trigger=trigger))
             await session.flush()
             continue
         live.last_upgrade_search_at = now
@@ -418,6 +422,8 @@ async def search_upgrade_for_set(
             logger.exception("upgrade search: enqueue failed for rip %s", rip.id)
             rip.status = "failed"
             rip.error_text = "failed to enqueue worker"
+            # Like any failed upgrade rip: a rejected event in the history.
+            session.add(_rejected_event(live, pick, rip.error_text, trigger=trigger))
             await session.commit()
         return "queued"
 

@@ -27,7 +27,7 @@ from setvault_core.services.ingest_sources import SourceRateLimitedError
 from setvault_core.services.quality_profile import QualityProfile
 from setvault_core.services.system_config import get_config
 from setvault_ingest_sources.base import Candidate
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 PROFILE = QualityProfile(order=("lossless", "high", "good", "ok", "low"), cutoff="lossless")
 _Usage = namedtuple("_Usage", "total used free")
@@ -590,6 +590,57 @@ async def test_in_flight_upgrade_rips_are_counted(session, tmp_path):
     ])
     await session.flush()
     assert await job.upgrade_rips_in_flight(session, now=now) == before + 2
+
+
+async def test_in_flight_staleness_goes_by_start_not_last_update(session, tmp_path):
+    """A row touched recently (updated_at bumps on any write, e.g. a swap
+    repointing it) but started longer ago than the rip timeout allows is not
+    running; a long download with no row writes for hours still is."""
+    u, r = await _seed_base(session, tmp_path)
+    target = await _seed_set(session, root=r, user=u)
+    now = datetime.now(UTC)
+    before = await job.upgrade_rips_in_flight(session, now=now)
+    old = now - job.UPGRADE_RIP_STALE_AFTER - timedelta(minutes=1)
+
+    def rip(*, created, started, updated):
+        return RipJob(submitted_by=u.id, source_url=f"https://x/{_uid()}",
+                      status="downloading", progress_pct=0, probed_metadata={},
+                      upgrade_target_set_id=target.id,
+                      created_at=created, started_at=started, updated_at=updated)
+
+    session.add(rip(created=old, started=old, updated=now))  # killed long ago
+    await session.flush()
+    assert await job.upgrade_rips_in_flight(session, now=now) == before
+    session.add(rip(created=now - timedelta(minutes=40),  # running, just quiet
+                    started=now - timedelta(minutes=30), updated=old))
+    session.add(rip(created=now, started=None, updated=old))  # queued: by created_at
+    await session.flush()
+    assert await job.upgrade_rips_in_flight(session, now=now) == before + 2
+
+
+async def test_enqueue_failure_of_upgrade_rip_records_a_rejected_event(
+    seeded, sources, monkeypatch,
+):
+    better = _cand("better", tier="lossless")
+    sources["results"] = [better]
+
+    def down(_rip_id):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(job, "_enqueue_rip", down)
+    async with session_factory()() as s:
+        assert await job.search_upgrade_for_set(
+            s, seeded["set"], trigger="scheduled") == "queued"
+    async with session_factory()() as s:
+        rip = (await s.execute(select(RipJob).where(
+            RipJob.upgrade_target_set_id == seeded["set"]))).scalar_one()
+        assert rip.status == "failed"
+        [ev] = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == seeded["set"]))).scalars().all()
+        assert (ev.outcome, ev.trigger) == ("rejected", "scheduled")
+        assert ev.reason == "failed to enqueue worker"
+        assert (ev.candidate_source_kind, ev.candidate_external_id) == (
+            better.source_kind, better.external_id)
 
 
 async def test_batch_skips_a_set_while_upgrade_rips_are_in_flight(

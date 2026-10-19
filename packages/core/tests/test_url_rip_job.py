@@ -689,6 +689,35 @@ async def test_failed_upgrade_rip_records_a_rejected_event(
         assert await already_tried(s, tid, source_kind="bandcamp", external_id="bc-1")
 
 
+async def test_no_rip_failed_event_after_the_upgrade_was_recorded(
+    session, monkeypatch, tmp_path,
+):
+    """A failure after finish_arrival recorded the outcome (here: marking the
+    job ready) must not add a contradicting "rip failed" event."""
+    from setvault_core.db import session_factory
+    from setvault_core.jobs import url_rip_job
+    from setvault_core.models.upgrades import SetUpgradeEvent
+    from sqlalchemy import select
+
+    tid, job_id, _user, _calls = await _upgrade_rip_setup(
+        session, monkeypatch, tmp_path, arrival_tier="lossless", matches=True,
+    )
+    real_set_status = url_rip_job._set_status
+
+    async def flaky(s, job, status, **kw):
+        if status == "ready":
+            raise RuntimeError("db blip")
+        return await real_set_status(s, job, status, **kw)
+
+    monkeypatch.setattr(url_rip_job, "_set_status", flaky)
+    await _run_rip_job(session, job_id)
+
+    async with session_factory()() as s:
+        events = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == tid))).scalars().all()
+        assert [e.outcome for e in events] == ["upgraded"]
+
+
 async def test_failed_plain_rip_records_no_upgrade_event(session, monkeypatch, tmp_path):
     from setvault_core.models.upgrades import SetUpgradeEvent
     from sqlalchemy import func, select
