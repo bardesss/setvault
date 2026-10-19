@@ -39,6 +39,9 @@
 
   type NotifPayload = {
     set_slug?: string;
+    set_title?: string;
+    from_label?: string;
+    to_label?: string;
     author_username?: string;
     excerpt?: string;
     monitor_label?: string;
@@ -92,6 +95,20 @@
             <button class="item" on:click={() => clickItem(n)}>
               {#if n.kind === "discovery"}
                 <span>{$_("notifications.discovery_summary")} {payload.monitor_label ?? ""}</span>
+              {:else if n.kind === "set_upgraded"}
+                <span>
+                  {#if !payload.set_title || !payload.from_label || !payload.to_label}
+                    {$_("notifications.set_upgraded_generic")}
+                  {:else}
+                    {$_("notifications.set_upgraded", {
+                      values: {
+                        title: payload.set_title,
+                        from: payload.from_label,
+                        to: payload.to_label,
+                      },
+                    })}
+                  {/if}
+                </span>
               {:else}
                 <strong>{payload.author_username ?? ""}</strong>
                 <span>

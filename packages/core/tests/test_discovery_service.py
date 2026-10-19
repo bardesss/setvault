@@ -137,3 +137,25 @@ async def test_entity_monitor_always_high(session, monkeypatch):
     )
     assert summary["auto_ingested"] == 1
     assert ripped == ["z"]
+
+
+async def test_auto_ingest_records_the_monitor_trigger(session, monkeypatch):
+    """The upgrade history records what found the copy."""
+    from rq import Queue
+    from setvault_core.models.url_rip import RipJob
+    from setvault_core.services import url_rip
+
+    user = await _make_user(session)
+    seen: list = []
+
+    async def fake_submit(session, *, user_id, url, trigger=None, **_kw):
+        seen.append(trigger)
+        return RipJob(id=uuid.uuid4(), submitted_by=user_id, source_url=url)
+
+    monkeypatch.setattr(url_rip, "submit_rip", fake_submit)
+    monkeypatch.setattr(Queue, "enqueue", lambda self, *a, **kw: None)
+    monitor = Monitor(id=uuid.uuid4(), owner_user_id=user.id)
+    await svc._ingest_candidate(
+        session, monitor=monitor, candidate=_cand("x1", "Some Set", "dj"),
+    )
+    assert seen == ["monitor"]

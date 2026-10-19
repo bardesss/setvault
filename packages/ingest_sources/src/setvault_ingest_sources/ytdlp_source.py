@@ -52,5 +52,6 @@ class _YtDlpSearchSource:
                 duration_seconds=int(dur) if dur else None,
                 thumbnail_url=_thumb(e),
                 webpage_url=url,
+                expected_tier="ok",  # best audio is ~130 kbps Opus/AAC
             ))
         return out

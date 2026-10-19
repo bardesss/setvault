@@ -27,17 +27,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.models.engagement_3c import InAppNotification
 from setvault_core.models.identity import NotificationPreference, User
+from setvault_core.services.audio_quality import quality_label
 from setvault_core.services.email_dispatch import enqueue_email
+from setvault_core.services.url_rip import extract_platform_and_id
 
 if TYPE_CHECKING:
     from setvault_core.models.catalog import LiveSet
     from setvault_core.models.engagement_3c import Comment
+    from setvault_core.models.upgrades import SetUpgradeEvent
 
 logger = logging.getLogger(__name__)
 
 _EMAIL_SUBJECTS = {
     "mention": "You were mentioned on SetVault",
     "comment_reply": "Someone replied to your comment on SetVault",
+    "set_upgraded": "A set in your SetVault library was upgraded",
 }
 
 
@@ -91,6 +95,19 @@ async def _deliver_email(
     author = payload.get("author_username", "")
     excerpt = payload.get("excerpt", "")
     subject = _EMAIL_SUBJECTS.get(kind, "SetVault notification")
+    if kind == "set_upgraded":
+        body = (
+            f"\"{set_title}\" now has a better copy:\n\n"
+            f"  {payload.get('from_label', '')} -> {payload.get('to_label', '')}\n\n"
+            f"Open the set: /sets/{set_slug}\n"
+        )
+        try:
+            await enqueue_email(
+                session, redis_url=_redis_url(), to=user.email, subject=subject, text=body,
+            )
+        except Exception:
+            logger.exception("notification email enqueue failed")
+        return
     body = (
         f"@{author} {('mentioned you' if kind == 'mention' else 'replied to your comment')} "
         f"on \"{set_title}\":\n\n"
@@ -139,3 +156,59 @@ async def dispatch_for_comment(
             )
         if channel in ("email", "both"):
             await _deliver_email(session, user_id=uid, kind=kind, payload=payload)
+
+
+async def notify_set_upgraded(
+    session: AsyncSession, target: LiveSet, event: SetUpgradeEvent,
+) -> None:
+    """Tell the set's owner a better copy replaced its audio (Phase 7D).
+
+    Channel follows the owner's ``set_upgraded`` preference; no row means
+    in-app only (email is opt-in, since a sweep can upgrade many sets). A set
+    with no owner has no recipient. The caller commits.
+    """
+    uid = target.uploaded_by
+    if uid is None:
+        return
+    pref = await _preference_for(session, uid, "set_upgraded")
+    channel = pref.channel if pref else "in_app"
+    if channel == "off":
+        return
+    from_label, to_label = event_labels(event)
+    payload = {
+        "set_slug": target.slug,
+        "set_title": target.title,
+        "from_label": from_label,
+        "to_label": to_label,
+    }
+    if channel in ("in_app", "both"):
+        await _deliver_in_app(
+            session, user_id=uid, kind="set_upgraded",
+            subject_type="set", subject_id=target.id, payload=payload,
+        )
+    if channel in ("email", "both"):
+        await _deliver_email(session, user_id=uid, kind="set_upgraded", payload=payload)
+
+
+def event_labels(event: SetUpgradeEvent) -> tuple[str, str]:
+    """Readable (from, to) quality labels for an upgrade event."""
+    return (
+        quality_label(
+            event.from_tier, event.from_codec, event.from_bitrate_kbps,
+            source_name(event.from_source_type, event.from_source_url)),
+        quality_label(
+            event.to_tier, event.to_codec, event.to_bitrate_kbps,
+            source_name(event.to_source_type, event.to_source_url)),
+    )
+
+
+def source_name(source_type: str | None, source_url: str | None) -> str | None:
+    """Resolve ``url_rip`` to its platform (YouTube, Bandcamp...) via the URL.
+
+    Falls back to the raw source type when the URL is missing or unrecognised.
+    """
+    if source_type == "url_rip" and source_url:
+        platform, _ = extract_platform_and_id(source_url)
+        if platform != "other":
+            return platform
+    return source_type

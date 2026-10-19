@@ -40,6 +40,7 @@ from setvault_web.api import tracklist as tracklist_api
 from setvault_web.api import uploads as uploads_api
 from setvault_web.api import url_rip as url_rip_api
 from setvault_web.api import users as users_api
+from setvault_web.api import wanted as wanted_api
 from setvault_web.api import watch_folders as watch_folders_api
 from setvault_web.api import webhooks as webhooks_api
 from setvault_web.api import ws as ws_api
@@ -105,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(watch_folders_api.router)
     app.include_router(recycle_api.router)
     app.include_router(duplicates_api.router)
+    app.include_router(wanted_api.router)
     app.include_router(scheduled_tasks_api.router)
     app.include_router(webhooks_api.router)
     app.include_router(backup_api.router)

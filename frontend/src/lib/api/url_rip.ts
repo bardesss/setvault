@@ -47,10 +47,11 @@ export const replaceRipJob = (
   fresh: RipJob,
 ): RipJob[] => [fresh, ...jobs.filter((j) => j.id !== previousId)];
 
-export const submitUrl = (url: string) =>
+/** ``trigger``: what found the URL, recorded in the upgrade history. */
+export const submitUrl = (url: string, trigger?: "source_search") =>
   api<RipJob>("/api/sets/url-rip", {
     method: "POST",
-    body: JSON.stringify({ url }),
+    body: JSON.stringify(trigger ? { url, trigger } : { url }),
   });
 
 export const listMyRipJobs = async (status?: "active" | "all"): Promise<RipJob[]> => {

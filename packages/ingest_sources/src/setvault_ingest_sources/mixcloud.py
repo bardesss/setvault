@@ -42,5 +42,6 @@ class MixcloudSource:
                 duration_seconds=item.get("audio_length"),
                 thumbnail_url=pics.get("large") or pics.get("medium") or pics.get("thumbnail"),
                 webpage_url=url,
+                expected_tier="ok",
             ))
         return out

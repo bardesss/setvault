@@ -26,6 +26,7 @@ test("multi-source search lists candidates with chips, an unavailable notice, an
             thumbnail_url: null,
             webpage_url: "https://www.youtube.com/watch?v=vid1",
             already_in_library: false,
+            expected_tier: "lossless",
           },
           {
             source_kind: "soundcloud",
@@ -45,8 +46,10 @@ test("multi-source search lists candidates with chips, an unavailable notice, an
 
   // Stub the rip submit — return a canned RipJob matching submitUrl's shape.
   let ripCalled = false;
+  let ripBody: Record<string, unknown> | null = null;
   await page.route("**/api/sets/url-rip", (route) => {
     ripCalled = true;
+    ripBody = route.request().postDataJSON();
     return route.fulfill({
       status: 201,
       contentType: "application/json",
@@ -95,6 +98,9 @@ test("multi-source search lists candidates with chips, an unavailable notice, an
   // The SoundCloud candidate carries a source chip.
   await expect(page.getByText("SoundCloud")).toBeVisible();
 
+  // Expected-quality chip shows for a candidate with a known tier.
+  await expect(page.getByText("Lossless", { exact: true })).toBeVisible();
+
   // The errored source surfaces in the partial-unavailable notice.
   await expect(page.getByText(/Mixcloud/i)).toBeVisible();
 
@@ -102,4 +108,6 @@ test("multi-source search lists candidates with chips, an unavailable notice, an
   await page.getByRole("button", { name: /^Ingest$/i }).first().click();
   await expect(page.getByText(/In library/i)).toBeVisible({ timeout: 5_000 });
   expect(ripCalled).toBe(true);
+  // The upgrade history records what found the copy.
+  expect(ripBody).toEqual({ url: "https://www.youtube.com/watch?v=vid1", trigger: "source_search" });
 });

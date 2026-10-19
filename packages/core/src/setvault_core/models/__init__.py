@@ -25,6 +25,7 @@ from setvault_core.models.library_webhook import LibraryWebhook
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
 from setvault_core.models.system import AuditEvent, Job, NotificationConnector
 from setvault_core.models.system_config import SystemConfig
+from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
 from setvault_core.models.watch_folder import UnmatchedFile, WatchFolder
 
@@ -56,6 +57,7 @@ __all__ = [
                                           "RipJob",
                                           "Series",
                                           "SetFingerprint",
+                                          "SetUpgradeEvent",
                                           "SystemConfig",
                                           "Tag",
                                           "TimestampMixin",

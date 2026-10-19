@@ -1,6 +1,7 @@
 #!/usr/bin/with-contenv bash
 # rq-scheduler polling loop — moves due entries from rq-scheduler's own Redis
-# key (registered by the worker entrypoint) onto the default queue. The worker's
+# key (registered by the worker entrypoint) onto each job's queue (default or
+# low). The worker's
 # with_scheduler=True only serves RQ's built-in registries, so without this the
 # periodic jobs never run.
 cd /srv

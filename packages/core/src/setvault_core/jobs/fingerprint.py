@@ -20,7 +20,7 @@ from setvault_core.services.audio_match import (
 )
 from setvault_core.services.audit import log as audit_log
 from setvault_core.services.quality_profile import get_profile, is_better
-from setvault_core.services.set_match import find_original_match
+from setvault_core.services.set_match import find_original_match, match_upgrade_target
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,15 @@ async def _not_known_worse(s, arrival: LiveSet, original: LiveSet) -> bool:
     )
 
 
-async def fingerprint_audio(live_set_id: str) -> None:
+async def fingerprint_audio(
+    live_set_id: str, *, upgrade_target_id: uuid.UUID | None = None,
+) -> None:
+    """Fingerprint the set's audio and flag ``duplicate_of`` on a match.
+
+    ``upgrade_target_id`` (an upgrade-attempt rip, R28): the arrival is
+    compared with that set only. It never points at, or restores, any other
+    set; a match flags ``duplicate_of = target`` for the upgrade decision.
+    """
     if "DATABASE_URL" in os.environ:
         init_engine(os.environ["DATABASE_URL"])
 
@@ -86,6 +94,14 @@ async def fingerprint_audio(live_set_id: str) -> None:
         digest = await asyncio.to_thread(compute_legacy_digest, path)
 
         await store_fingerprint(s, live.id, raw_bytes, digest, duration)
+
+        if upgrade_target_id is not None:
+            await _flag_upgrade_target_match(
+                s, live, upgrade_target_id, raw, duration, legacy_hash=digest,
+            )
+            await s.commit()
+            _publish_done(live)
+            return
 
         match = None
         if live.duplicate_of is None:
@@ -132,15 +148,45 @@ async def fingerprint_audio(live_set_id: str) -> None:
                 after=audit_after,
             )
         await s.commit()
+        _publish_done(live)
 
-        publish(ProgressEvent(
-            kind="fingerprint", live_set_id=live_set_id, job_id=live_set_id,
-            progress_pct=30,
-            message=(
-                "duplicate of existing set" if live.duplicate_of
-                else "unique fingerprint"
-            ),
-        ))
+
+def _publish_done(live: LiveSet) -> None:
+    publish(ProgressEvent(
+        kind="fingerprint", live_set_id=str(live.id), job_id=str(live.id),
+        progress_pct=30,
+        message=(
+            "duplicate of existing set" if live.duplicate_of
+            else "unique fingerprint"
+        ),
+    ))
+
+
+async def _flag_upgrade_target_match(
+    s, live: LiveSet, target_id: uuid.UUID, raw, duration: float, *, legacy_hash: str,
+) -> None:
+    match = await match_upgrade_target(s, target_id, raw, duration, legacy_hash=legacy_hash)
+    if match is None:
+        live.duplicate_of = None
+        live.match_offset_seconds = None
+        return
+    target, result = match
+    live.duplicate_of = target.id
+    live.match_offset_seconds = result.offset_seconds
+    await audit_log(
+        s,
+        actor_user_id=target.uploaded_by,
+        actor_kind="system",
+        action="ingest.upgrade_candidate_matched",
+        target_type="LiveSet",
+        target_id=str(live.id),
+        after={
+            "duplicate_of": str(target.id),
+            "duration_seconds": duration,
+            "similarity": result.similarity,
+            "offset_seconds": result.offset_seconds,
+        },
+    )
 
 
 def fingerprint_audio_sync(live_set_id: str) -> None:

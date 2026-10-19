@@ -6,7 +6,8 @@ Selection rule: ``deleted_at IS NOT NULL AND purge_after_at < now()``.
 For each match:
   1. Best-effort remove the on-disk audio + streaming + waveform files (the
      containing per-set directory under ``originals/<set_id>`` is also
-     removed when it becomes empty).
+     removed when it becomes empty). A file another LiveSet still references
+     is kept (``services.storage.path_in_use``).
   2. Delete the LiveSet row. SetFingerprint, TracklistEntry, Comment,
      Bookmark, etc. cascade automatically per their FK ondelete clauses.
   3. Emit a ``set.purged`` audit event so admin retains visibility.
@@ -26,6 +27,7 @@ from sqlalchemy import select
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.services.audit import log as audit_log
+from setvault_core.services.storage import path_in_use
 
 logger = logging.getLogger(__name__)
 
@@ -75,13 +77,17 @@ async def purge_recycle_bin() -> dict:
 
                 paths_to_delete: list[Path] = []
                 if host_root is not None:
-                    paths_to_delete.append(host_root / live.audio_path)
-                    if live.streaming_path:
-                        paths_to_delete.append(host_root / live.streaming_path)
-                    if live.waveform_path:
-                        paths_to_delete.append(host_root / live.waveform_path)
-                    if live.thumb_path:
-                        paths_to_delete.append(host_root / live.thumb_path)
+                    for rel in (live.audio_path, live.streaming_path,
+                                live.waveform_path, live.thumb_path):
+                        if not rel:
+                            continue
+                        # After a quality upgrade a live set can name the
+                        # same file; never delete it from under that set.
+                        if await path_in_use(s, live.media_root_id, rel,
+                                             exclude_live_set_id=live_set_id):
+                            logger.info("purge: keeping %s, another set uses it", rel)
+                            continue
+                        paths_to_delete.append(host_root / rel)
 
                 ok = all(_try_delete(p) for p in paths_to_delete)
                 if not ok:

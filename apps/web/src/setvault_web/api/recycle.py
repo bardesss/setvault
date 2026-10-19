@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
 from setvault_core.services.audit import log as audit_log
+from setvault_core.services.storage import path_in_use
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -123,8 +124,14 @@ async def purge_now(
         host_root = Path(root.host_path)
         for rel in (live.audio_path, live.streaming_path,
                     live.waveform_path, live.thumb_path):
-            if rel:
-                _try_unlink(host_root / rel)
+            if not rel:
+                continue
+            # Never delete a file another set still points at (quality upgrade).
+            if await path_in_use(session, live.media_root_id, rel,
+                                 exclude_live_set_id=live.id):
+                logger.info("purge-now: keeping %s, another set uses it", rel)
+                continue
+            _try_unlink(host_root / rel)
 
     await audit_log(
         session,

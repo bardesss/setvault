@@ -56,7 +56,8 @@
     "notification_kinds": {
       "account_security": "Account security",
       "mention": "Mentions",
-      "comment_reply": "Replies to your comments"
+      "comment_reply": "Replies to your comments",
+      "set_upgraded": "Set upgraded to better quality"
     },
     "channel": {
       "in_app": "In-app",
@@ -141,6 +142,14 @@
     "tab_sources": "Sources",
     "search_placeholder": "Search all sources for sets…",
     "partial_unavailable": "Some sources are unavailable: {sources}",
+    "quality": {
+      "lossless": "Lossless",
+      "high": "High quality",
+      "good": "Good quality",
+      "ok": "OK quality",
+      "low": "Low quality",
+      "unknown": "Quality unknown"
+    },
     "ingest": "Ingest",
     "in_library": "In library",
     "ingesting": "Ingesting…",
@@ -196,7 +205,9 @@
     "empty": "Nothing here.",
     "mentioned_you": "mentioned you",
     "replied_to_you": "replied to your comment",
-    "discovery_summary": "New discoveries for"
+    "discovery_summary": "New discoveries for",
+    "set_upgraded_generic": "A set in your library was upgraded",
+    "set_upgraded": "Upgraded {title}: {from} → {to}"
   },
   "monitors": {
     "admin_title": "Monitors",
@@ -302,5 +313,16 @@
     "no_merged": "Nothing merged yet.",
     "unmerge": "Unmerge",
     "confirm_unmerge": "Unmerge this entity? References move back to it (field values set during the merge are not reverted)."
+  },
+  "set": {
+    "quality": {
+      "label": "Quality: {label}",
+      "unknown": "Quality unknown"
+    },
+    "upgrades": {
+      "toggle": "Find better copies automatically",
+      "library_off": "Automatic upgrades are switched off for the whole library",
+      "history_line": "Upgraded {date} from {from} to {to}"
+    }
   }
 }

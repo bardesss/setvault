@@ -19,6 +19,8 @@
     { href: "/admin/watch-folders", label: "Watch folders" },
     { href: "/admin/unmatched", label: "Unmatched" },
     { href: "/admin/duplicates", label: "Duplicates" },
+    { href: "/admin/quality", label: "Quality" },
+    { href: "/admin/wanted", label: "Wanted" },
     { href: "/admin/catalog", label: "Catalog" },
     { href: "/admin/recycle", label: "Recycle" },
     { href: "/admin/jobs", label: "Jobs" },

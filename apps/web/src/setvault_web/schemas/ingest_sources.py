@@ -17,6 +17,7 @@ class CandidateOut(BaseModel):
     thumbnail_url: str | None
     webpage_url: str
     already_in_library: bool
+    expected_tier: str | None = None
 
 
 class SourceSearchOut(BaseModel):

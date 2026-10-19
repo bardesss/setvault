@@ -91,6 +91,7 @@ async def keep_duplicate(
     _: Annotated[object, Depends(require_admin)],
 ):
     live = await _get_held(session, slug)
+    live.duplicate_kept_at = datetime.now(UTC)
     await publish_live_set(session, live)
     await audit_log(
         session,

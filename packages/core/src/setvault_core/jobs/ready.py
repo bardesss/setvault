@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,36 +63,66 @@ async def publish_live_set(s: AsyncSession, live: LiveSet) -> None:
     )
 
 
-async def mark_ready(live_set_id: str) -> bool:
-    """Final pipeline stage. Publishes the set unless the fingerprint stage
-    flagged it as a duplicate: those stay drafts for an admin to keep or
-    discard (admin Duplicates page). Returns whether the set was published."""
+@dataclass(frozen=True)
+class ArrivalResult:
+    """What the final stage did with a set: ``outcome`` is the
+    ``decide_arrival`` result, ``message`` the line shown in progress/jobs."""
+    outcome: str
+    message: str
+
+
+async def finish_arrival(
+    live_set_id: str, *, upgrade_target_id: uuid.UUID | None = None,
+    trigger: str = "upload", candidate_source_kind: str | None = None,
+    candidate_external_id: str | None = None,
+) -> ArrivalResult:
+    """Final pipeline stage. Decides the arrival first
+    (``services/upgrade_decision``): it may upgrade the set it duplicates, be
+    held as a draft for the admin Duplicates page, or (upgrade-attempt rips)
+    be discarded. Only an arrival with nothing to decide is published."""
+    # Lazy: services/set_upgrade imports this module for fan_out_webhooks.
+    from setvault_core.services.upgrade_decision import decide
+
     if "DATABASE_URL" in os.environ:
         init_engine(os.environ["DATABASE_URL"])
 
+    published: LiveSet | None = None
     async with session_factory()() as s:
         live = await s.get(LiveSet, uuid.UUID(live_set_id))
         if live is None:
-            return False
-        if live.duplicate_of is not None:
-            publish(ProgressEvent(
-                kind="ready", live_set_id=live_set_id, job_id=live_set_id,
-                progress_pct=100, message="held for review: duplicate of an existing set",
-            ))
-            return False
-        await publish_live_set(s, live)
-        await s.commit()
-        published = live
+            return ArrivalResult("held", "set no longer exists")
+        decision = await decide(
+            s, live, upgrade_target_id=upgrade_target_id, trigger=trigger,
+            candidate_source_kind=candidate_source_kind,
+            candidate_external_id=candidate_external_id,
+        )
+        if decision.outcome == "publish":
+            await publish_live_set(s, live)
+            await s.commit()
+            published = live
 
+    result = ArrivalResult(decision.outcome, decision.message)
     publish(ProgressEvent(
         kind="ready", live_set_id=live_set_id, job_id=live_set_id,
-        progress_pct=100, message="published",
+        progress_pct=100, message=result.message,
     ))
 
     # Library refresh webhooks (§J15). Fans out to enabled webhook rows whose
-    # `events` array includes `set.published`.
-    await fan_out_webhooks(published, "set.published")
-    return True
+    # `events` array includes `set.published`. (An upgrade fans out on its own.)
+    if published is not None:
+        await fan_out_webhooks(published, "set.published")
+    return result
+
+
+async def mark_ready(
+    live_set_id: str, *, upgrade_target_id: uuid.UUID | None = None,
+    trigger: str = "upload",
+) -> bool:
+    """:func:`finish_arrival`, returning whether the set was published."""
+    result = await finish_arrival(
+        live_set_id, upgrade_target_id=upgrade_target_id, trigger=trigger,
+    )
+    return result.outcome == "publish"
 
 
 def mark_ready_sync(live_set_id: str) -> None:

@@ -57,7 +57,7 @@
     ingesting[c.external_id] = true;
     ingesting = ingesting;
     try {
-      await submitUrl(c.webpage_url);
+      await submitUrl(c.webpage_url, "source_search");
       candidates = candidates.map((x) =>
         x.external_id === c.external_id ? { ...x, already_in_library: true } : x,
       );
@@ -175,6 +175,9 @@
               <strong>{c.title}</strong>
               <span class="muted">{c.uploader ?? ""}</span>
               <span class="source-chip">{sourceLabel(c.source_kind)}</span>
+              <span class="source-chip quality-chip" data-tier={c.expected_tier ?? "unknown"}
+                >{$_(`sources.quality.${c.expected_tier ?? "unknown"}`)}</span
+              >
             </div>
             {#if c.already_in_library}
               <span class="badge">{$_("sources.in_library")}</span>

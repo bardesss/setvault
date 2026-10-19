@@ -4,6 +4,7 @@ from __future__ import annotations
 import array
 import asyncio
 import logging
+import uuid
 
 from sqlalchemy import and_, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,4 +103,39 @@ async def find_original_match(
         if is_same_audio(result):
             return await session.get(LiveSet, live_set_id), result
         seen.add(live_set_id)
+    return None
+
+
+async def match_upgrade_target(
+    session: AsyncSession, target_id: uuid.UUID, raw: array.array, duration: float,
+    *, legacy_hash: str | None = None,
+) -> tuple[LiveSet, MatchResult] | None:
+    """Is ``raw`` the same audio as the upgrade target? (R28)
+
+    An upgrade-attempt arrival is judged only against the set it was ripped
+    for, never library-wide: the compare cap, an earlier twin of the target,
+    or a recycled look-alike must not decide whether it can upgrade the
+    target. Uses the target's current-version raw fingerprint; only when the
+    target has none does the legacy exact-hash rule apply. The offset is for
+    ``compare(target, arrival)``, as in :func:`find_original_match`.
+    """
+    target = await session.get(LiveSet, target_id)
+    if target is None:
+        return None
+    rows = (await session.execute(
+        select(SetFingerprint).where(SetFingerprint.live_set_id == target_id)
+        .order_by(SetFingerprint.created_at),
+    )).scalars().all()
+    current = next(
+        (r for r in rows if r.raw is not None and r.raw_version == MATCHER_VERSION), None,
+    )
+    if current is not None:
+        result = await asyncio.to_thread(compare, raw_from_bytes(current.raw), raw)
+        return (target, result) if is_same_audio(result) else None
+    if legacy_hash is not None and any(
+        r.fingerprint_hash == legacy_hash
+        and abs(r.duration_seconds - duration) < LEGACY_DURATION_SECONDS
+        for r in rows
+    ):
+        return target, LEGACY_EXACT_MATCH
     return None

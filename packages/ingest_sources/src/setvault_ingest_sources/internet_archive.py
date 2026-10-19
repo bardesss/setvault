@@ -14,6 +14,13 @@ def _first(value):
     return value
 
 
+def _has_flac(doc: dict) -> bool:
+    fmts = doc.get("format") or []
+    if isinstance(fmts, str):
+        fmts = [fmts]
+    return any("flac" in str(f).lower() for f in fmts)
+
+
 class InternetArchiveSource:
     kind = "internet_archive"
     name = "Internet Archive"
@@ -25,7 +32,7 @@ class InternetArchiveSource:
         limit = max(1, min(limit, 50))
         params = [
             ("q", f"({query}) AND mediatype:(audio)"),
-            ("fl[]", "identifier"), ("fl[]", "title"), ("fl[]", "creator"),
+            ("fl[]", "identifier"), ("fl[]", "title"), ("fl[]", "creator"), ("fl[]", "format"),
             ("rows", str(limit)), ("page", "1"), ("output", "json"),
         ]
         try:
@@ -47,5 +54,6 @@ class InternetArchiveSource:
                 duration_seconds=None,
                 thumbnail_url=f"https://archive.org/services/img/{ident}",
                 webpage_url=f"https://archive.org/details/{ident}",
+                expected_tier="lossless" if _has_flac(doc) else None,
             ))
         return out

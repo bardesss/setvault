@@ -45,7 +45,7 @@ async def test_monitor_auto_ingest_enqueue_sets_timeout(fake_queue, monkeypatch)
 
     job_id = uuid.uuid4()
 
-    async def _fake_submit(_session, *, user_id, url):
+    async def _fake_submit(_session, *, user_id, url, **_kw):
         return SimpleNamespace(id=job_id)
 
     monkeypatch.setattr(url_rip, "submit_rip", _fake_submit)
