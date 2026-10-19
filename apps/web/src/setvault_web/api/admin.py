@@ -90,6 +90,9 @@ async def system_info(
     }
 
 
+_SCHEDULES = ("daily", "weekly", "off")
+
+
 def _settings_out(config) -> SettingsOut:
     return SettingsOut(
         audit_retention_days=config.audit_retention_days,
@@ -99,7 +102,13 @@ def _settings_out(config) -> SettingsOut:
         quality_tiers_order=list(config.quality_tiers_order),
         quality_cutoff=config.quality_cutoff,
         auto_upgrades_enabled=config.auto_upgrades_enabled,
-        upgrade_search_schedule=config.upgrade_search_schedule,
+        # An unknown stored value (hand-edited / older build) falls back to
+        # the default instead of failing response validation with a 500.
+        upgrade_search_schedule=(
+            config.upgrade_search_schedule
+            if config.upgrade_search_schedule in _SCHEDULES
+            else "weekly"
+        ),
     )
 
 

@@ -45,3 +45,39 @@ async def test_put_settings_validates_quality_fields(authed_admin_client):
             "auto_upgrades_enabled": True,
             "upgrade_search_schedule": "weekly",
         })
+
+
+@pytest.mark.asyncio
+async def test_partial_put_leaves_untouched_fields_unchanged(authed_admin_client):
+    c = authed_admin_client
+    before = (await c.get("/api/admin/settings")).json()
+    try:
+        r = await c.put("/api/admin/settings", json={"quality_cutoff": "high"})
+        assert r.status_code == 200, r.text
+        after = (await c.get("/api/admin/settings")).json()
+        assert after["quality_cutoff"] == "high"
+        assert {k: v for k, v in after.items() if k != "quality_cutoff"} == {
+            k: v for k, v in before.items() if k != "quality_cutoff"
+        }
+    finally:
+        await c.put("/api/admin/settings", json={"quality_cutoff": before["quality_cutoff"]})
+
+
+@pytest.mark.asyncio
+async def test_get_settings_tolerates_unknown_stored_schedule(authed_admin_client):
+    from setvault_core.db import session_factory
+    from setvault_core.services.system_config import get_config
+
+    async with session_factory()() as s:
+        cfg = await get_config(s)
+        cfg.upgrade_search_schedule = "hourly"
+        await s.commit()
+    try:
+        r = await authed_admin_client.get("/api/admin/settings")
+        assert r.status_code == 200, r.text
+        assert r.json()["upgrade_search_schedule"] == "weekly"
+    finally:
+        async with session_factory()() as s:
+            cfg = await get_config(s)
+            cfg.upgrade_search_schedule = "weekly"
+            await s.commit()
