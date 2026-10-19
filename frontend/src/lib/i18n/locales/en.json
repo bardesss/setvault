@@ -57,7 +57,8 @@
       "account_security": "Account security",
       "mention": "Mentions",
       "comment_reply": "Replies to your comments",
-      "set_upgraded": "Set upgraded to better quality"
+      "set_upgraded": "Set upgraded to better quality",
+      "maintenance": "Library maintenance (admins)"
     },
     "channel": {
       "in_app": "In-app",

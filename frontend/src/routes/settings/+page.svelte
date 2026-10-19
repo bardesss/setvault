@@ -76,7 +76,7 @@
     }
   }
 
-  type Kind = "account_security" | "mention" | "comment_reply" | "set_upgraded";
+  type Kind = "account_security" | "mention" | "comment_reply" | "set_upgraded" | "maintenance";
   type Channel = "in_app" | "email" | "both" | "off";
 
   interface Pref {
@@ -86,6 +86,10 @@
   }
 
   const KINDS: Kind[] = ["account_security", "mention", "comment_reply", "set_upgraded"];
+  // Library maintenance summaries (e.g. the quality backfill) go to admins
+  // only, and only in-app.
+  $: kinds = $session?.role === "admin" ? [...KINDS, "maintenance" as Kind] : KINDS;
+  const IN_APP_ONLY: Kind[] = ["set_upgraded", "maintenance"];
 
   let prefs: Record<string, Channel> = {};
   let prefsLoaded = false;
@@ -259,17 +263,19 @@
         <p class="muted">{$_("settings.loading")}</p>
       {:else}
         <dl>
-          {#each KINDS as kind (kind)}
+          {#each kinds as kind (kind)}
             <dt>{$_(`settings.notification_kinds.${kind}`)}</dt>
             <dd>
               <select
-                value={prefs[kind] ?? (kind === "set_upgraded" ? "in_app" : "both")}
+                value={prefs[kind] ?? (IN_APP_ONLY.includes(kind) ? "in_app" : "both")}
                 on:change={(e) => onPrefChange(kind, e)}
                 aria-label={$_(`settings.notification_kinds.${kind}`)}
               >
                 <option value="in_app">{$_("settings.channel.in_app")}</option>
-                <option value="email">{$_("settings.channel.email")}</option>
-                <option value="both">{$_("settings.channel.both")}</option>
+                {#if kind !== "maintenance"}
+                  <option value="email">{$_("settings.channel.email")}</option>
+                  <option value="both">{$_("settings.channel.both")}</option>
+                {/if}
                 <option value="off">{$_("settings.channel.off")}</option>
               </select>
             </dd>
