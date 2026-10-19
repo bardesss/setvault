@@ -129,7 +129,8 @@ async def _shift_positions(session: AsyncSession, live: LiveSet, offset: float) 
         delta = whole if is_int else offset
         shifted = func.greatest(col - delta, 0)
         if end is not None:
-            shifted = func.least(shifted, end)
+            # Whole seconds for int columns, so rounding can't land past it.
+            shifted = func.least(shifted, math.floor(end) if is_int else end)
         values = {col.key: shifted}
         if model is UserSetState:
             # Not a user action: keep the timestamp (onupdate would bump it),

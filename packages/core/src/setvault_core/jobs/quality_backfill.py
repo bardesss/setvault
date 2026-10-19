@@ -57,6 +57,10 @@ DRY_RUN_SECONDS = 20
 JOB_FUNC = "setvault_core.jobs.quality_backfill.run_quality_backfill"
 # Redis key holding the id of the chain's latest slice (singleton check).
 CHAIN_KEY = "setvault:quality-backfill:chain"
+# Short lock around "check in flight, then enqueue" so two concurrent starts
+# can't both pass the check and run two chains.
+START_LOCK_KEY = "setvault:quality-backfill:start-lock"
+START_LOCK_SECONDS = 30
 _IN_FLIGHT = {"queued", "started", "deferred", "scheduled"}
 
 
@@ -288,7 +292,11 @@ def quality_backfill_in_flight() -> bool:
     """True while a backfill chain is queued or running: its latest slice is
     still queued, or running (it may yet queue the next one). Slice ids
     change from slice to slice, so the chain's latest id is kept in Redis
-    instead of a fixed job id (like monitor polls use)."""
+    instead of a fixed job id (like monitor polls use).
+
+    After a worker crash the slice it was running can still look "started"
+    until RQ marks it failed (up to its job timeout, ~1 h); until then a new
+    start answers "already running"."""
     from rq.job import Job
 
     redis = _redis()
@@ -301,14 +309,22 @@ def quality_backfill_in_flight() -> bool:
 
 def start_quality_backfill(*, cleanup: bool = False):
     """Queue the first slice of a backfill run; ``None`` (nothing queued)
-    when a chain is already queued or running."""
-    if quality_backfill_in_flight():
+    when a chain is already queued or running, or another start holds the
+    start lock right now."""
+    redis = _redis()
+    if not redis.set(START_LOCK_KEY, "1", nx=True, ex=START_LOCK_SECONDS):
         return None
-    if cleanup:
-        return enqueue_quality_backfill(
-            cleanup=True, phase="fill", counts=dict.fromkeys(_COUNT_KEYS, 0), cursor=None,
-        )
-    return enqueue_quality_backfill()
+    try:
+        if quality_backfill_in_flight():
+            return None
+        if cleanup:
+            return enqueue_quality_backfill(
+                cleanup=True, phase="fill", counts=dict.fromkeys(_COUNT_KEYS, 0),
+                cursor=None,
+            )
+        return enqueue_quality_backfill()
+    finally:
+        redis.delete(START_LOCK_KEY)
 
 
 async def _run_quality_backfill(

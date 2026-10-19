@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import shutil
-from typing import Annotated
+from typing import Annotated, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
@@ -90,7 +90,7 @@ async def system_info(
     }
 
 
-_SCHEDULES = ("daily", "weekly", "off")
+_SCHEDULES = get_args(SettingsOut.model_fields["upgrade_search_schedule"].annotation)
 
 
 def _settings_out(config) -> SettingsOut:

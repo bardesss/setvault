@@ -359,3 +359,22 @@ async def test_backfill_chain_is_a_singleton():
     finally:
         Job.fetch(second.id, connection=redis).delete()
         redis.delete(qb.CHAIN_KEY)
+
+
+def test_start_while_another_start_holds_the_lock_enqueues_nothing(monkeypatch):
+    import rq
+    from redis import Redis
+
+    calls = []
+    monkeypatch.setattr(rq.Queue, "enqueue", lambda self, func, **kw: calls.append(func))
+    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis.delete(qb.CHAIN_KEY)
+    redis.set(qb.START_LOCK_KEY, "1", ex=30)
+    try:
+        assert qb.start_quality_backfill() is None
+        assert qb.start_quality_backfill(cleanup=True) is None
+        assert calls == []
+        # The other start's lock is not released by the refused one.
+        assert redis.get(qb.START_LOCK_KEY) is not None
+    finally:
+        redis.delete(qb.START_LOCK_KEY)
