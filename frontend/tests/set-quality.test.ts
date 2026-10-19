@@ -17,8 +17,10 @@ test("set page shows quality, upgrade history and the switch sends PATCH", async
           ...(await real.json()),
           quality: { tier: "lossless", label: "FLAC (Bandcamp)" },
           upgrades_enabled: true,
+          // Two events from one transaction share created_at; ids keep them apart.
           upgrade_history: [
-            { created_at: "2026-03-05T10:00:00Z", from_label: "MP3 128 kbps (YouTube)", to_label: "FLAC (Bandcamp)" },
+            { id: "e2", created_at: "2026-03-05T10:00:00Z", from_label: "MP3 320 kbps (YouTube)", to_label: "FLAC (Bandcamp)" },
+            { id: "e1", created_at: "2026-03-05T10:00:00Z", from_label: "MP3 128 kbps (YouTube)", to_label: "MP3 320 kbps (YouTube)" },
           ],
         };
       }
@@ -31,9 +33,10 @@ test("set page shows quality, upgrade history and the switch sends PATCH", async
 
   await page.goto(`/sets/${seed.set.slug}`);
   await expect(page.getByTestId("set-quality-line")).toContainText("FLAC (Bandcamp)");
-  await expect(page.getByTestId("upgrade-history")).toContainText(
-    "from MP3 128 kbps (YouTube) to FLAC (Bandcamp)",
-  );
+  await expect(page.getByTestId("upgrade-history").locator("li")).toHaveText([
+    /from MP3 320 kbps \(YouTube\) to FLAC \(Bandcamp\)/,
+    /from MP3 128 kbps \(YouTube\) to MP3 320 kbps \(YouTube\)/,
+  ]);
 
   const toggle = page.getByLabel("Find better copies automatically");
   await expect(toggle).toBeChecked();

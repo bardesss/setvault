@@ -60,7 +60,7 @@
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if history.length > 0}
     <ul class="upgrade-history" data-testid="upgrade-history">
-      {#each history as h (h.created_at)}
+      {#each history as h (h.id)}
         <li>
           {$_("set.upgrades.history_line", {
             values: { date: fmt(h.created_at), from: h.from_label, to: h.to_label },

@@ -20,6 +20,7 @@ export interface SetSummary {
 }
 
 export interface SetUpgradeHistoryItem {
+  id: string;
   created_at: string;
   from_label: string;
   to_label: string;

@@ -36,6 +36,7 @@ class SetQualityOut(BaseModel):
 
 
 class SetUpgradeHistoryOut(BaseModel):
+    id: str
     created_at: datetime
     from_label: str
     to_label: str

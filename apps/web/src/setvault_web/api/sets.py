@@ -208,7 +208,7 @@ async def show_set(
                 SetUpgradeEvent.live_set_id == row.id,
                 SetUpgradeEvent.outcome.in_(("upgraded", "merged")),
             )
-            .order_by(SetUpgradeEvent.created_at.desc())
+            .order_by(SetUpgradeEvent.created_at.desc(), SetUpgradeEvent.id.desc())
             .limit(5)
         )
     ).scalars().all()
@@ -216,7 +216,8 @@ async def show_set(
     for ev in events:
         from_label, to_label = event_labels(ev)
         history.append(SetUpgradeHistoryOut(
-            created_at=ev.created_at, from_label=from_label, to_label=to_label))
+            id=str(ev.id), created_at=ev.created_at,
+            from_label=from_label, to_label=to_label))
     return SetDetailOut(
         id=str(row.id),
         slug=row.slug,
