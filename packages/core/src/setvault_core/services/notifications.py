@@ -190,6 +190,29 @@ async def notify_set_upgraded(
         await _deliver_email(session, user_id=uid, kind="set_upgraded", payload=payload)
 
 
+async def notify_backfill_summary(session: AsyncSession, counts: dict) -> int:
+    """One in-app ``maintenance`` notification per active admin when the
+    quality backfill's duplicate cleanup finishes (Phase 7D spec §4.7: no
+    per-merge notifications). An admin whose ``maintenance`` preference is
+    ``off`` gets none. Returns the number sent; the caller commits."""
+    payload = {k: int(counts.get(k, 0))
+               for k in ("fingerprinted", "measured", "merged", "skipped")}
+    admins = (await session.execute(
+        select(User.id).where(User.role == "admin", User.disabled_at.is_(None))
+    )).scalars().all()
+    sent = 0
+    for uid in admins:
+        pref = await _preference_for(session, uid, "maintenance")
+        if pref is not None and pref.channel == "off":
+            continue
+        await _deliver_in_app(
+            session, user_id=uid, kind="maintenance",
+            subject_type="maintenance", subject_id=uid, payload=payload,
+        )
+        sent += 1
+    return sent
+
+
 def event_labels(event: SetUpgradeEvent) -> tuple[str, str]:
     """Readable (from, to) quality labels for an upgrade event."""
     return (

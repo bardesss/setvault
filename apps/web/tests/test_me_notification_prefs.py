@@ -12,3 +12,10 @@ async def test_unknown_kind_is_rejected(authed_admin_client):
     r = await authed_admin_client.put(
         "/api/me/notification-preferences/bogus", json={"channel": "email"})
     assert r.status_code == 400
+
+
+async def test_maintenance_kind_is_configurable(authed_admin_client):
+    r = await authed_admin_client.put(
+        "/api/me/notification-preferences/maintenance", json={"channel": "off"})
+    assert r.status_code == 200, r.text
+    assert r.json()["kind"] == "maintenance" and r.json()["channel"] == "off"

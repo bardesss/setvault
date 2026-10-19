@@ -1,15 +1,19 @@
 """Admin-triggered backfill: give existing sets a raw chromaprint fingerprint
 and a measured audio quality.
 
-Only fills data. It never touches ``duplicate_of``, ``status`` or deleted
-state; duplicate cleanup is a separate step. Safe to re-run: only sets that
-still lack a current-version fingerprint or a quality measurement are picked
-up, oldest first.
+The fill phase only fills data; it never touches ``duplicate_of``,
+``status`` or deleted state. Safe to re-run: only sets that still lack a
+current-version fingerprint or a quality measurement are picked up, oldest
+first. With ``cleanup=True`` a second phase then merges published sets that
+turn out to be the same audio (``services/set_merge``, spec §4.7) and the
+admins get one summary notification at the end.
 
 Gentle on the single worker: each RQ job runs one bounded slice (time and
 set count), then re-enqueues itself at the back of the queue so uploads
 queued meanwhile run in between. A set that fails is marked
-(``quality_backfill_failed_at``) and not retried.
+(``quality_backfill_failed_at``) and not retried. The cleanup phase is
+sliced the same way and carries its position (a cursor over the sets, oldest
+first) and the running counts from slice to slice in the job's kwargs.
 """
 from __future__ import annotations
 
@@ -34,6 +38,8 @@ from setvault_core.services.audio_match import (
     raw_to_bytes,
 )
 from setvault_core.services.audio_quality import apply_quality, measure_quality
+from setvault_core.services.notifications import notify_backfill_summary
+from setvault_core.services.set_merge import run_cleanup_batch, scan_duplicate_pairs
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +48,8 @@ logger = logging.getLogger(__name__)
 QUALITY_BACKFILL_TIMEOUT = "1h"
 BATCH_SECONDS = 300
 BATCH_MAX_SETS = 50
+# Time budget for counting duplicate pairs in the admin dry run (a request).
+DRY_RUN_SECONDS = 20
 JOB_FUNC = "setvault_core.jobs.quality_backfill.run_quality_backfill"
 
 
@@ -73,12 +81,25 @@ async def backfill_candidates(session: AsyncSession) -> dict:
     return {"to_fingerprint": int(to_fingerprint), "to_measure": int(to_measure)}
 
 
+async def duplicate_pair_counts(session: AsyncSession) -> dict:
+    """Dry run for the cleanup: same-audio pairs among published sets that
+    already have a fingerprint (sets the backfill still has to fingerprint
+    can't be counted yet). The scan compares fingerprints, so it is cut off
+    after DRY_RUN_SECONDS; ``duplicate_pairs_complete`` says whether it
+    finished. Changes nothing."""
+    pairs, complete = await scan_duplicate_pairs(
+        session, deadline=time.monotonic() + DRY_RUN_SECONDS,
+    )
+    return {"duplicate_pairs": len(pairs), "duplicate_pairs_complete": complete}
+
+
 async def run_backfill_batch(
     limit: int | None = None, deadline: float | None = None,
 ) -> dict:
     """Process up to ``limit`` (default BATCH_MAX_SETS) sets, oldest first.
 
-    Returns ``{"processed", "remaining", "errors", "error_ids"}``. A set that
+    Returns ``{"processed", "remaining", "errors", "error_ids",
+    "fingerprinted", "measured"}``. A set that
     fails gets ``quality_backfill_failed_at`` and drops out of the candidates
     and of ``remaining``, so a permanently broken file cannot stall the
     backfill. ``deadline`` (``time.monotonic()`` value) is checked before each
@@ -99,19 +120,21 @@ async def run_backfill_batch(
             .limit(BATCH_MAX_SETS if limit is None else limit)
         )).scalars())
 
-    processed = 0
+    processed = fingerprinted = measured = 0
     error_ids: list[uuid.UUID] = []
     for live_set_id in ids:
         if deadline is not None and time.monotonic() >= deadline:
             break
         try:
-            await _backfill_one(live_set_id)
+            did_fp, did_quality = await _backfill_one(live_set_id)
         except Exception:
             logger.warning("quality backfill failed for %s", live_set_id, exc_info=True)
             error_ids.append(live_set_id)
             await _mark_failed(live_set_id)
         else:
             processed += 1
+            fingerprinted += did_fp
+            measured += did_quality
 
     async with session_factory()() as s:
         remaining = (await s.execute(
@@ -120,6 +143,7 @@ async def run_backfill_batch(
     return {
         "processed": processed, "remaining": int(remaining),
         "errors": len(error_ids), "error_ids": error_ids,
+        "fingerprinted": fingerprinted, "measured": measured,
     }
 
 
@@ -131,7 +155,8 @@ async def _mark_failed(live_set_id: uuid.UUID) -> None:
             await s.commit()
 
 
-async def _backfill_one(live_set_id: uuid.UUID) -> None:
+async def _backfill_one(live_set_id: uuid.UUID) -> tuple[bool, bool]:
+    """Returns (fingerprinted, measured)."""
     # Short sessions only: no DB connection is held across the slow
     # fpcalc/ffprobe thread calls.
     async with session_factory()() as s:
@@ -168,32 +193,95 @@ async def _backfill_one(live_set_id: uuid.UUID) -> None:
             if live is not None:
                 apply_quality(live, quality)
                 await s.commit()
+    return need_fp, need_quality
 
 
-def enqueue_quality_backfill():
-    """Put one backfill slice at the back of the default queue."""
+_COUNT_KEYS = ("fingerprinted", "measured", "merged", "skipped")
+
+
+def enqueue_quality_backfill(**state):
+    """Put one backfill slice at the back of the default queue. ``state``
+    (cleanup runs only) is passed on to :func:`run_quality_backfill`."""
     from redis import Redis
     from rq import Queue
 
     redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
-    return Queue("default", connection=redis).enqueue(
-        JOB_FUNC, job_timeout=QUALITY_BACKFILL_TIMEOUT,
-    )
+    queue = Queue("default", connection=redis)
+    if state:
+        return queue.enqueue(JOB_FUNC, job_timeout=QUALITY_BACKFILL_TIMEOUT, kwargs=state)
+    return queue.enqueue(JOB_FUNC, job_timeout=QUALITY_BACKFILL_TIMEOUT)
 
 
-async def _run_quality_backfill() -> dict:
-    """One slice: BATCH_SECONDS or BATCH_MAX_SETS, whichever comes first."""
-    res = await run_backfill_batch(deadline=time.monotonic() + BATCH_SECONDS)
+def start_quality_backfill(*, cleanup: bool = False):
+    """Queue the first slice of a backfill run."""
+    if cleanup:
+        return enqueue_quality_backfill(
+            cleanup=True, phase="fill", counts=dict.fromkeys(_COUNT_KEYS, 0), cursor=None,
+        )
+    return enqueue_quality_backfill()
+
+
+async def _run_quality_backfill(
+    *, cleanup: bool = False, phase: str = "fill",
+    counts: dict | None = None, cursor: list | None = None,
+) -> dict:
+    """One slice: BATCH_SECONDS or BATCH_MAX_SETS, whichever comes first.
+
+    Without ``cleanup`` only the fill phase runs. With it, the fill slices
+    are followed by cleanup slices (``phase="cleanup"``); the last one sends
+    the admin summary."""
+    counts = {**dict.fromkeys(_COUNT_KEYS, 0), **(counts or {})}
+    deadline = time.monotonic() + BATCH_SECONDS
+    if phase == "cleanup":
+        res = await run_cleanup_batch(cursor=cursor, deadline=deadline)
+        counts["merged"] += res["merged"]
+        counts["skipped"] += res["skipped"]
+        if not res["done"]:
+            enqueue_quality_backfill(
+                cleanup=True, phase="cleanup", counts=counts, cursor=res["cursor"],
+            )
+            logger.info("duplicate cleanup: slice done %s, next slice queued", res)
+            return res
+        logger.info("duplicate cleanup: finished %s", counts)
+        await _send_summary(counts)
+        return res
+
+    res = await run_backfill_batch(deadline=deadline)
+    counts["fingerprinted"] += res["fingerprinted"]
+    counts["measured"] += res["measured"]
     # Persisted failures mean every slice that did work shrinks `remaining`;
     # a slice that did nothing must not loop forever.
     if res["remaining"] > 0 and res["processed"] + res["errors"] > 0:
-        enqueue_quality_backfill()
+        if cleanup:
+            enqueue_quality_backfill(cleanup=True, phase="fill", counts=counts, cursor=None)
+        else:
+            enqueue_quality_backfill()
         logger.info("quality backfill: slice done %s, next slice queued", res)
+    elif cleanup:
+        # Everything that can be fingerprinted is: look for duplicates next,
+        # in its own slice so queued uploads run first.
+        enqueue_quality_backfill(cleanup=True, phase="cleanup", counts=counts, cursor=None)
+        logger.info("quality backfill: fill finished %s, cleanup queued", res)
     else:
         logger.info("quality backfill: finished %s", res)
     return res
 
 
-def run_quality_backfill() -> dict:
+async def _send_summary(counts: dict) -> None:
+    try:
+        async with session_factory()() as s:
+            await notify_backfill_summary(s, counts)
+            await s.commit()
+    except Exception:
+        # The cleanup itself is done; a missing bell entry must not fail it.
+        logger.exception("backfill summary notification failed")
+
+
+def run_quality_backfill(
+    cleanup: bool = False, phase: str = "fill",
+    counts: dict | None = None, cursor: list | None = None,
+) -> dict:
     """RQ entrypoint."""
-    return run_job(_run_quality_backfill())
+    return run_job(_run_quality_backfill(
+        cleanup=cleanup, phase=phase, counts=counts, cursor=cursor,
+    ))

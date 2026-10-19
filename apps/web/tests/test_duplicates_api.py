@@ -161,3 +161,73 @@ async def test_restored_replaced_copy_lands_on_the_duplicates_page(
     listed = (await authed_admin_client.get("/api/admin/duplicates")).json()["items"]
     (item,) = [i for i in listed if i["slug"] == aslug]
     assert item["original"]["slug"] == seeded_live_set["slug"]
+
+
+async def _published_match(original_id: str, *, by_backfill: bool) -> tuple[str, uuid.UUID]:
+    from datetime import UTC, datetime
+
+    async with session_factory()() as s:
+        original = await s.get(LiveSet, uuid.UUID(original_id))
+        dup = LiveSet(
+            slug=f"pub-{uuid.uuid4().hex[:6]}", title="published copy",
+            media_root_id=original.media_root_id, audio_path="originals/pub/a.flac",
+            status="published", source_type="upload", uploaded_by=original.uploaded_by,
+            duplicate_of=original.id,
+            backfill_matched_at=datetime.now(UTC) if by_backfill else None,
+        )
+        s.add(dup)
+        await s.commit()
+        return dup.slug, dup.id
+
+
+@pytest.mark.asyncio
+async def test_list_includes_published_sets_matched_by_backfill(
+    authed_admin_client, seeded_live_set,
+):
+    matched, _ = await _published_match(seeded_live_set["id"], by_backfill=True)
+    # Published with duplicate_of only = kept before 7D: not listed again.
+    kept, _ = await _published_match(seeded_live_set["id"], by_backfill=False)
+    held, _ = await _held_duplicate(seeded_live_set["id"])
+
+    items = {i["slug"]: i for i in
+             (await authed_admin_client.get("/api/admin/duplicates")).json()["items"]}
+
+    assert items[matched]["reason"] == "matched by backfill"
+    assert items[matched]["status"] == "published"
+    assert items[matched]["original"]["slug"] == seeded_live_set["slug"]
+    assert items[held]["reason"] is None
+    assert kept not in items
+
+
+@pytest.mark.asyncio
+async def test_keep_backfill_match_leaves_the_list_without_republishing(
+    authed_admin_client, seeded_live_set,
+):
+    slug, sid = await _published_match(seeded_live_set["id"], by_backfill=True)
+
+    r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/keep")
+
+    assert r.status_code == 200, r.text
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.status == "published"
+        assert row.duplicate_kept_at is not None and row.backfill_matched_at is None
+        events = (await s.execute(
+            select(ActivityEvent).where(ActivityEvent.subject_id == sid),
+        )).scalars().all()
+        assert not any(e.kind == "set.published" for e in events)
+    listed = (await authed_admin_client.get("/api/admin/duplicates")).json()["items"]
+    assert slug not in {i["slug"] for i in listed}
+
+
+@pytest.mark.asyncio
+async def test_discard_backfill_match_moves_it_to_the_recycle_bin(
+    authed_admin_client, seeded_live_set,
+):
+    slug, sid = await _published_match(seeded_live_set["id"], by_backfill=True)
+
+    r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/discard")
+
+    assert r.status_code == 204, r.text
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, sid)).deleted_at is not None

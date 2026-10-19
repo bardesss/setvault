@@ -218,7 +218,7 @@ async def show_set(
         from_label, to_label = event_labels(ev)
         history.append(SetUpgradeHistoryOut(
             id=str(ev.id), created_at=ev.created_at,
-            from_label=from_label, to_label=to_label))
+            from_label=from_label, to_label=to_label, outcome=ev.outcome))
     return SetDetailOut(
         id=str(row.id),
         slug=row.slug,

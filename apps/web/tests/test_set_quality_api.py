@@ -45,6 +45,7 @@ async def test_set_detail_includes_quality_and_history(authed_admin_client, seed
     assert len(hist) == 5  # capped; the rejected event is excluded
     assert hist[0]["from_label"].startswith("MP3 134 kbps")  # newest first
     assert hist[0]["to_label"].startswith("FLAC")
+    assert hist[0]["outcome"] == "upgraded"
     # Unique keys for the page's list, even for events written in one
     # transaction (same now()).
     assert len({h["id"] for h in hist}) == 5

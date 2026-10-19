@@ -181,7 +181,9 @@ class NotificationPreferenceUpsertIn(BaseModel):
     connector_id: str | None = None
 
 
-_ALLOWED_KINDS = {"account_security", "mention", "comment_reply", "set_upgraded"}
+_ALLOWED_KINDS = {
+    "account_security", "mention", "comment_reply", "set_upgraded", "maintenance",
+}
 
 
 @router.get("/notification-preferences", response_model=NotificationPreferencesListOut)

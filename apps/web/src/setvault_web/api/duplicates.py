@@ -2,12 +2,16 @@
 
 The pipeline's fingerprint stage flags an arrival whose audio matches an
 existing set (``LiveSet.duplicate_of``) and ``mark_ready`` holds it as a
-draft instead of publishing it. These endpoints let the admin resolve them:
+draft instead of publishing it. The quality backfill's duplicate cleanup
+adds published sets it matched to an older set but left unmerged
+(``backfill_matched_at``, reason "matched by backfill"). These endpoints let
+the admin resolve both kinds:
 
-  - **GET  /api/admin/duplicates** — held duplicates, newest first, each with
-    the set it duplicates.
+  - **GET  /api/admin/duplicates** — held duplicates and backfill matches,
+    newest first, each with the set it duplicates.
   - **POST /api/admin/duplicates/{slug}/keep** — publish it anyway (e.g. a
-    different recording that happens to fingerprint the same).
+    different recording that happens to fingerprint the same); a backfill
+    match is already published and just leaves the list.
   - **POST /api/admin/duplicates/{slug}/discard** — move it to the recycle
     bin; the scheduled purge job removes it after the usual grace window.
 """
@@ -21,7 +25,7 @@ from setvault_core.jobs.ready import fan_out_webhooks, publish_live_set
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.identity import User
 from setvault_core.services.audit import log as audit_log
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -33,11 +37,19 @@ router = APIRouter(prefix="/api/admin/duplicates", tags=["admin"])
 _RECYCLE_GRACE = timedelta(days=14)
 
 
+REASON_BACKFILL = "matched by backfill"
+
+
 def _held_duplicates():
     return select(LiveSet).where(
         LiveSet.duplicate_of.is_not(None),
-        LiveSet.status == "draft",
         LiveSet.deleted_at.is_(None),
+        or_(
+            LiveSet.status == "draft",
+            # Published sets the backfill matched but didn't merge. Published
+            # sets with only duplicate_of (kept earlier) aren't listed.
+            and_(LiveSet.status == "published", LiveSet.backfill_matched_at.is_not(None)),
+        ),
     )
 
 
@@ -72,6 +84,8 @@ async def list_duplicates(
             "source_type": dup.source_type,
             "duration_seconds": dup.duration_seconds,
             "created_at": dup.created_at.isoformat() if dup.created_at else None,
+            "status": dup.status,
+            "reason": REASON_BACKFILL if dup.backfill_matched_at is not None else None,
             "original": None if orig is None else {
                 "slug": orig.slug,
                 "title": orig.title,
@@ -92,7 +106,11 @@ async def keep_duplicate(
 ):
     live = await _get_held(session, slug)
     live.duplicate_kept_at = datetime.now(UTC)
-    await publish_live_set(session, live)
+    # A backfill match is already published: no second publish event.
+    was_published = live.status == "published"
+    live.backfill_matched_at = None
+    if not was_published:
+        await publish_live_set(session, live)
     await audit_log(
         session,
         actor_user_id=admin.id,
@@ -102,7 +120,8 @@ async def keep_duplicate(
         after={"duplicate_of": str(live.duplicate_of), "status": live.status},
     )
     await session.commit()
-    await fan_out_webhooks(live, "set.published")
+    if not was_published:
+        await fan_out_webhooks(live, "set.published")
     return {"slug": live.slug, "status": live.status}
 
 

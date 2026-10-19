@@ -57,7 +57,10 @@ async def test_remeasure_loudness_enqueues_backfill(
 async def test_quality_backfill_dry_run_counts(authed_admin_client, seeded_live_set):
     r = await authed_admin_client.get("/api/admin/maintenance/quality-backfill")
     assert r.status_code == 200, r.text
-    assert r.json() == {"to_fingerprint": 1, "to_measure": 1}
+    assert r.json() == {
+        "to_fingerprint": 1, "to_measure": 1,
+        "duplicate_pairs": 0, "duplicate_pairs_complete": True,
+    }
 
 
 async def test_quality_backfill_post_enqueues_with_timeout(
@@ -78,11 +81,41 @@ async def test_quality_backfill_post_enqueues_with_timeout(
     r = await authed_admin_client.post("/api/admin/maintenance/quality-backfill")
     assert r.status_code == 202, r.text
     assert r.json() == {
-        "status": "queued", "job_id": "job-q", "to_fingerprint": 1, "to_measure": 1,
+        "status": "queued", "job_id": "job-q", "cleanup": False,
+        "to_fingerprint": 1, "to_measure": 1,
     }
     assert calls == [(
         "setvault_core.jobs.quality_backfill.run_quality_backfill", {"job_timeout": "1h"},
     )]
+
+
+async def test_quality_backfill_post_with_cleanup_carries_job_state(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    import rq
+
+    calls: list[tuple[str, dict]] = []
+
+    class _Job:
+        id = "job-c"
+
+    def _enqueue(self, func, **kwargs):
+        calls.append((func, kwargs))
+        return _Job()
+
+    monkeypatch.setattr(rq.Queue, "enqueue", _enqueue)
+    r = await authed_admin_client.post(
+        "/api/admin/maintenance/quality-backfill", json={"cleanup": True},
+    )
+    assert r.status_code == 202, r.text
+    assert r.json()["cleanup"] is True
+    ((func, kwargs),) = calls
+    assert func == "setvault_core.jobs.quality_backfill.run_quality_backfill"
+    assert kwargs["job_timeout"] == "1h"
+    assert kwargs["kwargs"] == {
+        "cleanup": True, "phase": "fill", "cursor": None,
+        "counts": {"fingerprinted": 0, "measured": 0, "merged": 0, "skipped": 0},
+    }
 
 
 async def test_quality_backfill_member_forbidden(client, seeded_admin):
