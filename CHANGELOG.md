@@ -4,6 +4,103 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0](https://github.com/bardesss/setvault/compare/v0.17.0...v0.18.0) (2026-10-19)
+
+
+### Features
+
+* **admin:** Quality and Wanted tabs ([a2a1e17](https://github.com/bardesss/setvault/commit/a2a1e17fd67bb0ef67a808f2a629ae3d45feace4))
+* **duplicates:** show both copies' quality and what Discard keeps ([4ec973c](https://github.com/bardesss/setvault/commit/4ec973c59c806d333944fbad1f04808aaff3d7fb))
+* **match:** duplicate detection uses fuzzy matching ([5d3896e](https://github.com/bardesss/setvault/commit/5d3896ed10afeb6ea1660b158dcde3f2a3f2f1ee))
+* **match:** fuzzy chromaprint matcher with offset alignment ([9e1c0cf](https://github.com/bardesss/setvault/commit/9e1c0cf1366311a48a95ba13a6fc090436c20976))
+* **notifications:** notify owners when a set is upgraded ([685ea7e](https://github.com/bardesss/setvault/commit/685ea7e5b0dfe300a83d10260526234156641252))
+* **quality:** "Clean up duplicates" in the backfill box ([02a2593](https://github.com/bardesss/setvault/commit/02a25937a2da8abbaadec22c1d1fe588b40e8ef9))
+* **quality:** 7D Bandcamp source, library duplicate cleanup, upgrade smoke ([3620f61](https://github.com/bardesss/setvault/commit/3620f6198b3f4c47a57baaa5b0addc97af9fab02))
+* **quality:** 7D foundation — quality tiers, quality profile, fuzzy audio matching, backfill ([1670abe](https://github.com/bardesss/setvault/commit/1670abe1f72872e7a03e241af73257917ffbf6ab))
+* **quality:** admin-triggered fingerprint + quality backfill ([45f295e](https://github.com/bardesss/setvault/commit/45f295e7fff7f251c9d7ca41e674858cb117cb7d))
+* **quality:** backfill cleans up duplicates already in the library ([10d2b39](https://github.com/bardesss/setvault/commit/10d2b39ca088642178fbca71571924c0c7a42c49))
+* **quality:** library-wide quality profile settings ([9ade553](https://github.com/bardesss/setvault/commit/9ade5537549f753e1aa88835e387572ef2852778))
+* **quality:** measure set audio quality and tier it on probe ([858a49d](https://github.com/bardesss/setvault/commit/858a49de8dd437396fd427fdb90344f905f60cab))
+* **rip:** prefer a lossless format when a source offers one ([1222d00](https://github.com/bardesss/setvault/commit/1222d0014e7998a2de4ba5c4e4a490e76682cac2))
+* **sets:** hint when automatic upgrades are off library-wide ([fb9b2c4](https://github.com/bardesss/setvault/commit/fb9b2c417b2a2fede10260422e03d102a919fac8))
+* **sets:** show quality, upgrade switch and history ([56260c6](https://github.com/bardesss/setvault/commit/56260c644d9682a9cdadd8e768060a4955dc7f16))
+* **settings:** admins can set library maintenance notifications ([ff0f247](https://github.com/bardesss/setvault/commit/ff0f2474c1a8f44e35fcaf42857bc6c3ee4b8d72))
+* **sources:** Bandcamp search source ([32f4939](https://github.com/bardesss/setvault/commit/32f4939d5d4c850ecfa52c0ec26592c7ea28addf))
+* **sources:** expected quality on search candidates ([122cc6e](https://github.com/bardesss/setvault/commit/122cc6ebc4d3ecd51df6085a33c009976786860f))
+* **upgrades:** 7D upgrade engine — automatic better-copy swaps, scheduled search, Quality/Wanted UI ([767d992](https://github.com/bardesss/setvault/commit/767d992f6b4827892496b25f91621f51d81dc669))
+* **upgrades:** best-copy selection for monitors and search ([a7cd1e4](https://github.com/bardesss/setvault/commit/a7cd1e44ff7c76d694585e2eab608fff22619d90))
+* **upgrades:** crash-safe set audio swap ([41b2edc](https://github.com/bardesss/setvault/commit/41b2edcae590542ac65906f743b516872720ad44))
+* **upgrades:** scheduled upgrade search ([0dc8423](https://github.com/bardesss/setvault/commit/0dc8423653e5d45b4523e47f4af801cb61d4eb87))
+* **upgrades:** upgrade history + rip upgrade targeting ([a646baf](https://github.com/bardesss/setvault/commit/a646baf92598ed8a366b791ab87171165b0cfec8))
+* **upgrades:** upgrade or hold duplicates at ingest ([85ae992](https://github.com/bardesss/setvault/commit/85ae99240682f9d8b4f8a1c32ce7eba2c6e37891))
+
+
+### Bug Fixes
+
+* **admin:** plain-English Quality/Wanted pages, clear search error, order test ([0688dc7](https://github.com/bardesss/setvault/commit/0688dc77c204de81199b5a3f19275df4c90a4de7))
+* **admin:** Wanted label, search guards and plain-English results ([b102cde](https://github.com/bardesss/setvault/commit/b102cde1d1436c61cba6968f065f078aa0af17ed))
+* **bandcamp:** search tracks only ([092937d](https://github.com/bardesss/setvault/commit/092937da68ae5307e0f129a65b33b2fb7c2eba5d))
+* **duplicates:** discard answers 409 when the original changed ([ca12766](https://github.com/bardesss/setvault/commit/ca1276643785bdc2645df22178479ebee7f434c2))
+* **duplicates:** discarding a backfill match merges it into its original ([4fca61b](https://github.com/bardesss/setvault/commit/4fca61b183923b1487f3a276e62b3fbcd2198fe4))
+* **fingerprint:** keep a better arrival when its original is in the recycle bin ([21daf70](https://github.com/bardesss/setvault/commit/21daf70332096c1e885ad498af602fe5f8ec42bc))
+* **match:** exact legacy digest matches any candidate row ([e46e9a1](https://github.com/bardesss/setvault/commit/e46e9a184754c940b18987fa8869d9f61dc9c75f))
+* **match:** keep the legacy exact hash for fingerprint rows without raw ([67618b6](https://github.com/bardesss/setvault/commit/67618b6effb5f44fe125bd6e829abd84dedb25b4))
+* **match:** per-probe gate, worst-window guard, exact chromaprint hop ([37fd375](https://github.com/bardesss/setvault/commit/37fd37590c33e6d7e7edf8598a6a0d28d9fa2372))
+* **notifications:** set_upgraded email is opt-in; guard missing owner ([51aa0cc](https://github.com/bardesss/setvault/commit/51aa0cc67ec42ef3ad463fe77a969c695c52dd59))
+* **quality:** a purged fingerprint is no duplicate match ([cd92c55](https://github.com/bardesss/setvault/commit/cd92c55f6ed64d40dd6dacd2f1177e5291483ac8))
+* **quality:** backfill honours a per-set deadline and holds no session during probes ([b39fbe0](https://github.com/bardesss/setvault/commit/b39fbe0d93595972002c1bd0412c732fd298b219))
+* **quality:** backfill runs one bounded slice per job and re-enqueues itself ([560c2f6](https://github.com/bardesss/setvault/commit/560c2f68c7d03084a663dc6aa1263c51c940b1ae))
+* **quality:** detect lossy low-pass cliff instead of comparing to full band ([6bfa193](https://github.com/bardesss/setvault/commit/6bfa1936fab4cb01355b25634e6a040796132347))
+* **quality:** explain that tracklists move only to sets without one ([0aeedee](https://github.com/bardesss/setvault/commit/0aeedee6cdeba476dd0ee790c20ca37716235550))
+* **quality:** legacy hash only pairs sets that can't be compared fuzzily ([ed1c976](https://github.com/bardesss/setvault/commit/ed1c976bac7ea6b2ccc1ce0b6e029fd7070afcfe))
+* **quality:** log a warning when the fake-lossless check fails ([abb3b59](https://github.com/bardesss/setvault/commit/abb3b591f435ab620ed5745ee21c183539efec87))
+* **quality:** merged positions stay inside the survivor's audio ([e55f92a](https://github.com/bardesss/setvault/commit/e55f92a2a5c0a5cb6b56a8d58454af0a9dd9a933))
+* **quality:** one 180 s budget for the quality check, tighter fpcalc cap ([9e029eb](https://github.com/bardesss/setvault/commit/9e029ebdab264f4dd9403f9ff07022cdae7138e6))
+* **quality:** recognise more lossless codecs (tta, tak, truehd, mlp, dsd_*, ...) ([c2b9a3a](https://github.com/bardesss/setvault/commit/c2b9a3a7267bcabdc58efb972ec3e45eba0bba38))
+* **quality:** require absolute silence above cliff; add subprocess timeouts ([bd0fdf7](https://github.com/bardesss/setvault/commit/bd0fdf7445f73e0e8d54be295e82a4bdb9bcc9b2))
+* **quality:** set history says when a merge kept the tracklist ([a07f16e](https://github.com/bardesss/setvault/commit/a07f16e2b13186ac1b68f82295462ba59f9895b9))
+* **quality:** spell the ok tier "OK" in the label fallback ([64d3d18](https://github.com/bardesss/setvault/commit/64d3d18fce079b90ca7636132810222624f78c00))
+* **quality:** starting the backfill doesn't recount duplicate pairs ([9227b47](https://github.com/bardesss/setvault/commit/9227b47b30ba640b340356856ec1a0d23417e0ff))
+* **quality:** the backfill summary counts fill-phase errors ([00cc73c](https://github.com/bardesss/setvault/commit/00cc73c5f0f046581ca0cc7d0c07c934f465cd34))
+* **quality:** the backfill summary reports cleanup errors ([cc63e64](https://github.com/bardesss/setvault/commit/cc63e646722de94eb7057fc13090c992121b94c1))
+* **rips:** let discarded upgrade attempts not block later ingests ([eec2da2](https://github.com/bardesss/setvault/commit/eec2da200e65378f5f0bc6a69eddc457f5ef068f))
+* **sets:** key upgrade history by event id ([5c15e92](https://github.com/bardesss/setvault/commit/5c15e92e51ed4bc88540669b62d2726d78f12d49))
+* **sources:** Bandcamp candidates have an unknown expected tier ([a3c47ad](https://github.com/bardesss/setvault/commit/a3c47ad6420fee59ad02940f81319a93eeb6d1fc))
+* **sources:** Bandcamp search via the public JSON endpoint ([d69b2e6](https://github.com/bardesss/setvault/commit/d69b2e670712a5b3a7fb8ff38e7e71cef4f8fe01))
+* **upgrades:** don't stamp a set when every source errored ([ef613a2](https://github.com/bardesss/setvault/commit/ef613a2605b836f8aa2a4a23e3507e49ac61ff5b))
+* **upgrades:** failed upgrade rips count as tried ([002b30e](https://github.com/bardesss/setvault/commit/002b30eb6256127cb145d3e30c76da9774984cb0))
+* **upgrades:** judge an upgrade attempt against its target only ([646739d](https://github.com/bardesss/setvault/commit/646739dbf58e4b11b2023baae4a7a21bfd57534b))
+* **upgrades:** lock rows for the swap; never hard-delete swapped sets ([9b352a8](https://github.com/bardesss/setvault/commit/9b352a8d1ee6dfff699bf6c860cf098180c2c145))
+* **upgrades:** never delete files another set uses; repoint rip; gate webhooks ([3fc7399](https://github.com/bardesss/setvault/commit/3fc73995ec6f7b815ce0b6f13000bbe4d030a642))
+* **upgrades:** re-check upgrade under lock; owner rule; search-now switch ([d075102](https://github.com/bardesss/setvault/commit/d075102cb1ab05af34858acb7029e4f781c9e887))
+* **upgrades:** record a failed upgrade-attempt rip as a rejected candidate ([a28712c](https://github.com/bardesss/setvault/commit/a28712ca25169e1f35e6c06a116194d76e2fb547))
+* **upgrades:** record monitor and source-search triggers on rips ([03fc9b0](https://github.com/bardesss/setvault/commit/03fc9b0d7c939bd1f9fa9138811f085348e480ab))
+* **upgrades:** restored replaced copy lands on the Duplicates page ([28a8074](https://github.com/bardesss/setvault/commit/28a807483f011856690ae1225aa75380b706539b))
+* **upgrades:** run upgrade work on a low-priority queue with an in-flight cap ([3f0df4d](https://github.com/bardesss/setvault/commit/3f0df4da417d1f63ccc0dc706904bb34f2f32a17))
+* **upgrades:** run-now timeout, duplicate picks, probe failures, batch budget ([ea74fb8](https://github.com/bardesss/setvault/commit/ea74fb8d1c6c0d41fd57787f7efaf06206bd284e))
+* **upgrades:** shifting play positions keeps their updated_at ([192aaf2](https://github.com/bardesss/setvault/commit/192aaf2e9d219f4751d82450716f74f38117e5ba))
+* **wanted:** search-now refuses sets that aren't fingerprinted yet ([9a94c6b](https://github.com/bardesss/setvault/commit/9a94c6b832aebed6e6ae613dcb5b90ec621fec9d))
+* **wanted:** show a refused search on that set's row ([91370f9](https://github.com/bardesss/setvault/commit/91370f9105c6856be58fd171ced4e9659ed04b99))
+* **worker:** actually run scheduled jobs (rq-scheduler loop) + reset recycle-bin grace ([252cd46](https://github.com/bardesss/setvault/commit/252cd4679f842b25f0699aa3e96ff3d49137353b))
+* **worker:** run rq-scheduler so periodic jobs actually fire ([2df1157](https://github.com/bardesss/setvault/commit/2df11572a7d8f7014d8fd198e6b5ca5ad5514e31))
+
+
+### Performance
+
+* **match:** fetch candidate fingerprints lazily and cap compares at 200 ([824689f](https://github.com/bardesss/setvault/commit/824689fa0bd2e1ee5dacdf51047f6bf16d10061d))
+* **upgrades:** index rip_jobs.upgrade_target_set_id ([2b8044d](https://github.com/bardesss/setvault/commit/2b8044d4e129557890cf4d3a9b45b69e6c30b929))
+
+
+### Refactors
+
+* **quality:** make is_better's lossless flags required keyword-only ([67e94ab](https://github.com/bardesss/setvault/commit/67e94aba0c7112666ea709cbae602ab72d0deaf2))
+* **quality:** move apply_quality to services/audio_quality ([95bd695](https://github.com/bardesss/setvault/commit/95bd695dc08a7bd478ecf1d0369be8c31cf73eb5))
+
+
+### Documentation
+
+* **models:** say what duplicate_kept_at is used for ([c3cc481](https://github.com/bardesss/setvault/commit/c3cc481116555943c36d4df87a7aa6b5aad3da93))
+
 ## [0.17.0](https://github.com/bardesss/setvault/compare/v0.16.0...v0.17.0) (2026-10-18)
 
 
