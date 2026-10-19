@@ -12,14 +12,19 @@ from pydantic import BaseModel
 from setvault_core.models.catalog import LiveSet, LiveSetTag, MediaRoot, Tag
 from setvault_core.models.engagement import UserSetState
 from setvault_core.models.identity import User
+from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.schemas.catalog import PartyOut, SeriesOut, VenueOut
 from setvault_core.schemas.sets import (
     SetArtistOut,
     SetDetailOut,
     SetListOut,
     SetPatchIn,
+    SetQualityOut,
     SetSummaryOut,
+    SetUpgradeHistoryOut,
 )
+from setvault_core.services.audio_quality import quality_label
+from setvault_core.services.notifications import event_labels, source_name
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
 from setvault_core.services.sets import replace_artists, replace_tags
 from setvault_core.services.signed_urls import verify_stream_sig
@@ -188,6 +193,30 @@ async def show_set(
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="not found")
+    quality = None
+    if row.quality_tier:
+        quality = SetQualityOut(
+            tier=row.quality_tier,
+            label=quality_label(
+                row.quality_tier, row.audio_codec, row.audio_bitrate_kbps,
+                source_name(row.source_type, row.source_url)),
+        )
+    events = (
+        await session.execute(
+            select(SetUpgradeEvent)
+            .where(
+                SetUpgradeEvent.live_set_id == row.id,
+                SetUpgradeEvent.outcome.in_(("upgraded", "merged")),
+            )
+            .order_by(SetUpgradeEvent.created_at.desc())
+            .limit(5)
+        )
+    ).scalars().all()
+    history = []
+    for ev in events:
+        from_label, to_label = event_labels(ev)
+        history.append(SetUpgradeHistoryOut(
+            created_at=ev.created_at, from_label=from_label, to_label=to_label))
     return SetDetailOut(
         id=str(row.id),
         slug=row.slug,
@@ -205,6 +234,9 @@ async def show_set(
         waveform_url=f"/api/sets/{slug}/waveform" if row.waveform_path else None,
         normalized_lufs=row.normalized_lufs,
         embed_allowed=row.embed_allowed,
+        quality=quality,
+        upgrades_enabled=row.upgrades_enabled,
+        upgrade_history=history,
     )
 
 
@@ -236,6 +268,8 @@ async def edit_set(
         live.venue_id = uuid.UUID(body.venue_id)
     if body.description is not None:
         live.description = body.description
+    if body.upgrades_enabled is not None:
+        live.upgrades_enabled = body.upgrades_enabled
     if body.artist_ids is not None:
         await replace_artists(session, live, body.artist_ids)
     if body.tag_names is not None:

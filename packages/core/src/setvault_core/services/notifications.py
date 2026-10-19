@@ -174,15 +174,12 @@ async def notify_set_upgraded(
     channel = pref.channel if pref else "in_app"
     if channel == "off":
         return
+    from_label, to_label = event_labels(event)
     payload = {
         "set_slug": target.slug,
         "set_title": target.title,
-        "from_label": quality_label(
-            event.from_tier, event.from_codec, event.from_bitrate_kbps,
-            _source_name(event.from_source_type, event.from_source_url)),
-        "to_label": quality_label(
-            event.to_tier, event.to_codec, event.to_bitrate_kbps,
-            _source_name(event.to_source_type, event.to_source_url)),
+        "from_label": from_label,
+        "to_label": to_label,
     }
     if channel in ("in_app", "both"):
         await _deliver_in_app(
@@ -193,7 +190,19 @@ async def notify_set_upgraded(
         await _deliver_email(session, user_id=uid, kind="set_upgraded", payload=payload)
 
 
-def _source_name(source_type: str | None, source_url: str | None) -> str | None:
+def event_labels(event: SetUpgradeEvent) -> tuple[str, str]:
+    """Readable (from, to) quality labels for an upgrade event."""
+    return (
+        quality_label(
+            event.from_tier, event.from_codec, event.from_bitrate_kbps,
+            source_name(event.from_source_type, event.from_source_url)),
+        quality_label(
+            event.to_tier, event.to_codec, event.to_bitrate_kbps,
+            source_name(event.to_source_type, event.to_source_url)),
+    )
+
+
+def source_name(source_type: str | None, source_url: str | None) -> str | None:
     """Resolve ``url_rip`` to its platform (YouTube, Bandcamp...) via the URL.
 
     Falls back to the raw source type when the URL is missing or unrecognised.

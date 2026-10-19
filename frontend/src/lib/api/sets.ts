@@ -19,6 +19,12 @@ export interface SetSummary {
   tags: string[];
 }
 
+export interface SetUpgradeHistoryItem {
+  created_at: string;
+  from_label: string;
+  to_label: string;
+}
+
 export interface SetDetail extends SetSummary {
   description: string | null;
   audio_stream_url: string;
@@ -27,6 +33,9 @@ export interface SetDetail extends SetSummary {
   venue: { id: string; name: string; slug: string } | null;
   party: { id: string; name: string; slug: string } | null;
   embed_allowed: boolean;
+  quality: { tier: string; label: string } | null;
+  upgrades_enabled: boolean;
+  upgrade_history: SetUpgradeHistoryItem[];
 }
 
 export interface SetState {

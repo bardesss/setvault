@@ -313,5 +313,15 @@
     "no_merged": "Nothing merged yet.",
     "unmerge": "Unmerge",
     "confirm_unmerge": "Unmerge this entity? References move back to it (field values set during the merge are not reverted)."
+  },
+  "set": {
+    "quality": {
+      "label": "Quality: {label}",
+      "unknown": "Quality unknown"
+    },
+    "upgrades": {
+      "toggle": "Find better copies automatically",
+      "history_line": "Upgraded {date} from {from} to {to}"
+    }
   }
 }

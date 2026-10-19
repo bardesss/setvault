@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date as _date
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -29,6 +30,17 @@ class SetSummaryOut(BaseModel):
     tags: list[str]
 
 
+class SetQualityOut(BaseModel):
+    tier: str
+    label: str
+
+
+class SetUpgradeHistoryOut(BaseModel):
+    created_at: datetime
+    from_label: str
+    to_label: str
+
+
 class SetDetailOut(SetSummaryOut):
     party: PartyOut | None
     venue: VenueOut | None
@@ -37,6 +49,9 @@ class SetDetailOut(SetSummaryOut):
     waveform_url: str | None
     normalized_lufs: float | None
     embed_allowed: bool
+    quality: SetQualityOut | None = None
+    upgrades_enabled: bool = True
+    upgrade_history: list[SetUpgradeHistoryOut] = []
 
 
 class SetListOut(BaseModel):
@@ -53,3 +68,4 @@ class SetPatchIn(BaseModel):
     description: str | None = None
     artist_ids: list[str] | None = None
     tag_names: list[str] | None = None
+    upgrades_enabled: bool | None = None
