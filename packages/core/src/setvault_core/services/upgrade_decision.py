@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.models.catalog import LiveSet
 from setvault_core.services.set_upgrade import (
+    UpgradeNoLongerApplicable,
     apply_upgrade,
     discard_arrival,
     upgrade_refusal,
@@ -44,6 +45,7 @@ logger = logging.getLogger(__name__)
 Outcome = Literal["upgraded", "held", "discarded", "publish"]
 
 _RECYCLED = "arrival is in the recycle bin"
+_NO_LONGER_APPLICABLE = "no longer applicable"
 
 
 @dataclass(frozen=True)
@@ -129,8 +131,12 @@ async def discard_unless_upgrade(
 async def _upgrade(
     session: AsyncSession, arrival: LiveSet, target: LiveSet, *, trigger: str,
     candidate_source_kind: str | None, candidate_external_id: str | None,
+    upgrade_attempt: bool = False,
 ) -> Decision:
     title = target.title
+    # apply_upgrade rolls back on refusal, which expires both objects: keep
+    # the ids to log and re-read them.
+    target_id, arrival_id = target.id, arrival.id
     await session.commit()
     try:
         await apply_upgrade(
@@ -142,7 +148,18 @@ async def _upgrade(
         # UpgradeNoLongerApplicable (the locked re-check failed: target or
         # arrival changed underneath) or an arrival without stream/waveform:
         # it stays a draft duplicate for the Duplicates page.
-        logger.warning("upgrade of %s from %s not applied: %s", target.id, arrival.id, exc)
+        logger.warning("upgrade of %s from %s not applied: %s", target_id, arrival_id, exc)
+        if upgrade_attempt and isinstance(exc, UpgradeNoLongerApplicable):
+            # An upgrade-attempt rip exists only for that target: like any
+            # other refused attempt it is discarded with a rejected event.
+            arrival = await session.get(LiveSet, arrival_id)
+            target = await session.get(LiveSet, target_id)
+            if arrival is not None and await _discard(
+                session, arrival, target, reason=_NO_LONGER_APPLICABLE, trigger=trigger,
+                candidate_source_kind=candidate_source_kind,
+                candidate_external_id=candidate_external_id,
+            ):
+                return Decision("discarded", _NO_LONGER_APPLICABLE)
         return Decision("held", "duplicate")
     return Decision("upgraded", target_title=title)
 
@@ -169,7 +186,8 @@ async def decide(
                               **candidate):
                 return Decision("discarded", reason)
             return Decision("held", reason)
-        return await _upgrade(session, arrival, target, trigger=trigger, **candidate)
+        return await _upgrade(session, arrival, target, trigger=trigger,
+                              upgrade_attempt=True, **candidate)
 
     if arrival.duplicate_of is None:
         return Decision("publish")
