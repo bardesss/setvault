@@ -1,12 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { _ } from "svelte-i18n";
   import { api, ApiError } from "$lib/api/client";
   import {
     getSettings,
     updateSettings,
     type AdminSettings,
   } from "$lib/api/settings";
+
+  const TIER_LABELS: Record<string, string> = {
+    lossless: "Lossless", high: "High", good: "Good", ok: "OK", low: "Low",
+  };
 
   let settings: AdminSettings | null = null;
   let order: string[] = [];
@@ -36,7 +39,7 @@
       settings = await getSettings();
       order = [...settings.quality_tiers_order];
     } catch (e) {
-      error = msg(e, $_("quality.load_failed"));
+      error = msg(e, "Could not load quality settings.");
     } finally {
       loading = false;
     }
@@ -52,7 +55,7 @@
   }
 
   function tierName(t: string): string {
-    return $_(`quality.tier_${t}`, { default: t });
+    return TIER_LABELS[t] ?? t;
   }
 
   async function save() {
@@ -70,7 +73,7 @@
       order = [...settings.quality_tiers_order];
       saved = true;
     } catch (e) {
-      error = msg(e, $_("quality.save_failed"));
+      error = msg(e, "Save failed.");
     } finally {
       busy = false;
     }
@@ -81,10 +84,10 @@
     backfillMsg = null;
     try {
       await api("/api/admin/maintenance/quality-backfill", { method: "POST" });
-      backfillMsg = $_("quality.backfill_started");
+      backfillMsg = "Backfill started.";
       await loadBackfill();
     } catch (e) {
-      backfillMsg = msg(e, $_("quality.backfill_failed"));
+      backfillMsg = msg(e, "Could not start the backfill.");
     } finally {
       backfillBusy = false;
     }
@@ -93,8 +96,8 @@
 
 <section class="quality">
   <header>
-    <h2>{$_("quality.heading")}</h2>
-    <p class="muted">{$_("quality.intro")}</p>
+    <h2>Quality</h2>
+    <p class="muted">Sets are rated by how good their audio is. When a set sits below the cutoff, SetVault can look for a better copy and swap it in.</p>
   </header>
 
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
@@ -103,8 +106,8 @@
     <p class="muted">Loading…</p>
   {:else if settings}
     <div class="card">
-      <h3>{$_("quality.tier_order_title")}</h3>
-      <p class="muted">{$_("quality.tier_order_hint")}</p>
+      <h3>Quality order</h3>
+      <p class="muted">Best first. Use the arrows to reorder.</p>
       <ol class="tiers" data-testid="tier-order">
         {#each order as tier, i (tier)}
           <li>
@@ -113,14 +116,14 @@
               type="button"
               class="btn btn-sm"
               disabled={i === 0 || busy}
-              aria-label={$_("quality.move_up", { values: { tier: tierName(tier) } })}
+              aria-label={`Move ${tierName(tier)} up`}
               on:click={() => move(i, -1)}
             >↑</button>
             <button
               type="button"
               class="btn btn-sm"
               disabled={i === order.length - 1 || busy}
-              aria-label={$_("quality.move_down", { values: { tier: tierName(tier) } })}
+              aria-label={`Move ${tierName(tier)} down`}
               on:click={() => move(i, 1)}
             >↓</button>
           </li>
@@ -128,50 +131,48 @@
       </ol>
 
       <label class="row">
-        <span>{$_("quality.cutoff")}</span>
+        <span>Cutoff</span>
         <select bind:value={settings.quality_cutoff} disabled={busy}>
           {#each order as tier (tier)}
             <option value={tier}>{tierName(tier)}</option>
           {/each}
         </select>
       </label>
-      <p class="muted">{$_("quality.cutoff_hint")}</p>
+      <p class="muted">Sets below this tier are wanted and get upgrade searches.</p>
 
       <label class="row">
         <input type="checkbox" bind:checked={settings.auto_upgrades_enabled} disabled={busy} />
-        <span>{$_("quality.auto_upgrades")}</span>
+        <span>Automatic upgrades</span>
       </label>
 
       <label class="row">
-        <span>{$_("quality.upgrade_search")}</span>
+        <span>Upgrade search</span>
         <select bind:value={settings.upgrade_search_schedule} disabled={busy}>
-          <option value="daily">{$_("quality.schedule_daily")}</option>
-          <option value="weekly">{$_("quality.schedule_weekly")}</option>
-          <option value="off">{$_("quality.schedule_off")}</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="off">Off</option>
         </select>
       </label>
 
       <div class="row">
         <button type="button" class="btn btn-primary btn-sm" disabled={busy} on:click={save}>
-          {busy ? $_("quality.saving") : $_("quality.save")}
+          {busy ? "Saving…" : "Save"}
         </button>
-        {#if saved}<span class="muted" role="status">{$_("quality.saved")}</span>{/if}
+        {#if saved}<span class="muted" role="status">Saved.</span>{/if}
       </div>
     </div>
 
     <div class="card">
-      <h3>{$_("quality.backfill_title")}</h3>
-      <p class="muted">{$_("quality.backfill_hint")}</p>
+      <h3>Backfill</h3>
+      <p class="muted">Fingerprint and measure the quality of sets added before upgrades existed.</p>
       {#if backfill}
         <p data-testid="backfill-counts">
-          {$_("quality.backfill_counts", {
-            values: { fingerprint: backfill.to_fingerprint, measure: backfill.to_measure },
-          })}
+          {`${backfill.to_fingerprint} to fingerprint, ${backfill.to_measure} to measure.`}
         </p>
       {/if}
       <div class="row">
         <button type="button" class="btn btn-sm" disabled={backfillBusy} on:click={runBackfill}>
-          {$_("quality.backfill_run")}
+          Run backfill
         </button>
         {#if backfillMsg}<span class="muted" role="status">{backfillMsg}</span>{/if}
       </div>

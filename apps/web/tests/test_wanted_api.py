@@ -87,3 +87,26 @@ async def test_search_now_rejects_set_meeting_cutoff(authed_admin_client, seeded
 async def test_wanted_admin_only(client):
     assert (await client.get("/api/admin/wanted")).status_code in (401, 403)
     assert (await client.post("/api/admin/wanted/x/search")).status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_wanted_lists_never_searched_first(authed_admin_client, seeded_live_set):
+    from datetime import UTC, datetime
+
+    first = seeded_live_set["id"]
+    await _set_quality(first, quality_tier="low", last_upgrade_search_at=datetime.now(UTC))
+    async with session_factory()() as s:
+        src = await s.get(LiveSet, uuid.UUID(first))
+        other = LiveSet(
+            slug=f"never-{uuid.uuid4().hex[:6]}", title="never searched",
+            media_root_id=src.media_root_id, audio_path="originals/n/a.mp3",
+            status="published", source_type="upload", quality_tier="low",
+            uploaded_by=src.uploaded_by,
+        )
+        s.add(other)
+        await s.commit()
+        other_id = str(other.id)
+
+    items = (await authed_admin_client.get("/api/admin/wanted")).json()["items"]
+    ids = [i["id"] for i in items]
+    assert ids.index(other_id) < ids.index(first)
