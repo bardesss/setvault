@@ -514,7 +514,7 @@ async def _upgrade_rip_setup(
     async def _ok(live_set_id):
         return None
 
-    async def _fingerprint(live_set_id):
+    async def _fingerprint(live_set_id, **_kw):
         async with session_factory()() as s:
             live = await s.get(LiveSet, uuid.UUID(live_set_id))
             live.quality_tier = arrival_tier

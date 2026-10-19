@@ -11,10 +11,18 @@ from pathlib import Path
 import pytest
 from setvault_core.db import init_engine, session_factory
 from setvault_core.jobs import upgrade_search as job
-from setvault_core.models.catalog import Artist, LiveSet, LiveSetArtist, MediaRoot, Party
+from setvault_core.models.catalog import (
+    Artist,
+    LiveSet,
+    LiveSetArtist,
+    MediaRoot,
+    Party,
+    SetFingerprint,
+)
 from setvault_core.models.identity import User
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
+from setvault_core.services.audio_match import MATCHER_VERSION
 from setvault_core.services.ingest_sources import SourceRateLimitedError
 from setvault_core.services.quality_profile import QualityProfile
 from setvault_core.services.system_config import get_config
@@ -52,7 +60,9 @@ def _live(**kw) -> LiveSet:
     return LiveSet(**defaults)
 
 
-async def _seed_set(s, *, root: MediaRoot, user: User, **kw) -> LiveSet:
+async def _seed_set(s, *, root: MediaRoot, user: User, fp: str = "raw", **kw) -> LiveSet:
+    """``fp``: the set's fingerprint row: "raw" (current matcher version),
+    "old" (an older raw version), "legacy" (hash only) or "none"."""
     defaults = dict(
         slug=f"s-{_uid()}", title="Live at Fest", media_root_id=root.id,
         audio_path=f"originals/{_uid()}.mp3", status="published", source_type="url_rip",
@@ -63,6 +73,14 @@ async def _seed_set(s, *, root: MediaRoot, user: User, **kw) -> LiveSet:
     live = LiveSet(**defaults)
     s.add(live)
     await s.flush()
+    if fp != "none":
+        s.add(SetFingerprint(
+            live_set_id=live.id, fingerprint_hash=_uid(), duration_seconds=3600,
+            raw=None if fp == "legacy" else bytes(4000),
+            raw_version=None if fp == "legacy" else (
+                MATCHER_VERSION if fp == "raw" else MATCHER_VERSION - 1),
+        ))
+        await s.flush()
     return live
 
 
@@ -131,6 +149,27 @@ async def test_unmeasured_set_is_not_searched(session, tmp_path):
                                  quality_measured_at=None)
     rows = await job.due_sets(session, now=datetime.now(UTC), schedule="daily", limit=10_000)
     assert unmeasured.id not in {x.id for x in rows}
+
+
+async def test_due_sets_needs_a_current_raw_fingerprint_and_no_duplicate_link(
+    session, tmp_path,
+):
+    """R28: a set the matcher can't compare against (no raw, or an older
+    matcher version) would reject every genuine upgrade, and a kept duplicate
+    is not the set to upgrade; neither is searched."""
+    cfg = await get_config(session)
+    cfg.auto_upgrades_enabled = True
+    cfg.quality_tiers_order = list(PROFILE.order)
+    cfg.quality_cutoff = "lossless"
+    u, r = await _seed_base(session, tmp_path)
+    ok = await _seed_set(session, root=r, user=u)
+    no_fp = await _seed_set(session, root=r, user=u, fp="none")
+    legacy = await _seed_set(session, root=r, user=u, fp="legacy")
+    old = await _seed_set(session, root=r, user=u, fp="old")
+    kept_dup = await _seed_set(session, root=r, user=u, duplicate_of=ok.id)
+    rows = await job.due_sets(session, now=datetime.now(UTC), schedule="daily", limit=10_000)
+    found = {x.id for x in rows} & {ok.id, no_fp.id, legacy.id, old.id, kept_dup.id}
+    assert found == {ok.id}
 
 
 # --- build_query / pick_candidate ---------------------------------------------

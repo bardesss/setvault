@@ -442,3 +442,112 @@ async def test_identical_short_clips_are_flagged_duplicate(
     async with session_factory()() as s:
         assert (await s.get(LiveSet, ids[0])).duplicate_of is None
         assert (await s.get(LiveSet, ids[1])).duplicate_of == ids[0]
+
+
+# --- R28 / R31 (C2, C6): upgrade-attempt arrivals are judged against their target only.
+
+
+async def test_upgrade_attempt_matches_its_target_past_the_compare_cap(
+    tmp_path: Path, monkeypatch,
+):
+    """The target sits behind many similar-length sets (here: the cap is 2
+    and three decoys come first); its own re-encode must still match it."""
+    monkeypatch.setattr("setvault_core.services.set_match.MAX_COMPARES", 2)
+    for seed in (41, 42, 43):
+        _fake_fpcalc(monkeypatch, 0, _items_json(_random_items(seed)))
+        await fingerprint_audio(str(await _make_set(tmp_path)))
+    items = _random_items(44)
+    _fake_fpcalc(monkeypatch, 0, _items_json(items))
+    target = await _make_set(tmp_path)
+    await fingerprint_audio(str(target))
+    arrival = await _make_set(tmp_path)
+    # A re-encode: a few bits differ, and it starts 8 items (~1 s) later.
+    reenc = [v ^ 1 for v in items[8:]]
+    _fake_fpcalc(monkeypatch, 0, _items_json(reenc))
+
+    await fingerprint_audio(str(arrival), upgrade_target_id=target)
+
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, arrival)
+        assert live.duplicate_of == target
+        assert live.match_offset_seconds == pytest.approx(8 / 8.0769, abs=0.05)
+
+
+async def test_upgrade_attempt_is_not_stolen_by_an_earlier_twin(
+    tmp_path: Path, monkeypatch,
+):
+    """An earlier set with the same audio (twin) is not a duplicate itself;
+    the library-wide match would point at it. The upgrade attempt for the
+    later target must point at the target."""
+    items = _random_items(45)
+    _fake_fpcalc(monkeypatch, 0, _items_json(items))
+    twin = await _make_set(tmp_path)
+    target = await _make_set(tmp_path)
+    await fingerprint_audio(str(twin))
+    await fingerprint_audio(str(target))
+    async with session_factory()() as s:  # e.g. kept as its own set by an admin
+        (await s.get(LiveSet, target)).duplicate_of = None
+        await s.commit()
+    arrival = await _make_set(tmp_path)
+
+    await fingerprint_audio(str(arrival), upgrade_target_id=target)
+
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, arrival)).duplicate_of == target
+
+
+async def test_upgrade_attempt_of_other_audio_points_nowhere(tmp_path: Path, monkeypatch):
+    """Different audio from the target: no duplicate_of, even though the
+    arrival matches another set in the library."""
+    _fake_fpcalc(monkeypatch, 0, _items_json(_random_items(46)))
+    target = await _make_set(tmp_path)
+    await fingerprint_audio(str(target))
+    _fake_fpcalc(monkeypatch, 0, _items_json(_random_items(47)))
+    other = await _make_set(tmp_path)
+    await fingerprint_audio(str(other))
+    arrival = await _make_set(tmp_path)
+
+    await fingerprint_audio(str(arrival), upgrade_target_id=target)
+
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, arrival)
+        assert live.duplicate_of is None and live.match_offset_seconds is None
+
+
+async def test_upgrade_attempt_never_restores_a_recycled_lookalike(
+    tmp_path: Path, monkeypatch,
+):
+    """C6: a scheduled candidate that matches a recycled set S (not its
+    target) must never undelete S nor recycle itself."""
+    _fake_fpcalc(monkeypatch, 0, _items_json(_random_items(48)))
+    target = await _make_set(tmp_path)
+    await fingerprint_audio(str(target))
+    _fake_fpcalc(monkeypatch, 0, _items_json(_random_items(49)))
+    recycled = await _make_set(tmp_path)
+    await fingerprint_audio(str(recycled))
+    await _set_quality(recycled, "lossless", True, deleted=True)
+    arrival = await _make_set(tmp_path)
+    await _set_quality(arrival, "ok", False)  # worse: the library rule would restore S
+
+    await fingerprint_audio(str(arrival), upgrade_target_id=target)
+
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, recycled)).deleted_at is not None
+        live = await s.get(LiveSet, arrival)
+        assert live.deleted_at is None and live.duplicate_of is None
+
+
+async def test_upgrade_attempt_uses_legacy_hash_when_target_has_no_raw(
+    tmp_path: Path, monkeypatch,
+):
+    stdout = _items_json(_random_items(50), duration=3.0)
+    target = await _make_set(tmp_path)
+    await _add_legacy_row(target, _legacy_digest(stdout), 3.0)
+    _fake_fpcalc(monkeypatch, 0, stdout)
+    arrival = await _make_set(tmp_path)
+
+    await fingerprint_audio(str(arrival), upgrade_target_id=target)
+
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, arrival)
+        assert live.duplicate_of == target and live.match_offset_seconds == 0

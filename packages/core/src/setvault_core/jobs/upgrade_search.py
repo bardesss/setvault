@@ -20,15 +20,16 @@ from typing import Literal
 
 from setvault_ingest_sources.base import Candidate, SourceError
 from setvault_ingest_sources.registry import get_source
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.db import init_engine, run_job, session_factory
-from setvault_core.models.catalog import LiveSet, MediaRoot
+from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.models.identity import User
 from setvault_core.models.upgrades import SetUpgradeEvent, already_tried
 from setvault_core.models.url_rip import RipJob
+from setvault_core.services.audio_match import MATCHER_VERSION
 from setvault_core.services.ingest_sources import (
     SourceDisabledError,
     SourceRateLimitedError,
@@ -82,7 +83,11 @@ async def due_sets(
     session: AsyncSession, *, now: datetime, schedule: str, limit: int,
 ) -> list[LiveSet]:
     """Published, live, upgradeable sets below the cutoff whose last search is
-    older than the schedule window. Never-searched first, then oldest."""
+    older than the schedule window. Never-searched first, then oldest.
+
+    Only sets an upgrade can be matched against (R28): a current-version raw
+    fingerprint (without one every genuine candidate would be rejected as
+    different audio) and not themselves a kept duplicate of another set."""
     window = _WINDOWS.get(schedule)
     if window is None or limit <= 0:
         return []
@@ -101,6 +106,12 @@ async def due_sets(
             LiveSet.upgrades_enabled.is_(True),
             LiveSet.quality_tier.is_not(None),
             LiveSet.quality_tier.not_in(at_or_above),
+            LiveSet.duplicate_of.is_(None),
+            exists().where(
+                SetFingerprint.live_set_id == LiveSet.id,
+                SetFingerprint.raw.is_not(None),
+                SetFingerprint.raw_version == MATCHER_VERSION,
+            ),
             or_(
                 LiveSet.last_upgrade_search_at.is_(None),
                 LiveSet.last_upgrade_search_at < now - window,

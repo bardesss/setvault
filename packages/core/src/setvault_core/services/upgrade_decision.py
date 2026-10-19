@@ -1,7 +1,8 @@
 """What happens to an arrival at the end of ingest (Phase 7D spec §4.5 B, §4.6).
 
 Every ingest path fingerprints its arrival, which flags ``duplicate_of`` when
-the audio matches an existing set. The final pipeline stage then asks
+the audio matches an existing set (an upgrade-attempt rip is compared with its
+target only, R28). The final pipeline stage then asks
 :func:`decide_arrival`:
 
 - **Upgrade-attempt rip** (the rip was downloaded for a target set): the

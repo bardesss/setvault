@@ -344,9 +344,15 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
         # Same chromaprint dedup as uploads and watch-folder ingest: flags
         # duplicate_of (or restores a recycled original) and records the
         # SetFingerprint that later rips/uploads and upgrade matching check.
+        # An upgrade attempt is compared with its target only.
         await _set_status(session, job, "probing", progress_pct=38,
                           message="fingerprinting")
-        await fingerprint_audio(live_set_id)
+        if job.upgrade_target_set_id is not None:
+            # R28: judged against its target only (no library-wide match,
+            # no recycled-original restore).
+            await fingerprint_audio(live_set_id, upgrade_target_id=job.upgrade_target_set_id)
+        else:
+            await fingerprint_audio(live_set_id)
 
         trigger = job.trigger or "url_rip"
         candidate = {"candidate_source_kind": job.source_platform,
