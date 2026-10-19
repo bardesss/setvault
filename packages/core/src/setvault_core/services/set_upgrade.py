@@ -121,10 +121,15 @@ async def _shift_positions(session: AsyncSession, live: LiveSet, offset: float) 
     whole = round(offset)
     for model, col, is_int in _POSITION_COLUMNS:
         delta = whole if is_int else offset
+        values = {col.key: func.greatest(col - delta, 0)}
+        if model is UserSetState:
+            # Not a user action: keep the timestamp (onupdate would bump it),
+            # which decides which play state wins when sets are merged.
+            values["updated_at"] = UserSetState.updated_at
         await session.execute(
             update(model)
             .where(model.live_set_id == live.id, col.is_not(None))
-            .values({col.key: func.greatest(col - delta, 0)})
+            .values(values)
             .execution_options(synchronize_session="fetch")
         )
 

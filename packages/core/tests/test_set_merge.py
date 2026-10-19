@@ -578,6 +578,32 @@ async def test_legacy_hash_never_pairs_two_raw_fingerprints(lib):
     assert await _cleanup() == {"merged": 0, "skipped": 0, "errors": 0}
 
 
+async def test_swap_merge_keeps_the_genuinely_newer_play_state(lib):
+    """The swap shifts the older set's positions; that must not count as a
+    fresh update when the merge then picks the newer play state."""
+    a = _items(20)
+    older = await lib.add(a, tier="ok")
+    newer = await lib.add(a[TRIM:], tier="lossless")
+    now = datetime.now(UTC)
+    u = lib.owner.id
+    async with session_factory()() as s:
+        s.add_all([
+            UserSetState(user_id=u, live_set_id=older, position_seconds=100.0,
+                         updated_at=now - timedelta(days=3)),
+            UserSetState(user_id=u, live_set_id=newer, position_seconds=200.0,
+                         updated_at=now - timedelta(days=1)),
+        ])
+        await s.commit()
+
+    assert await _cleanup() == {"merged": 1, "skipped": 0, "errors": 0}
+
+    async with session_factory()() as s:
+        st = (await s.execute(select(UserSetState).where(
+            UserSetState.user_id == u, UserSetState.live_set_id == older))).scalar_one()
+    assert st.position_seconds == pytest.approx(200.0)  # already in the new timeline
+    assert abs((st.updated_at - (now - timedelta(days=1))).total_seconds()) < 1
+
+
 async def test_backfill_without_cleanup_sends_nothing(lib, fake_queue):
     a = _items(16)
     await lib.add(a)
