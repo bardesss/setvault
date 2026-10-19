@@ -5,8 +5,9 @@ import uuid
 
 import pytest
 from setvault_core.db import session_factory
-from setvault_core.models.catalog import LiveSet
+from setvault_core.models.catalog import LiveSet, SetFingerprint
 from setvault_core.models.upgrades import SetUpgradeEvent
+from setvault_core.services.audio_match import MATCHER_VERSION
 
 
 async def _set_quality(set_id: str, **fields) -> None:
@@ -14,6 +15,15 @@ async def _set_quality(set_id: str, **fields) -> None:
         live = await s.get(LiveSet, uuid.UUID(set_id))
         for k, v in fields.items():
             setattr(live, k, v)
+        await s.commit()
+
+
+async def _fingerprint(set_id: str, *, raw_version: int | None = MATCHER_VERSION) -> None:
+    async with session_factory()() as s:
+        s.add(SetFingerprint(
+            live_set_id=uuid.UUID(set_id), fingerprint_hash=uuid.uuid4().hex,
+            duration_seconds=120.0, raw=bytes(4), raw_version=raw_version,
+        ))
         await s.commit()
 
 
@@ -55,6 +65,7 @@ async def test_wanted_lists_only_cutoff_unmet_with_upgrades_on(
 @pytest.mark.asyncio
 async def test_search_now_dedups_in_flight(authed_admin_client, seeded_live_set, monkeypatch):
     await _set_quality(seeded_live_set["id"], quality_tier="low")
+    await _fingerprint(seeded_live_set["id"])
     calls: list[uuid.UUID] = []
     results = iter([True, False])
 
@@ -164,3 +175,28 @@ async def test_search_now_refuses_sets_with_upgrades_off_or_unmeasured(
     r = await authed_admin_client.post(url)
     assert r.status_code == 409
     assert r.json()["detail"] == "quality not measured yet"
+
+
+@pytest.mark.asyncio
+async def test_search_now_refuses_sets_not_fingerprinted_yet(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    calls: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "setvault_web.api.wanted.enqueue_search_upgrade_now",
+        lambda set_id: calls.append(set_id) or True,
+    )
+    url = f"/api/admin/wanted/{seeded_live_set['slug']}/search"
+    await _set_quality(seeded_live_set["id"], quality_tier="low")
+
+    r = await authed_admin_client.post(url)
+    assert (r.status_code, r.json()["detail"]) == (409, "not fingerprinted yet")
+
+    # a stale-version fingerprint doesn't count either
+    await _fingerprint(seeded_live_set["id"], raw_version=MATCHER_VERSION - 1)
+    assert (await authed_admin_client.post(url)).status_code == 409
+    assert calls == []
+
+    await _fingerprint(seeded_live_set["id"])
+    assert (await authed_admin_client.post(url)).status_code == 202
+    assert len(calls) == 1
