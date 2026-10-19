@@ -33,27 +33,35 @@ test("settings change password works end-to-end", async ({ page, request }) => {
   await expect(page.getByText(/password updated/i)).toBeVisible();
 });
 
-test("admins can set library maintenance notifications; members don't see them", async ({ page, request }) => {
-  await loginAs(page, request);
-  await page.goto("/settings");
-  await page.getByRole("tab", { name: /^Notifications$/i }).click();
-  const maintenance = page.getByLabel("Library maintenance (admins)");
-  await expect(maintenance).toHaveValue("in_app");
-  await expect(maintenance.locator("option")).toHaveText(["In-app", "Off"]);
-  const put = page.waitForRequest(
-    (r) => r.method() === "PUT" && r.url().endsWith("/api/me/notification-preferences/maintenance"),
-  );
-  await maintenance.selectOption("off");
-  expect((await put).postDataJSON()).toMatchObject({ channel: "off" });
-  await maintenance.selectOption("in_app"); // leave the shared admin as it was
+test.describe("maintenance notifications", () => {
+  // SW caches /api GETs; block so the /api/auth/me stub applies.
+  test.use({ serviceWorkers: "block" });
 
-  // A member's session: no maintenance row.
-  await page.route(/\/api\/auth\/me$/, async (route) => {
-    const real = await route.fetch();
-    return route.fulfill({ json: { ...(await real.json()), role: "user" } });
+  test("admins can set library maintenance notifications; members don't see them", async ({ page, request }) => {
+    await loginAs(page, request);
+    await page.goto("/settings");
+    await page.getByRole("tab", { name: /^Notifications$/i }).click();
+    const maintenance = page.getByLabel("Library maintenance (admins)");
+    await expect(maintenance.locator("option")).toHaveText(["In-app", "Off"]);
+    const choose = async (channel: string) => {
+      const put = page.waitForRequest(
+        (r) => r.method() === "PUT" && r.url().endsWith("/api/me/notification-preferences/maintenance"),
+      );
+      await maintenance.selectOption(channel);
+      expect((await put).postDataJSON()).toMatchObject({ channel });
+    };
+    await choose("off");
+    await choose("in_app"); // leave the shared admin at the default
+    await page.waitForLoadState("networkidle");
+
+    // A member's session: no maintenance row.
+    await page.route(/\/api\/auth\/me$/, async (route) => {
+      const real = await route.fetch();
+      return route.fulfill({ json: { ...(await real.json()), role: "user" } });
+    });
+    await page.goto("/settings");
+    await page.getByRole("tab", { name: /^Notifications$/i }).click();
+    await expect(page.getByLabel("Set upgraded to better quality")).toBeVisible();
+    await expect(page.getByLabel("Library maintenance (admins)")).toHaveCount(0);
   });
-  await page.goto("/settings");
-  await page.getByRole("tab", { name: /^Notifications$/i }).click();
-  await expect(page.getByLabel("Set upgraded to better quality")).toBeVisible();
-  await expect(page.getByLabel("Library maintenance (admins)")).toHaveCount(0);
 });

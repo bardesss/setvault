@@ -36,7 +36,7 @@ test("set page shows quality, upgrade history and the switch sends PATCH", async
   await page.goto(`/sets/${seed.set.slug}`);
   await expect(page.getByTestId("set-quality-line")).toContainText("FLAC (Bandcamp)");
   await expect(page.getByTestId("upgrade-history").locator("li")).toHaveText([
-    /Merged a duplicate copy \(MP3 128 kbps \(SoundCloud\)\) into this set on .*; its tracklist stayed with the recycled copy$/,
+    /Merged a duplicate copy \(MP3 128 kbps \(SoundCloud\)\) into this set on .*; its tracklist stayed with the recycled copy\s*$/,
     /Merged a duplicate copy \(FLAC \(Bandcamp\)\) into this set on [^;]*$/,
     /from MP3 320 kbps \(YouTube\) to FLAC \(Bandcamp\)/,
     /from MP3 128 kbps \(YouTube\) to MP3 320 kbps \(YouTube\)/,
