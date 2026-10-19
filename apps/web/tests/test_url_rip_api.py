@@ -12,7 +12,7 @@ async def test_submit_url_rip_returns_201(authed_admin_client, monkeypatch):
     from setvault_core.models.url_rip import RipJob
     from setvault_core.services import url_rip as _service
 
-    async def _fake_submit(session, *, user_id, url):
+    async def _fake_submit(session, *, user_id, url, **_kw):
         job = RipJob(
             submitted_by=user_id, source_url=url,
             source_platform="youtube", source_external_id="dQw4w9WgXcQ",
@@ -45,7 +45,7 @@ async def test_submit_duplicate_url_returns_409(authed_admin_client, monkeypatch
 
     existing_id = uuidmod.uuid4()
 
-    async def _fake_submit(session, *, user_id, url):
+    async def _fake_submit(session, *, user_id, url, **_kw):
         existing = RipJob(
             id=existing_id, submitted_by=user_id, source_url=url,
             source_platform="youtube", source_external_id="dQw4w9WgXcQ",
@@ -70,7 +70,7 @@ async def test_submit_url_rip_rate_limit_per_user(authed_admin_client, monkeypat
     from setvault_core.models.url_rip import RipJob
     from setvault_core.services import url_rip as _service
 
-    async def _fake_submit(session, *, user_id, url):
+    async def _fake_submit(session, *, user_id, url, **_kw):
         job = RipJob(
             submitted_by=user_id, source_url=url,
             source_platform="youtube", source_external_id=f"id-{uuidmod.uuid4().hex[:6]}",
@@ -129,7 +129,7 @@ async def test_submit_url_rip_enqueues_with_long_timeout(authed_admin_client, mo
     from setvault_core.services import url_rip as _service
     from setvault_web.api import url_rip as url_rip_api
 
-    async def _fake_submit(session, *, user_id, url):
+    async def _fake_submit(session, *, user_id, url, **_kw):
         job = RipJob(
             submitted_by=user_id, source_url=url,
             source_platform="youtube", source_external_id=uuidmod.uuid4().hex[:11],
@@ -171,7 +171,7 @@ async def test_submit_url_rip_commits_before_enqueueing(authed_admin_client, mon
     from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy.pool import NullPool
 
-    async def _fake_submit(session, *, user_id, url):
+    async def _fake_submit(session, *, user_id, url, **_kw):
         job = RipJob(
             submitted_by=user_id, source_url=url,
             source_platform="youtube", source_external_id=uuidmod.uuid4().hex[:11],
@@ -217,3 +217,34 @@ async def test_submit_url_rip_commits_before_enqueueing(authed_admin_client, mon
     )
     assert r.status_code == 201, r.text
     assert seen == [True]
+
+
+@pytest.mark.asyncio
+async def test_submit_url_rip_records_the_source_search_trigger(authed_admin_client, monkeypatch):
+    from setvault_core.models.url_rip import RipJob
+    from setvault_core.services import url_rip as _service
+
+    seen: list = []
+
+    async def _fake_submit(session, *, user_id, url, trigger=None):
+        seen.append(trigger)
+        job = RipJob(submitted_by=user_id, source_url=url, source_platform="youtube",
+                     source_external_id=uuidmod.uuid4().hex[:11], status="queued",
+                     progress_pct=0, probed_metadata={}, trigger=trigger,
+                     created_at=datetime.now(UTC), updated_at=datetime.now(UTC))
+        session.add(job)
+        await session.flush()
+        return job
+
+    monkeypatch.setattr(_service, "submit_rip", _fake_submit)
+    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    r = await authed_admin_client.post(
+        "/api/sets/url-rip", json={"url": url, "trigger": "source_search"})
+    assert r.status_code == 201, r.text
+    r = await authed_admin_client.post("/api/sets/url-rip", json={"url": url})
+    assert r.status_code == 201, r.text
+    assert seen == ["source_search", None]
+    # A client can't claim another trigger (e.g. search_now skips the library switch).
+    r = await authed_admin_client.post(
+        "/api/sets/url-rip", json={"url": url, "trigger": "search_now"})
+    assert r.status_code == 422

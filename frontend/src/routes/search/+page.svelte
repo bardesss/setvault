@@ -57,7 +57,7 @@
     ingesting[c.external_id] = true;
     ingesting = ingesting;
     try {
-      await submitUrl(c.webpage_url);
+      await submitUrl(c.webpage_url, "source_search");
       candidates = candidates.map((x) =>
         x.external_id === c.external_id ? { ...x, already_in_library: true } : x,
       );

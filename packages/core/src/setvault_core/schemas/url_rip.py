@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 
 class RipSubmitIn(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
+    # What found the URL, for the upgrade history. Only the source search
+    # sets it; other triggers (e.g. search_now) are server-side only.
+    trigger: Literal["source_search"] | None = None
 
 
 class RipJobOut(BaseModel):

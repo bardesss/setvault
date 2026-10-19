@@ -83,7 +83,9 @@ async def submit_url_rip(
 ):
     await _enforce_rip_rate_limit(user.id)
     try:
-        job = await _service.submit_rip(session, user_id=user.id, url=body.url)
+        job = await _service.submit_rip(
+            session, user_id=user.id, url=body.url, trigger=body.trigger,
+        )
     except _service.DuplicateRipError as exc:
         raise HTTPException(
             status_code=409,

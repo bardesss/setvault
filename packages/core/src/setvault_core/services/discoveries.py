@@ -46,7 +46,10 @@ async def _ingest_candidate(
     from setvault_core.services.url_rip import DuplicateRipError, submit_rip
 
     try:
-        job = await submit_rip(session, user_id=monitor.owner_user_id, url=candidate.webpage_url)
+        job = await submit_rip(
+            session, user_id=monitor.owner_user_id, url=candidate.webpage_url,
+            trigger="monitor",
+        )
     except DuplicateRipError as e:
         return e.existing.id
     except Exception:
