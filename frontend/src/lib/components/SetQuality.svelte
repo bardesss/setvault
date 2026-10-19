@@ -57,6 +57,9 @@
     />
     <span>{$_("set.upgrades.toggle")}</span>
   </label>
+  {#if set.auto_upgrades_enabled === false}
+    <p class="hint" data-testid="upgrades-library-off">{$_("set.upgrades.library_off")}</p>
+  {/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if history.length > 0}
     <ul class="upgrade-history" data-testid="upgrade-history">
@@ -89,6 +92,9 @@
     align-items: center;
     gap: var(--sp-2);
     cursor: pointer;
+  }
+  .hint {
+    margin: 0;
   }
   .upgrade-history {
     margin: 0;

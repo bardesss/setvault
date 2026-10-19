@@ -67,3 +67,30 @@ async def test_patch_upgrades_enabled_requires_edit_permission(
     async with session_factory()() as s:
         live = await s.get(LiveSet, uuid.UUID(seeded_live_set["id"]))
         assert live.upgrades_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_set_detail_says_whether_library_upgrades_are_on(
+    authed_admin_client, seeded_live_set,
+):
+    """The set page hints that its switch does nothing while the library-wide
+    automatic upgrades are off."""
+    from setvault_core.services.system_config import get_config
+
+    slug = seeded_live_set["slug"]
+    async with session_factory()() as s:
+        cfg = await get_config(s)
+        saved = cfg.auto_upgrades_enabled
+        cfg.auto_upgrades_enabled = False
+        await s.commit()
+    try:
+        body = (await authed_admin_client.get(f"/api/sets/{slug}")).json()
+        assert body["auto_upgrades_enabled"] is False
+        r = await authed_admin_client.patch(f"/api/sets/{slug}", json={"upgrades_enabled": True})
+        assert r.json()["auto_upgrades_enabled"] is False
+    finally:
+        async with session_factory()() as s:
+            (await get_config(s)).auto_upgrades_enabled = saved
+            await s.commit()
+    body = (await authed_admin_client.get(f"/api/sets/{slug}")).json()
+    assert body["auto_upgrades_enabled"] is saved

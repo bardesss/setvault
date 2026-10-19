@@ -321,6 +321,7 @@
     },
     "upgrades": {
       "toggle": "Find better copies automatically",
+      "library_off": "Automatic upgrades are switched off for the whole library",
       "history_line": "Upgraded {date} from {from} to {to}"
     }
   }

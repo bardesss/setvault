@@ -45,3 +45,19 @@ test("set page shows quality, upgrade history and the switch sends PATCH", async
   expect((await patch).postDataJSON()).toEqual({ upgrades_enabled: false });
   await expect(toggle).not.toBeChecked();
 });
+
+test("set page hints when automatic upgrades are off for the whole library", async ({ page, request }) => {
+  const seed = await loginAs(page, request);
+  const url = new RegExp(`/api/sets/${seed.set.slug}$`);
+  await page.route(url, async (route) => {
+    const real = await route.fetch();
+    return route.fulfill({
+      json: { ...(await real.json()), upgrades_enabled: true, auto_upgrades_enabled: false },
+    });
+  });
+
+  await page.goto(`/sets/${seed.set.slug}`);
+  await expect(page.getByTestId("upgrades-library-off")).toHaveText(
+    "Automatic upgrades are switched off for the whole library",
+  );
+});

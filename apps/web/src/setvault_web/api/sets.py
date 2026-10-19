@@ -28,6 +28,7 @@ from setvault_core.services.notifications import event_labels, source_name
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
 from setvault_core.services.sets import replace_artists, replace_tags
 from setvault_core.services.signed_urls import verify_stream_sig
+from setvault_core.services.system_config import get_config
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -237,6 +238,7 @@ async def show_set(
         embed_allowed=row.embed_allowed,
         quality=quality,
         upgrades_enabled=row.upgrades_enabled,
+        auto_upgrades_enabled=bool((await get_config(session)).auto_upgrades_enabled),
         upgrade_history=history,
     )
 

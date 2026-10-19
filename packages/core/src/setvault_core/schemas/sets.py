@@ -52,6 +52,9 @@ class SetDetailOut(SetSummaryOut):
     embed_allowed: bool
     quality: SetQualityOut | None = None
     upgrades_enabled: bool = True
+    # The library-wide switch; while off, the set's own switch does nothing
+    # (the page says so).
+    auto_upgrades_enabled: bool = True
     upgrade_history: list[SetUpgradeHistoryOut] = []
 
 

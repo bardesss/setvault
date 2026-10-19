@@ -36,6 +36,8 @@ export interface SetDetail extends SetSummary {
   embed_allowed: boolean;
   quality: { tier: string; label: string } | null;
   upgrades_enabled: boolean;
+  /** The library-wide switch; while off, `upgrades_enabled` does nothing. */
+  auto_upgrades_enabled: boolean;
   upgrade_history: SetUpgradeHistoryItem[];
 }
 
