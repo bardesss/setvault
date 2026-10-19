@@ -58,7 +58,8 @@ async def test_discard_moves_to_recycle_bin(authed_admin_client, seeded_live_set
 
     r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/discard")
 
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
+    assert r.json() == {"slug": slug, "outcome": "recycled"}
     async with session_factory()() as s:
         row = await s.get(LiveSet, sid)
         assert row.deleted_at is not None
@@ -221,13 +222,65 @@ async def test_keep_backfill_match_leaves_the_list_without_republishing(
 
 
 @pytest.mark.asyncio
-async def test_discard_backfill_match_moves_it_to_the_recycle_bin(
+async def test_discard_backfill_match_merges_into_the_original(
     authed_admin_client, seeded_live_set,
 ):
+    """R40: discarding a published backfill match merges what users
+    attached to it into the original before it goes to the recycle bin."""
+    from setvault_core.models.engagement_3c import Bookmark, Comment
+    from setvault_core.models.upgrades import SetUpgradeEvent
+
     slug, sid = await _published_match(seeded_live_set["id"], by_backfill=True)
+    oid = uuid.UUID(seeded_live_set["id"])
+    async with session_factory()() as s:
+        dup = await s.get(LiveSet, sid)
+        dup.match_offset_seconds = 10.0  # the copy starts 10 s into the original
+        s.add_all([
+            Comment(live_set_id=sid, user_id=dup.uploaded_by, position_seconds=60, body="hi"),
+            Bookmark(live_set_id=sid, user_id=dup.uploaded_by, position_seconds=30, label="b"),
+        ])
+        await s.commit()
 
     r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/discard")
 
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
+    assert r.json() == {"slug": slug, "outcome": "merged"}
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.deleted_at is not None and row.duplicate_of == oid
+        assert row.backfill_matched_at is None
+        comment = (await s.execute(select(Comment).where(Comment.body == "hi"))).scalar_one()
+        assert (comment.live_set_id, comment.position_seconds) == (oid, 70)
+        bm = (await s.execute(select(Bookmark).where(Bookmark.label == "b"))).scalar_one()
+        assert (bm.live_set_id, bm.position_seconds) == (oid, 40)
+        ev = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == oid))).scalar_one()
+        assert (ev.outcome, ev.trigger) == ("merged", "duplicates")
+    listed = (await authed_admin_client.get("/api/admin/duplicates")).json()["items"]
+    assert slug not in {i["slug"] for i in listed}
+
+
+@pytest.mark.asyncio
+async def test_discard_backfill_match_with_original_gone_just_recycles(
+    authed_admin_client, seeded_live_set,
+):
+    from datetime import UTC, datetime
+
+    from setvault_core.models.engagement_3c import Comment
+
+    slug, sid = await _published_match(seeded_live_set["id"], by_backfill=True)
+    async with session_factory()() as s:
+        original = await s.get(LiveSet, uuid.UUID(seeded_live_set["id"]))
+        original.deleted_at = datetime.now(UTC)
+        dup = await s.get(LiveSet, sid)
+        s.add(Comment(live_set_id=sid, user_id=dup.uploaded_by, body="stays"))
+        await s.commit()
+
+    r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/discard")
+
+    assert r.status_code == 200, r.text
+    assert r.json() == {"slug": slug, "outcome": "recycled_original_gone"}
     async with session_factory()() as s:
         assert (await s.get(LiveSet, sid)).deleted_at is not None
+        comment = (await s.execute(select(Comment).where(Comment.body == "stays"))).scalar_one()
+        assert comment.live_set_id == sid

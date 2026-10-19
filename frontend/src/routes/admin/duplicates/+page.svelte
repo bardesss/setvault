@@ -86,7 +86,8 @@
       The quality backfill's duplicate cleanup also lists published sets here
       that are the same audio as an older set but weren't merged (upgrades off,
       kept earlier, or another owner). They stay published: Keep removes them
-      from this list, Discard moves them to the recycle bin.
+      from this list, Discard merges their comments, bookmarks and history into
+      the original and moves them to the recycle bin.
     </p>
   </header>
 

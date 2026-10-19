@@ -13,7 +13,9 @@ the admin resolve both kinds:
     different recording that happens to fingerprint the same); a backfill
     match is already published and just leaves the list.
   - **POST /api/admin/duplicates/{slug}/discard** — move it to the recycle
-    bin; the scheduled purge job removes it after the usual grace window.
+    bin; the scheduled purge job removes it after the usual grace window. A
+    published backfill match is merged into its original first (comments,
+    bookmarks, history... move over, R40), unless the original is gone.
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ from setvault_core.jobs.ready import fan_out_webhooks, publish_live_set
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.identity import User
 from setvault_core.services.audit import log as audit_log
+from setvault_core.services.set_merge import merge_pair
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -125,14 +128,39 @@ async def keep_duplicate(
     return {"slug": live.slug, "status": live.status}
 
 
-@router.post("/{slug}/discard", status_code=204)
+@router.post("/{slug}/discard")
 async def discard_duplicate(
     slug: str,
     session: Annotated[AsyncSession, Depends(db_session)],
     admin: Annotated[User, Depends(current_user)],
     _: Annotated[object, Depends(require_admin)],
 ):
+    """Returns ``{"slug", "outcome"}``: ``recycled`` (held draft),
+    ``merged`` (published backfill match, merged into its original and
+    recycled) or ``recycled_original_gone`` (backfill match whose original
+    is deleted or in the recycle bin: recycled as is)."""
     live = await _get_held(session, slug)
+    if live.status == "published" and live.backfill_matched_at is not None:
+        original = await session.get(LiveSet, live.duplicate_of)
+        if original is not None and original.deleted_at is None:
+            await audit_log(
+                session,
+                actor_user_id=admin.id,
+                action="set.duplicate_discarded",
+                target_type="LiveSet",
+                target_id=str(live.id),
+                after={"duplicate_of": str(live.duplicate_of), "outcome": "merged"},
+            )
+            # Locks both rows, moves what users attached, recycles `live`
+            # and commits (with the audit row above).
+            await merge_pair(
+                session, survivor=original, loser=live,
+                offset_seconds=live.match_offset_seconds or 0.0, trigger="duplicates",
+            )
+            return {"slug": slug, "outcome": "merged"}
+        outcome = "recycled_original_gone"
+    else:
+        outcome = "recycled"
     now = datetime.now(UTC)
     live.deleted_at = now
     live.purge_after_at = now + _RECYCLE_GRACE
@@ -142,6 +170,7 @@ async def discard_duplicate(
         action="set.duplicate_discarded",
         target_type="LiveSet",
         target_id=str(live.id),
-        after={"duplicate_of": str(live.duplicate_of)},
+        after={"duplicate_of": str(live.duplicate_of), "outcome": outcome},
     )
     await session.commit()
+    return {"slug": slug, "outcome": outcome}

@@ -413,7 +413,7 @@ async def _repoint(session: AsyncSession, model, fk, survivor_id, loser_id,
 
 async def _merge_rows(
     session: AsyncSession, *, survivor: LiveSet, loser: LiveSet,
-    offset_seconds: float, after_upgrade: bool = False,
+    offset_seconds: float, after_upgrade: bool = False, trigger: str = TRIGGER,
 ) -> SetUpgradeEvent:
     """Move the loser's context to the survivor and recycle the loser. Runs
     inside the caller's transaction (both rows locked) and doesn't commit.
@@ -563,7 +563,7 @@ async def _merge_rows(
     # "upgraded" event in the same transaction (server default now()).
     db_now = (await session.execute(select(func.now()))).scalar_one()
     event = SetUpgradeEvent(
-        live_set_id=s_id, trigger=TRIGGER, outcome="merged",
+        live_set_id=s_id, trigger=trigger, outcome="merged",
         reason=TRACKLIST_KEPT if tracklist == "kept" else None,
         from_tier=merged_copy.quality_tier, from_codec=merged_copy.audio_codec,
         from_bitrate_kbps=merged_copy.audio_bitrate_kbps,
@@ -580,7 +580,7 @@ async def _merge_rows(
         action="set.duplicate_merged", target_type="LiveSet", target_id=str(s_id),
         after={
             "merged_set_id": str(l_id), "merged_set_slug": loser.slug,
-            "upgraded": after_upgrade, "offset_seconds": offset_seconds,
+            "upgraded": after_upgrade, "offset_seconds": offset_seconds, "trigger": trigger,
             "tracklist": tracklist, "moved": moved,
         },
     )
@@ -662,7 +662,7 @@ async def _merge_notes(session: AsyncSession, s_id, l_id) -> int:
 
 async def merge_pair(
     session: AsyncSession, *, survivor: LiveSet, loser: LiveSet,
-    offset_seconds: float = 0.0,
+    offset_seconds: float = 0.0, trigger: str = TRIGGER,
 ) -> SetUpgradeEvent:
     """Merge ``loser`` into ``survivor`` and recycle it (no audio change).
 
@@ -682,7 +682,7 @@ async def merge_pair(
         if survivor.deleted_at is not None or loser.deleted_at is not None:
             raise ValueError("survivor or loser is in the recycle bin")
         event = await _merge_rows(session, survivor=survivor, loser=loser,
-                                  offset_seconds=offset_seconds)
+                                  offset_seconds=offset_seconds, trigger=trigger)
         await session.commit()
     except Exception:
         await session.rollback()
