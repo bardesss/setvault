@@ -25,8 +25,8 @@ from setvault_core.schemas.sets import (
 )
 from setvault_core.services.audio_quality import quality_label
 from setvault_core.services.notifications import event_labels, source_name
-from setvault_core.services.set_merge import TRACKLIST_KEPT
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
+from setvault_core.services.set_merge import TRACKLIST_KEPT
 from setvault_core.services.sets import replace_artists, replace_tags
 from setvault_core.services.signed_urls import verify_stream_sig
 from setvault_core.services.system_config import get_config
