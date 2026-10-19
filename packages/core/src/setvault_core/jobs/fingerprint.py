@@ -144,6 +144,8 @@ async def fingerprint_audio(
                 # the better copy: keep it as a normal new set and leave the
                 # recycled one where it is (never lose a better copy).
                 audit_action = "ingest.recycled_original_kept_arrival"
+                # The arrival is not flagged a duplicate, so don't say so.
+                audit_after["recycled_original"] = audit_after.pop("duplicate_of")
             else:
                 live.duplicate_of = existing_live.id
                 live.match_offset_seconds = result.offset_seconds

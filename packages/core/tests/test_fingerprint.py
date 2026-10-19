@@ -285,6 +285,16 @@ async def test_better_arrival_is_kept_when_original_is_recycled(tmp_path: Path, 
         assert kept.match_offset_seconds is None
         assert kept.status == "processing"
         assert (await s.get(LiveSet, original)).deleted_at is not None
+        from setvault_core.models.system import AuditEvent
+        ev = (await s.execute(
+            select(AuditEvent).where(
+                AuditEvent.action == "ingest.recycled_original_kept_arrival",
+                AuditEvent.target_id == str(arrival),
+            ),
+        )).scalars().one()
+        # The arrival is NOT a duplicate; the key names the recycled original.
+        assert ev.after["recycled_original"] == str(original)
+        assert "duplicate_of" not in ev.after
 
 
 async def test_unknown_tier_arrival_is_kept_when_original_is_recycled(
