@@ -23,6 +23,7 @@
     to_measure: number;
     duplicate_pairs: number;
     duplicate_pairs_complete: boolean;
+    failed?: number;
   }
 
   let backfill: BackfillDryRun | null = null;
@@ -30,6 +31,7 @@
   let backfillBusy = false;
   let backfillMsg: string | null = null;
   let cleanup = false;
+  let retryFailed = false;
 
   function msg(e: unknown, fallback: string): string {
     return e instanceof ApiError ? e.detail : fallback;
@@ -108,16 +110,26 @@
     try {
       const r = await api<Partial<BackfillDryRun>>("/api/admin/maintenance/quality-backfill", {
         method: "POST",
-        body: JSON.stringify({ cleanup }),
+        body: JSON.stringify({ cleanup, retry_failed: retryFailed }),
       });
+      if (r && (r as { status?: string }).status === "already_running") {
+        backfillMsg = "A backfill is already running. Nothing was changed; check back when it finishes.";
+        return;
+      }
       backfillMsg = cleanup
         ? "Backfill started. Duplicates are cleaned up when it finishes."
         : "Backfill started.";
       // The response carries fresh fingerprint/measure counts; the duplicate
       // pair count is a slow scan and isn't re-run here.
       if (backfill && r && typeof r.to_fingerprint === "number" && typeof r.to_measure === "number") {
-        backfill = { ...backfill, to_fingerprint: r.to_fingerprint, to_measure: r.to_measure };
+        backfill = {
+          ...backfill,
+          to_fingerprint: r.to_fingerprint,
+          to_measure: r.to_measure,
+          failed: typeof r.failed === "number" ? r.failed : backfill.failed,
+        };
       }
+      retryFailed = false;
     } catch (e) {
       backfillMsg = msg(e, "Could not start the backfill.");
     } finally {
@@ -203,12 +215,24 @@
         <p data-testid="backfill-counts">
           {`${backfill.to_fingerprint} to fingerprint, ${backfill.to_measure} to measure.`}
         </p>
+        {#if (backfill.failed ?? 0) > 0}
+          <p data-testid="backfill-failed">
+            {plural(backfill.failed ?? 0, "set", "sets")} failed earlier and {(backfill.failed ?? 0) === 1 ? "is" : "are"} skipped.
+          </p>
+        {/if}
         <p data-testid="backfill-pairs">{pairsText(backfill)}</p>
       {/if}
       <label class="row">
         <input type="checkbox" bind:checked={cleanup} disabled={backfillBusy} />
         <span>Clean up duplicates</span>
       </label>
+      {#if (backfill?.failed ?? 0) > 0}
+        <label class="row">
+          <input type="checkbox" bind:checked={retryFailed} disabled={backfillBusy} />
+          <span>Retry failed sets</span>
+        </label>
+        <p class="muted">Sets that could not be fingerprinted or measured are skipped unless you retry them.</p>
+      {/if}
       <p class="muted">
         When two published sets turn out to be the same audio, keep the better copy and move the
         other to the recycle bin. Comments, bookmarks and play history move to the set that stays;
