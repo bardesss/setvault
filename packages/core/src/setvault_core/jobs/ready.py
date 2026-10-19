@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_core.db import init_engine, run_job, session_factory
+from setvault_core.db import init_engine, session_factory
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.library_webhook import LibraryWebhook
 from setvault_core.progress import ProgressEvent, publish
@@ -123,7 +123,3 @@ async def mark_ready(
         live_set_id, upgrade_target_id=upgrade_target_id, trigger=trigger,
     )
     return result.outcome == "publish"
-
-
-def mark_ready_sync(live_set_id: str) -> None:
-    run_job(mark_ready(live_set_id))
