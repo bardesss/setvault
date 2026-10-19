@@ -206,7 +206,7 @@ async def test_merge_moves_every_relation(lib):
             ListeningHistory(user_id=u1, live_set_id=newer, last_position_seconds=50.0),
             Comment(live_set_id=newer, user_id=u1, position_seconds=120, body="drop!"),
             Comment(live_set_id=newer, user_id=u1, position_seconds=None, body="general"),
-            Bookmark(live_set_id=newer, user_id=u1, position_seconds=300, label="b"),
+            Bookmark(live_set_id=newer, user_id=u1, position_seconds=200, label="b"),
             TracklistEntry(live_set_id=newer, position=0, start_seconds=60, end_seconds=90,
                            raw_label="t1", created_by=u1),
             TracklistImportJob(live_set_id=newer, kind="paste", payload={}, created_by=u1,
@@ -303,7 +303,7 @@ async def test_merge_moves_every_relation(lib):
                                          .where(Comment.live_set_id == older))).all())
         assert comments == {"drop!": 120 + shift, "general": None}
         bm = (await s.execute(select(Bookmark).where(Bookmark.live_set_id == older))).scalar_one()
-        assert bm.position_seconds == 300 + shift
+        assert bm.position_seconds == 200 + shift
         entry = (await s.execute(select(TracklistEntry).where(
             TracklistEntry.live_set_id == older))).scalar_one()
         assert (entry.start_seconds, entry.end_seconds) == (60 + shift, 90 + shift)
@@ -726,3 +726,45 @@ async def test_purged_fingerprint_is_no_match(lib):
         assert await cache.get(uuid.uuid4()) is None
         by_id = {e.id: e for e in index}
         assert await set_merge._match(by_id[older], by_id[newer], cache) is None
+
+
+async def test_shifted_positions_stay_inside_the_survivors_audio(lib):
+    """Survivor is 300 s long; positions shifted past its end are clamped."""
+    a = _items(22)
+    older = await lib.add(a)
+    newer = await lib.add(a[TRIM:])
+    u, u2 = lib.owner.id, (await _user()).id
+    now = datetime.now(UTC)
+    async with session_factory()() as s:
+        s.add_all([
+            Comment(live_set_id=newer, user_id=u, position_seconds=280, body="late"),
+            Comment(live_set_id=newer, user_id=u, position_seconds=10, body="early"),
+            Bookmark(live_set_id=newer, user_id=u, position_seconds=290, label="b"),
+            TracklistEntry(live_set_id=newer, position=0, start_seconds=270,
+                           end_seconds=295, raw_label="t", created_by=u),
+            ListeningHistory(user_id=u, live_set_id=newer, last_position_seconds=299.0),
+            # Moved as is (no state on the survivor)...
+            UserSetState(user_id=u, live_set_id=newer, position_seconds=290.0),
+            # ...and the collision path (newer state wins).
+            UserSetState(user_id=u2, live_set_id=older, position_seconds=1.0,
+                         updated_at=now - timedelta(days=2)),
+            UserSetState(user_id=u2, live_set_id=newer, position_seconds=295.0,
+                         updated_at=now - timedelta(days=1)),
+        ])
+        await s.commit()
+        survivor, loser = await s.get(LiveSet, older), await s.get(LiveSet, newer)
+        await set_merge.merge_pair(s, survivor=survivor, loser=loser, offset_seconds=50.0)
+
+    async with session_factory()() as s:
+        comments = dict((await s.execute(select(Comment.body, Comment.position_seconds)
+                                         .where(Comment.live_set_id == older))).all())
+        assert comments == {"late": 300, "early": 60}
+        assert (await s.execute(select(Bookmark.position_seconds)
+                                .where(Bookmark.live_set_id == older))).scalar_one() == 300
+        assert (await s.execute(select(TracklistEntry.start_seconds, TracklistEntry.end_seconds)
+                                .where(TracklistEntry.live_set_id == older))).one() == (300, 300)
+        assert (await s.execute(select(ListeningHistory.last_position_seconds)
+                                .where(ListeningHistory.live_set_id == older))).scalar_one() == 300
+        states = dict((await s.execute(select(UserSetState.user_id, UserSetState.position_seconds)
+                                       .where(UserSetState.live_set_id == older))).all())
+        assert states == {u: 300.0, u2: 300.0}

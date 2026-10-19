@@ -396,22 +396,26 @@ async def _skip_after_refusal(pair: DuplicatePair, reason: str) -> str:
 # Merging
 # --------------------------------------------------------------------------
 
-def _shifted(col, delta: float, *, nullable: bool):
-    """``col + delta`` clamped at 0; NULL stays NULL (GREATEST ignores NULLs
-    and would turn them into 0)."""
+def _shifted(col, delta: float, *, nullable: bool, upper: float | None = None):
+    """``col + delta`` clamped at 0 and, when known, at ``upper`` (the
+    survivor's duration); NULL stays NULL (GREATEST ignores NULLs and would
+    turn them into 0)."""
     expr = func.greatest(col + delta, 0)
+    if upper is not None:
+        expr = func.least(expr, upper)
     if nullable:
         return case((col.is_(None), None), else_=expr)
     return expr
 
 
 async def _repoint(session: AsyncSession, model, fk, survivor_id, loser_id,
-                   shifts=()) -> int:
+                   shifts=(), upper: float | None = None) -> int:
     """Move ``model`` rows from the loser to the survivor, shifting the
-    given ``(column, delta, nullable)`` positions on the way."""
+    given ``(column, delta, nullable)`` positions on the way (clamped to
+    ``0..upper``)."""
     values = {fk.key: survivor_id}
     for col, delta, nullable in shifts:
-        values[col.key] = _shifted(col, delta, nullable=nullable)
+        values[col.key] = _shifted(col, delta, nullable=nullable, upper=upper)
     res = await session.execute(
         update(model).where(fk == loser_id).values(values)
         .execution_options(synchronize_session=False)
@@ -428,13 +432,16 @@ async def _merge_rows(
 
     ``offset_seconds`` is where the loser's audio starts within the
     survivor's: a position ``t`` on the loser becomes ``t + offset`` on the
-    survivor (clamped at 0). Rows that describe the loser's own copy stay
-    with it: its fingerprints (they belong to its audio), and its artists and
-    tags (copied, so a restored copy is complete).
+    survivor (clamped to 0 and, when known, the survivor's duration). Rows
+    that describe the loser's own copy stay with it: its fingerprints (they
+    belong to its audio), and its artists and tags (copied, so a restored
+    copy is complete).
     """
     s_id, l_id = survivor.id, loser.id
     off = offset_seconds if abs(offset_seconds) >= MIN_SHIFT_SECONDS else 0.0
     whole = round(off)
+    # Shifted positions stay inside the survivor's audio (when its length is known).
+    upper = survivor.duration_seconds
     moved: dict[str, int] = {}
 
     # Metadata: add what the survivor lacks; the loser keeps its own rows.
@@ -474,19 +481,19 @@ async def _merge_rows(
     await session.execute(delete(Favorite).where(Favorite.live_set_id == l_id)
                           .execution_options(synchronize_session=False))
 
-    moved["play_state"] = await _merge_user_state(session, s_id, l_id, off)
+    moved["play_state"] = await _merge_user_state(session, s_id, l_id, off, upper)
     moved["notes"] = await _merge_notes(session, s_id, l_id)
 
     # Rows that simply belong to the set: repoint, shifting positions.
     moved["history"] = await _repoint(
         session, ListeningHistory, ListeningHistory.live_set_id, s_id, l_id,
-        [(ListeningHistory.last_position_seconds, off, False)] if off else ())
+        [(ListeningHistory.last_position_seconds, off, False)] if off else (), upper)
     moved["comments"] = await _repoint(
         session, Comment, Comment.live_set_id, s_id, l_id,
-        [(Comment.position_seconds, whole, True)] if whole else ())
+        [(Comment.position_seconds, whole, True)] if whole else (), upper)
     moved["bookmarks"] = await _repoint(
         session, Bookmark, Bookmark.live_set_id, s_id, l_id,
-        [(Bookmark.position_seconds, whole, True)] if whole else ())
+        [(Bookmark.position_seconds, whole, True)] if whole else (), upper)
     for model, fk, name in (
         (ResolveJob, ResolveJob.live_set_id, "resolve_jobs"),
         (TracklistImportJob, TracklistImportJob.live_set_id, "tracklist_imports"),
@@ -514,7 +521,7 @@ async def _merge_rows(
         moved["tracklist"] = await _repoint(
             session, TracklistEntry, TracklistEntry.live_set_id, s_id, l_id,
             [(TracklistEntry.start_seconds, whole, False),
-             (TracklistEntry.end_seconds, whole, True)] if whole else ())
+             (TracklistEntry.end_seconds, whole, True)] if whole else (), upper)
         tracklist = "moved" if moved["tracklist"] else "none"
 
     # Other copies held as duplicates of the loser now point at the
@@ -597,16 +604,19 @@ async def _merge_rows(
     return event
 
 
-async def _merge_user_state(session: AsyncSession, s_id, l_id, off: float) -> int:
+async def _merge_user_state(session: AsyncSession, s_id, l_id, off: float,
+                            upper: float | None = None) -> int:
     """Playback position per user: move the loser's; where the user has one
-    on both sets, keep the more recently updated."""
+    on both sets, keep the more recently updated. Shifted positions are
+    clamped to ``0..upper``."""
     s_users = select(UserSetState.user_id).where(UserSetState.live_set_id == s_id)
     res = await session.execute(
         update(UserSetState)
         .where(UserSetState.live_set_id == l_id, UserSetState.user_id.not_in(s_users))
         .values(
             live_set_id=s_id,
-            position_seconds=func.greatest(UserSetState.position_seconds + off, 0),
+            position_seconds=_shifted(UserSetState.position_seconds, off,
+                                      nullable=False, upper=upper),
             # Keep the timestamp: it decides future collisions.
             updated_at=UserSetState.updated_at,
         )
@@ -623,7 +633,7 @@ async def _merge_user_state(session: AsyncSession, s_id, l_id, off: float) -> in
             update(UserSetState)
             .where(UserSetState.live_set_id == s_id, UserSetState.user_id == user_id,
                    UserSetState.updated_at < updated_at)
-            .values(position_seconds=max(position + off, 0.0), playback_rate=rate,
+            .values(position_seconds=_clamp(position + off, upper), playback_rate=rate,
                     completed=completed, updated_at=updated_at)
             .execution_options(synchronize_session=False)
         )
@@ -631,6 +641,11 @@ async def _merge_user_state(session: AsyncSession, s_id, l_id, off: float) -> in
     await session.execute(delete(UserSetState).where(UserSetState.live_set_id == l_id)
                           .execution_options(synchronize_session=False))
     return count
+
+
+def _clamp(position: float, upper: float | None) -> float:
+    position = max(position, 0.0)
+    return position if upper is None else min(position, float(upper))
 
 
 async def _merge_notes(session: AsyncSession, s_id, l_id) -> int:
