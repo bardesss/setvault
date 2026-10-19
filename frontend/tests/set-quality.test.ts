@@ -19,6 +19,7 @@ test("set page shows quality, upgrade history and the switch sends PATCH", async
           upgrades_enabled: true,
           // Two events from one transaction share created_at; ids keep them apart.
           upgrade_history: [
+            { id: "e3", created_at: "2026-03-06T10:00:00Z", from_label: "FLAC (Bandcamp)", to_label: "FLAC (Bandcamp)", outcome: "merged" },
             { id: "e2", created_at: "2026-03-05T10:00:00Z", from_label: "MP3 320 kbps (YouTube)", to_label: "FLAC (Bandcamp)" },
             { id: "e1", created_at: "2026-03-05T10:00:00Z", from_label: "MP3 128 kbps (YouTube)", to_label: "MP3 320 kbps (YouTube)" },
           ],
@@ -34,6 +35,7 @@ test("set page shows quality, upgrade history and the switch sends PATCH", async
   await page.goto(`/sets/${seed.set.slug}`);
   await expect(page.getByTestId("set-quality-line")).toContainText("FLAC (Bandcamp)");
   await expect(page.getByTestId("upgrade-history").locator("li")).toHaveText([
+    /Merged a duplicate copy \(FLAC \(Bandcamp\)\) into this set on/,
     /from MP3 320 kbps \(YouTube\) to FLAC \(Bandcamp\)/,
     /from MP3 128 kbps \(YouTube\) to MP3 320 kbps \(YouTube\)/,
   ]);

@@ -65,7 +65,7 @@
     <ul class="upgrade-history" data-testid="upgrade-history">
       {#each history as h (h.id)}
         <li>
-          {$_("set.upgrades.history_line", {
+          {$_(h.outcome === "merged" ? "set.upgrades.history_merged_line" : "set.upgrades.history_line", {
             values: { date: fmt(h.created_at), from: h.from_label, to: h.to_label },
           })}
         </li>

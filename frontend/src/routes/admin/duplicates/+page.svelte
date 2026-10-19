@@ -18,6 +18,9 @@
     source_type: string;
     duration_seconds: number | null;
     created_at: string | null;
+    status?: string;
+    /** "matched by backfill": a published set the library cleanup left unmerged. */
+    reason?: string | null;
     original: OriginalSet | null;
   }
 
@@ -79,6 +82,12 @@
       held here as drafts instead of being published. Keep one to publish it
       anyway, or discard it to the recycle bin.
     </p>
+    <p class="muted">
+      The quality backfill's duplicate cleanup also lists published sets here
+      that are the same audio as an older set but weren't merged (upgrades off,
+      kept earlier, or another owner). They stay published: Keep removes them
+      from this list, Discard moves them to the recycle bin.
+    </p>
   </header>
 
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
@@ -93,7 +102,12 @@
     >
       {#each items as item (item.id)}
         <tr>
-          <td>{item.title}</td>
+          <td>
+            {item.title}
+            {#if item.reason === "matched by backfill"}
+              <span class="muted note" data-testid="dup-reason">Published · matched by backfill</span>
+            {/if}
+          </td>
           <td class="mono">{item.source_type}</td>
           <td class="mono">{fmtDuration(item.duration_seconds)}</td>
           <td class="mono">{fmtDate(item.created_at)}</td>
@@ -111,7 +125,7 @@
               class="btn btn-sm"
               disabled={busy[item.slug]}
               on:click={() => resolve(item.slug, "keep")}
-            >Keep &amp; publish</button>
+            >{item.status === "published" ? "Keep" : "Keep & publish"}</button>
             <button
               type="button"
               class="btn btn-sm btn-danger"
@@ -130,4 +144,5 @@
   header { display: grid; gap: var(--sp-1); }
   .muted { color: var(--text-faint); font-size: var(--ts-sm); margin: 0; }
   .loading { color: var(--text-faint); }
+  .note { display: block; }
 </style>

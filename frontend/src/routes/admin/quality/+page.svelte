@@ -18,20 +18,43 @@
   let error: string | null = null;
   let saved = false;
 
-  let backfill: { to_fingerprint: number; to_measure: number } | null = null;
+  interface BackfillDryRun {
+    to_fingerprint: number;
+    to_measure: number;
+    duplicate_pairs: number;
+    duplicate_pairs_complete: boolean;
+  }
+
+  let backfill: BackfillDryRun | null = null;
+  let backfillLoading = false;
   let backfillBusy = false;
   let backfillMsg: string | null = null;
+  let cleanup = false;
 
   function msg(e: unknown, fallback: string): string {
     return e instanceof ApiError ? e.detail : fallback;
   }
 
   async function loadBackfill() {
+    backfillLoading = true;
     try {
       backfill = await api("/api/admin/maintenance/quality-backfill");
     } catch {
       backfill = null;
+    } finally {
+      backfillLoading = false;
     }
+  }
+
+  function plural(n: number, one: string, many: string): string {
+    return `${n} ${n === 1 ? one : many}`;
+  }
+
+  function pairsText(b: BackfillDryRun): string {
+    const pairs = plural(b.duplicate_pairs, "duplicate pair", "duplicate pairs");
+    return b.duplicate_pairs_complete
+      ? `${pairs} found.`
+      : `At least ${pairs} found (the count stopped early on this large library).`;
   }
 
   onMount(async () => {
@@ -83,8 +106,13 @@
     backfillBusy = true;
     backfillMsg = null;
     try {
-      await api("/api/admin/maintenance/quality-backfill", { method: "POST" });
-      backfillMsg = "Backfill started.";
+      await api("/api/admin/maintenance/quality-backfill", {
+        method: "POST",
+        body: JSON.stringify({ cleanup }),
+      });
+      backfillMsg = cleanup
+        ? "Backfill started. Duplicates are cleaned up when it finishes."
+        : "Backfill started.";
       await loadBackfill();
     } catch (e) {
       backfillMsg = msg(e, "Could not start the backfill.");
@@ -165,11 +193,25 @@
     <div class="card">
       <h3>Backfill</h3>
       <p class="muted">Fingerprint and measure the quality of sets added before upgrades existed.</p>
-      {#if backfill}
+      {#if backfillLoading && !backfill}
+        <p class="muted">Counting…</p>
+      {:else if backfill}
         <p data-testid="backfill-counts">
           {`${backfill.to_fingerprint} to fingerprint, ${backfill.to_measure} to measure.`}
         </p>
+        <p data-testid="backfill-pairs">{pairsText(backfill)}</p>
       {/if}
+      <label class="row">
+        <input type="checkbox" bind:checked={cleanup} disabled={backfillBusy} />
+        <span>Clean up duplicates</span>
+      </label>
+      <p class="muted">
+        When two published sets turn out to be the same audio, keep the better copy and move the
+        other to the recycle bin. Comments, tracklists, bookmarks and play history move to the set
+        that stays. Sets with upgrades off, duplicates you chose to keep, and copies from another
+        owner are not merged; they show up on the Duplicates page instead. Sets that still need a fingerprint are
+        only counted after the backfill.
+      </p>
       <div class="row">
         <button type="button" class="btn btn-sm" disabled={backfillBusy} on:click={runBackfill}>
           Run backfill

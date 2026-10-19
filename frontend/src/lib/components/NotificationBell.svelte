@@ -47,6 +47,10 @@
     monitor_label?: string;
     auto_ingested?: number;
     pending_review?: number;
+    fingerprinted?: number;
+    measured?: number;
+    merged?: number;
+    skipped?: number;
   };
 
   function getPayload(n: InAppNotification): NotifPayload {
@@ -65,6 +69,11 @@
     );
     if (n.kind === "discovery") {
       location.href = "/discoveries";
+      return;
+    }
+    if (n.kind === "maintenance") {
+      // Skipped pairs wait on the Duplicates page.
+      location.href = (getPayload(n).skipped ?? 0) > 0 ? "/admin/duplicates" : "/admin/quality";
       return;
     }
     const slug = getPayload(n).set_slug;
@@ -95,6 +104,17 @@
             <button class="item" on:click={() => clickItem(n)}>
               {#if n.kind === "discovery"}
                 <span>{$_("notifications.discovery_summary")} {payload.monitor_label ?? ""}</span>
+              {:else if n.kind === "maintenance"}
+                <span>
+                  {$_("notifications.maintenance_summary", {
+                    values: {
+                      fingerprinted: payload.fingerprinted ?? 0,
+                      measured: payload.measured ?? 0,
+                      merged: payload.merged ?? 0,
+                      skipped: payload.skipped ?? 0,
+                    },
+                  })}
+                </span>
               {:else if n.kind === "set_upgraded"}
                 <span>
                   {#if !payload.set_title || !payload.from_label || !payload.to_label}

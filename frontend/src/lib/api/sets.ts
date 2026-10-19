@@ -24,6 +24,8 @@ export interface SetUpgradeHistoryItem {
   created_at: string;
   from_label: string;
   to_label: string;
+  /** "upgraded", or "merged" when a duplicate set was merged into this one. */
+  outcome?: string;
 }
 
 export interface SetDetail extends SetSummary {
