@@ -143,3 +143,100 @@ async def test_submit_rip_probes_off_the_event_loop(monkeypatch):
     await url_rip.submit_rip(session, user_id=None, url="https://soundcloud.com/a/b")
 
     assert seen and seen[0] is not loop_thread
+
+
+# --- R29: discarded/failed upgrade attempts don't block later ingests ---------
+
+
+@pytest.fixture
+async def discarded_attempt(session, tmp_path):
+    """A target set and a finished upgrade-attempt rip for it whose arrival
+    was discarded (live_set_id detached)."""
+    import uuid
+    from datetime import UTC, datetime
+
+    from setvault_core.models.catalog import LiveSet, MediaRoot
+    from setvault_core.models.identity import User
+    from setvault_core.models.url_rip import RipJob
+
+    tag = uuid.uuid4().hex[:8]
+    user = User(email=f"u{tag}@x.test", username=f"u{tag}", display_name="u",
+                password_hash="x")
+    root = MediaRoot(name=f"r{tag}", host_path=str(tmp_path))
+    session.add_all([user, root])
+    await session.flush()
+    target = LiveSet(slug=f"t-{tag}", title="T", media_root_id=root.id, audio_path="a.mp3",
+                     status="published", source_type="upload", uploaded_by=user.id)
+    session.add(target)
+    await session.flush()
+    ext_id = f"v{tag}"[:11]
+    session.add(RipJob(
+        submitted_by=user.id, source_url=f"https://www.youtube.com/watch?v={ext_id}",
+        source_platform="youtube", source_external_id=ext_id, status="ready",
+        progress_pct=100, probed_metadata={}, upgrade_target_set_id=target.id,
+        live_set_id=None, trigger="scheduled", message="no upgrade: different audio",
+        created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+    ))
+    await session.flush()
+    return {"user": user, "target": target, "ext_id": ext_id}
+
+
+def _fake_probe(monkeypatch, ext_id):
+    from setvault_core.services import url_rip
+
+    monkeypatch.setattr(url_rip, "probe_url", lambda url: url_rip.ProbeResult(
+        platform="youtube", external_id=ext_id, title="t", duration_seconds=None,
+        uploader=None, thumbnail_url=None, webpage_url=url, raw={},
+    ))
+
+
+async def test_discarded_upgrade_attempt_does_not_block_a_later_submit(
+    session, monkeypatch, discarded_attempt,
+):
+    """A monitor/manual submit of a URL once discarded as an upgrade attempt
+    (different audio) is a fresh ingest, not a duplicate rip."""
+    from setvault_core.services import url_rip
+
+    ext_id = discarded_attempt["ext_id"]
+    _fake_probe(monkeypatch, ext_id)
+    rip = await url_rip.submit_rip(
+        session, user_id=discarded_attempt["user"].id,
+        url=f"https://www.youtube.com/watch?v={ext_id}", trigger="monitor",
+    )
+    assert rip.upgrade_target_set_id is None
+
+
+async def test_discarded_upgrade_attempt_still_counts_for_the_same_target(
+    session, monkeypatch, discarded_attempt,
+):
+    from setvault_core.services import url_rip
+
+    ext_id = discarded_attempt["ext_id"]
+    _fake_probe(monkeypatch, ext_id)
+    with pytest.raises(url_rip.DuplicateRipError):
+        await url_rip.submit_rip(
+            session, user_id=discarded_attempt["user"].id,
+            url=f"https://www.youtube.com/watch?v={ext_id}",
+            upgrade_target_set_id=discarded_attempt["target"].id, trigger="scheduled",
+        )
+
+
+async def test_in_flight_upgrade_attempt_still_blocks_a_second_rip(
+    session, monkeypatch, discarded_attempt,
+):
+    """Only finished attempts are ignored: a queued one has no live set yet
+    either, but downloading the same URL twice at once helps nobody."""
+    from setvault_core.models.url_rip import RipJob
+    from setvault_core.services import url_rip
+    from sqlalchemy import update
+
+    await session.execute(update(RipJob).where(
+        RipJob.source_external_id == discarded_attempt["ext_id"],
+    ).values(status="queued", finished_at=None))
+    _fake_probe(monkeypatch, discarded_attempt["ext_id"])
+    with pytest.raises(url_rip.DuplicateRipError):
+        await url_rip.submit_rip(
+            session, user_id=discarded_attempt["user"].id,
+            url=f"https://www.youtube.com/watch?v={discarded_attempt['ext_id']}",
+        )

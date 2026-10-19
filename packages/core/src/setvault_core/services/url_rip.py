@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlparse
 
 import yt_dlp
-from sqlalchemy import select
+from sqlalchemy import and_, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.models.url_rip import RipJob
@@ -165,15 +165,30 @@ def probe_url(url: str) -> ProbeResult:
 
 async def find_existing_rip(
     session: AsyncSession, *, platform: str, external_id: str | None,
+    upgrade_target_set_id: uuid.UUID | None = None,
 ) -> RipJob | None:
     """Idempotency check: return an in-flight or recently-completed RipJob for the
-    same (platform, external_id) if one exists."""
+    same (platform, external_id) if one exists.
+
+    A finished upgrade attempt whose arrival was discarded (or whose rip
+    failed) has no set: it doesn't count, except for a new upgrade attempt
+    for the same target, which must not download it again (R29)."""
     if external_id is None:
         return None
+    discarded_attempt = and_(
+        RipJob.upgrade_target_set_id.is_not(None),
+        RipJob.live_set_id.is_(None),
+        RipJob.status.in_(("ready", "failed")),
+    )
+    if upgrade_target_set_id is not None:
+        discarded_attempt = and_(
+            discarded_attempt, RipJob.upgrade_target_set_id != upgrade_target_set_id,
+        )
     return (await session.execute(
         select(RipJob).where(
             RipJob.source_platform == platform,
             RipJob.source_external_id == external_id,
+            not_(discarded_attempt),
         ).order_by(RipJob.created_at.desc()).limit(1)
     )).scalar_one_or_none()
 
@@ -206,7 +221,10 @@ async def submit_rip(
 
     pre_platform, pre_ext_id = extract_platform_and_id(url)
     if pre_ext_id:
-        existing = await find_existing_rip(session, platform=pre_platform, external_id=pre_ext_id)
+        existing = await find_existing_rip(
+            session, platform=pre_platform, external_id=pre_ext_id,
+            upgrade_target_set_id=upgrade_target_set_id,
+        )
         if existing and existing.status != "failed":
             raise DuplicateRipError(existing)
 
@@ -217,6 +235,7 @@ async def submit_rip(
     if probed.external_id:
         existing = await find_existing_rip(
             session, platform=probed.platform, external_id=probed.external_id,
+            upgrade_target_set_id=upgrade_target_set_id,
         )
         if existing and existing.status != "failed":
             raise DuplicateRipError(existing)
