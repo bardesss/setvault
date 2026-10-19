@@ -19,7 +19,7 @@
 
   function fmt(iso: string): string {
     try {
-      return new Date(iso).toLocaleDateString($locale ?? undefined, {
+      return new Date(iso).toLocaleDateString($locale || "en", {
         year: "numeric",
         month: "short",
         day: "numeric",
@@ -38,7 +38,7 @@
       const r = await patchSet(set.slug, { upgrades_enabled: next });
       set.upgrades_enabled = r.upgrades_enabled;
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "failed";
+      error = e instanceof ApiError ? e.detail : $_("set.upgrades.failed");
       target.checked = set.upgrades_enabled;
     } finally {
       busy = false;
@@ -113,7 +113,7 @@
     overflow-wrap: anywhere;
   }
   .error {
-    color: #c33;
+    color: var(--accent-error);
     margin: 0;
   }
 </style>

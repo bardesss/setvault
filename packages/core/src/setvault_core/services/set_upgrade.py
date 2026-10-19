@@ -20,6 +20,7 @@ audio or not better, so its row and files go and the target records a
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
@@ -36,6 +37,7 @@ from setvault_core.models.identity import User
 from setvault_core.models.tracklist import TracklistEntry
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
+from setvault_core.models.watch_folder import UnmatchedFile
 from setvault_core.services.notifications import notify_set_upgraded
 from setvault_core.services.quality_profile import QualityProfile, get_profile, is_better
 from setvault_core.services.storage import path_in_use
@@ -112,16 +114,24 @@ def _event(
 
 
 async def _shift_positions(session: AsyncSession, live: LiveSet, offset: float) -> None:
-    """Move every time position on ``live`` by ``-offset``, clamping at 0.
+    """Move every time position on ``live`` by ``-offset``, clamped to
+    [0, the new duration] (``live`` already holds the new audio).
 
     ``offset > 0`` means the new copy starts later in the set, so existing
     time t is at t - offset in the new audio. NULL positions stay NULL (Postgres
-    GREATEST ignores NULLs and would turn them into 0).
+    GREATEST/LEAST ignore NULLs and would turn them into a bound). Integer
+    positions shift by the offset rounded half-up (``round()`` would round
+    2.5 to 2, banker's rounding).
     """
-    whole = round(offset)
+    whole = math.floor(offset + 0.5)
+    end = live.duration_seconds
     for model, col, is_int in _POSITION_COLUMNS:
         delta = whole if is_int else offset
-        values = {col.key: func.greatest(col - delta, 0)}
+        shifted = func.greatest(col - delta, 0)
+        if end is not None:
+            # Whole seconds for int columns, so rounding can't land past it.
+            shifted = func.least(shifted, math.floor(end) if is_int else end)
+        values = {col.key: shifted}
         if model is UserSetState:
             # Not a user action: keep the timestamp (onupdate would bump it),
             # which decides which play state wins when sets are merged.
@@ -287,6 +297,21 @@ async def apply_upgrade(
             .values(live_set_id=target.id)
             .execution_options(synchronize_session="fetch")
         )
+        # So do other rows that pointed at the arrival: a held duplicate of
+        # it and a watch-folder file resolved to it. (The arrival becomes
+        # the recycled old copy, which they never meant.)
+        await session.execute(
+            update(LiveSet)
+            .where(LiveSet.duplicate_of == arrival.id, LiveSet.id != target.id)
+            .values(duplicate_of=target.id)
+            .execution_options(synchronize_session="fetch")
+        )
+        await session.execute(
+            update(UnmatchedFile)
+            .where(UnmatchedFile.resolved_to_set_id == arrival.id)
+            .values(resolved_to_set_id=target.id)
+            .execution_options(synchronize_session="fetch")
+        )
         if offset is not None and abs(offset) >= MIN_SHIFT_SECONDS:
             await _shift_positions(session, target, offset)
 
@@ -358,8 +383,23 @@ async def discard_arrival(
         raise ValueError("cannot discard the target itself")
     locked = await _lock_sets(session, arrival.id)
     if arrival.id not in locked:
-        await session.rollback()
-        return  # already gone
+        # Already gone (discarded meanwhile). Still record the rejection on
+        # the target, from the caller's copy of the arrival, so the
+        # candidate isn't downloaded again.
+        if target is None:
+            await session.rollback()
+            return
+        try:
+            session.add(_event(
+                target, arrival, outcome="rejected", trigger=trigger, reason=reason[:200],
+                candidate_source_kind=candidate_source_kind,
+                candidate_external_id=candidate_external_id,
+            ))
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        return
     arrival = locked[arrival.id]
     if arrival.deleted_at is not None:
         # A recycled row holds some set's old copy (e.g. after a swap); the

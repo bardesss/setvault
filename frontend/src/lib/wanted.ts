@@ -42,10 +42,10 @@ export function searchRefusal(detail: string): string {
   return detail ? detail.charAt(0).toUpperCase() + detail.slice(1) : "Can't search this set now";
 }
 
-/** A timestamp in the browser's locale and time zone. */
-export function fmtLocalDateTime(iso: string | null): string {
+/** A timestamp in the app's UI language (svelte-i18n `$locale`, default "en") and the browser's time zone. */
+export function fmtLocalDateTime(iso: string | null, locale?: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return d.toLocaleString(locale || "en", { dateStyle: "medium", timeStyle: "short" });
 }

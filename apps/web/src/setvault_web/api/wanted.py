@@ -16,7 +16,12 @@ from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.services.audio_match import MATCHER_VERSION
 from setvault_core.services.audio_quality import quality_label
 from setvault_core.services.notifications import source_name
-from setvault_core.services.quality_profile import cutoff_unmet, get_profile, rank
+from setvault_core.services.quality_profile import (
+    cutoff_unmet,
+    effective_cutoff,
+    get_profile,
+    rank,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,9 +38,7 @@ async def list_wanted(
 ):
     limit = max(1, min(limit, 500))
     profile = await get_profile(session)
-    if profile.cutoff not in profile.order:
-        return {"items": []}
-    at_or_above = list(profile.order[: rank(profile, profile.cutoff) + 1])
+    at_or_above = list(profile.order[: rank(profile, effective_cutoff(profile)) + 1])
     rows = (await session.execute(
         select(LiveSet)
         .where(

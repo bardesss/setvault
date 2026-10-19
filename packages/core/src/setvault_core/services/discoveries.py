@@ -20,8 +20,10 @@ from setvault_core.models.engagement_3c import InAppNotification
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
 from setvault_core.services.monitor_match import score_confidence
 from setvault_core.services.quality_profile import QualityProfile, get_profile, rank
-from setvault_core.services.soundboard_hint import _PATTERN as _SBD_PATTERN
-from setvault_core.services.soundboard_hint import has_soundboard_hint
+from setvault_core.services.soundboard_hint import (
+    has_soundboard_hint,
+    strip_soundboard_terms,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +86,13 @@ async def _notify_owner(
 
 def _same_set(a: Candidate, b: Candidate) -> bool:
     """Same set = titles match by score_confidence both ways (soundboard
-    keywords ignored) and durations within +-10%."""
-    ta, tb = _SBD_PATTERN.sub(" ", a.title or ""), _SBD_PATTERN.sub(" ", b.title or "")
+    keywords ignored) and durations within +-10%.
+
+    A candidate without a duration is never "the same set" as another, so it
+    forms its own group and is never dropped as a worse copy (we can't tell).
+    The duration rule also keeps the same title from different nights (a
+    festival set played every year) apart once their lengths differ."""
+    ta, tb = strip_soundboard_terms(a.title), strip_soundboard_terms(b.title)
     if not (a.duration_seconds and b.duration_seconds):
         return False
     if abs(a.duration_seconds - b.duration_seconds) > 0.1 * max(

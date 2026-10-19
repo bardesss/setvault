@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { loginAs } from "./helpers/auth";
 
 // SW caches /api GETs; block so route stubs apply.
-test.use({ serviceWorkers: "block" });
+test.use({ serviceWorkers: "block", timezoneId: "UTC" });
 
 test("admin duplicates tab lists held duplicates and keeps one", async ({ page, request }) => {
   await loginAs(page, request);
@@ -16,7 +16,7 @@ test("admin duplicates tab lists held duplicates and keeps one", async ({ page, 
         title: "Second copy.flac",
         source_type: "upload",
         duration_seconds: 3725,
-        created_at: "2026-10-17T10:00:00+00:00",
+        created_at: "2026-10-17T12:00:00+00:00",
         original: { slug: "the-original", title: "The Original", status: "published", duration_seconds: 3724 },
       }],
     }) }),
@@ -32,6 +32,8 @@ test("admin duplicates tab lists held duplicates and keeps one", async ({ page, 
   await expect(page.getByText("Second copy.flac")).toBeVisible();
   await expect(page.getByRole("link", { name: "The Original" })).toHaveAttribute("href", "/sets/the-original");
   await expect(page.getByText("1:02:05")).toBeVisible();
+  // Dates follow the UI language ($locale, "en" fallback), not an ISO slice.
+  await expect(page.getByText(/Oct 17, 2026/)).toBeVisible();
 
   await page.getByRole("button", { name: /keep/i }).click();
   await expect.poll(() => kept).toBe(true);
@@ -49,7 +51,7 @@ test("admin duplicates tab marks sets matched by the backfill", async ({ page, r
         title: "Published twin",
         source_type: "upload",
         duration_seconds: 3725,
-        created_at: "2026-10-17T10:00:00+00:00",
+        created_at: "2026-10-17T12:00:00+00:00",
         status: "published",
         reason: "matched by backfill",
         quality_label: "FLAC (Bandcamp)",

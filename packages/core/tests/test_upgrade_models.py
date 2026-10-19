@@ -20,3 +20,12 @@ async def test_already_tried_true_after_rejected_event(session_with_set):
     assert await already_tried(session, live_id, source_kind="soundcloud", external_id="abc")
     assert not await already_tried(session, live_id, source_kind="soundcloud", external_id="zzz")
     assert not await already_tried(session, live_id, source_kind="mixcloud", external_id="abc")
+
+
+@pytest.mark.asyncio
+async def test_trigger_holds_32_characters(session_with_set):
+    session, live_id, _ = session_with_set
+    session.add(SetUpgradeEvent(
+        live_set_id=live_id, trigger="t" * 32, outcome="rejected", reason="x",
+    ))
+    await session.flush()

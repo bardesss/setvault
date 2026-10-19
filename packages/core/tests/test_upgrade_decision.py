@@ -357,3 +357,54 @@ async def test_search_now_ignores_library_switch_but_not_set_switch(tmp_path, au
         target, arrival = await s.get(LiveSet, tid3), await s.get(LiveSet, aid3)
         with pytest.raises(set_upgrade.UpgradeNoLongerApplicable, match="upgrades off"):
             await set_upgrade.apply_upgrade(s, target=target, arrival=arrival, trigger="upload")
+
+
+async def test_upgrade_rip_refused_by_locked_recheck_is_discarded(
+    tmp_path, auto_upgrades, monkeypatch,
+):
+    """The decision passed on an unlocked read, then the target was recycled
+    before the swap locked it: the upgrade-attempt rip is discarded with a
+    rejected event, not left behind as a held draft."""
+    from setvault_core.services import upgrade_decision
+
+    tid, aid = await _seed(tmp_path)
+    real_apply = upgrade_decision.apply_upgrade
+
+    async def recycle_then_apply(session, **kw):
+        async with session_factory()() as other:
+            (await other.get(LiveSet, tid)).deleted_at = datetime.now(UTC)
+            await other.commit()
+        return await real_apply(session, **kw)
+
+    monkeypatch.setattr(upgrade_decision, "apply_upgrade", recycle_then_apply)
+
+    assert await _decide(aid, upgrade_target_id=tid, trigger="scheduled",
+                         candidate_source_kind="bandcamp",
+                         candidate_external_id="bc-1") == "discarded"
+    async with session_factory()() as s:
+        assert await s.get(LiveSet, aid) is None
+        assert aid not in await _held_duplicate_ids(s)
+    [event] = await _events(tid)
+    assert (event.outcome, event.reason) == ("rejected", "no longer applicable")
+    assert (event.candidate_source_kind, event.candidate_external_id) == ("bandcamp", "bc-1")
+    assert not (tmp_path / f"originals/{aid}/new.flac").exists()
+
+
+async def test_plain_duplicate_refused_by_locked_recheck_is_still_held(
+    tmp_path, auto_upgrades, monkeypatch,
+):
+    from setvault_core.services import upgrade_decision
+
+    tid, aid = await _seed(tmp_path)
+    real_apply = upgrade_decision.apply_upgrade
+
+    async def recycle_then_apply(session, **kw):
+        async with session_factory()() as other:
+            (await other.get(LiveSet, tid)).deleted_at = datetime.now(UTC)
+            await other.commit()
+        return await real_apply(session, **kw)
+
+    monkeypatch.setattr(upgrade_decision, "apply_upgrade", recycle_then_apply)
+    assert await _decide(aid, upgrade_target_id=None, trigger="upload") == "held"
+    async with session_factory()() as s:
+        assert await s.get(LiveSet, aid) is not None

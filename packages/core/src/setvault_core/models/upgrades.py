@@ -27,7 +27,7 @@ class SetUpgradeEvent(Base, UuidPkMixin):
     )
     # scheduled | search_now | monitor | source_search | upload | watch_folder
     # | url_rip | backfill | duplicates (Duplicates page discard, merged)
-    trigger: Mapped[str] = mapped_column(String(16), nullable=False)
+    trigger: Mapped[str] = mapped_column(String(32), nullable=False)
     outcome: Mapped[str] = mapped_column(String(16), nullable=False)  # upgraded | rejected | merged
     reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
 

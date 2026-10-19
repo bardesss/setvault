@@ -13,7 +13,7 @@ from setvault_core.services.ingest_sources import (
 from setvault_core.services.quality_profile import get_profile, rank
 from setvault_ingest_sources.base import Candidate
 from setvault_ingest_sources.registry import get_source
-from sqlalchemy import false, or_, select
+from sqlalchemy import and_, false, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.api.images import build_proxied_image_url
@@ -70,6 +70,9 @@ async def search(
             select(RipJob.source_platform, RipJob.source_external_id, RipJob.source_url).where(
                 RipJob.source_platform.in_(platforms),
                 RipJob.status != "failed",
+                # A discarded/failed upgrade attempt left no set behind (an
+                # applied one now points at the upgraded set).
+                ~and_(RipJob.upgrade_target_set_id.is_not(None), RipJob.live_set_id.is_(None)),
                 or_(
                     RipJob.source_external_id.in_(ext_ids) if ext_ids else false(),
                     RipJob.source_url.in_(webpage_urls) if webpage_urls else false(),

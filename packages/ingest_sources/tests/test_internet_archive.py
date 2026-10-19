@@ -53,3 +53,21 @@ def test_ia_raises_sourceerror():
     ):
         with pytest.raises(SourceError):
             src.search("x")
+
+
+@pytest.mark.parametrize(("fmt", "expected"), [
+    (["VBR MP3", "24bit Flac"], True),
+    (["FLAC"], True),
+    ("Flac", True),  # a single format comes back as a plain string
+    ("VBR MP3", False),
+    (["VBR MP3", "Ogg Vorbis"], False),
+    ([], False),
+    (None, False),
+    (7, False),  # unexpected shapes must not raise
+    ({"name": "FLAC"}, False),
+    ([None, 3, "flac"], True),
+])
+def test_has_flac_tolerates_any_shape(fmt, expected):
+    from setvault_ingest_sources.internet_archive import _has_flac
+
+    assert _has_flac({"format": fmt}) is expected

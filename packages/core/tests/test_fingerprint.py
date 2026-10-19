@@ -285,6 +285,16 @@ async def test_better_arrival_is_kept_when_original_is_recycled(tmp_path: Path, 
         assert kept.match_offset_seconds is None
         assert kept.status == "processing"
         assert (await s.get(LiveSet, original)).deleted_at is not None
+        from setvault_core.models.system import AuditEvent
+        ev = (await s.execute(
+            select(AuditEvent).where(
+                AuditEvent.action == "ingest.recycled_original_kept_arrival",
+                AuditEvent.target_id == str(arrival),
+            ),
+        )).scalars().one()
+        # The arrival is NOT a duplicate; the key names the recycled original.
+        assert ev.after["recycled_original"] == str(original)
+        assert "duplicate_of" not in ev.after
 
 
 async def test_unknown_tier_arrival_is_kept_when_original_is_recycled(
@@ -551,3 +561,67 @@ async def test_upgrade_attempt_uses_legacy_hash_when_target_has_no_raw(
     async with session_factory()() as s:
         live = await s.get(LiveSet, arrival)
         assert live.duplicate_of == target and live.match_offset_seconds == 0
+
+
+def _track_open_connections(monkeypatch) -> tuple[list[int], list[int]]:
+    """Count checked-out DB connections; returns (during fpcalc, during compare)."""
+    from setvault_core.services import set_match
+    from sqlalchemy import event
+
+    engine = session_factory().kw["bind"].sync_engine
+    open_count = [0]
+
+    def _out(*_a):
+        open_count[0] += 1
+
+    def _in(*_a):
+        open_count[0] -= 1
+
+    event.listen(engine, "checkout", _out)
+    event.listen(engine, "checkin", _in)
+    seen_fpcalc: list[int] = []
+    seen_compare: list[int] = []
+
+    import setvault_core.services.audio_match as am
+    real_run = am.subprocess.run
+
+    def run(*a, **k):
+        seen_fpcalc.append(open_count[0])
+        return real_run(*a, **k)
+
+    monkeypatch.setattr(am.subprocess, "run", run)
+    real_compare = set_match.compare
+
+    def compare(*a, **k):
+        seen_compare.append(open_count[0])
+        return real_compare(*a, **k)
+
+    monkeypatch.setattr(set_match, "compare", compare)
+    return seen_fpcalc, seen_compare
+
+
+@pytest.mark.parametrize("upgrade", [False, True])
+async def test_no_db_connection_held_during_fpcalc_or_compare(
+    tmp_path: Path, monkeypatch, upgrade,
+):
+    items = _random_items(77)
+    _fake_fpcalc(monkeypatch, 0, _items_json(items))
+    original = await _make_set(tmp_path)
+    await fingerprint_audio(str(original))
+    # A re-encode: a few flipped bits, so the legacy digest differs and the
+    # fuzzy compare (not the exact-hash shortcut) decides.
+    _fake_fpcalc(monkeypatch, 0, _items_json([v ^ 1 if i % 10 == 0 else v
+                                              for i, v in enumerate(items)]))
+    arrival = await _make_set(tmp_path)
+    seen_fpcalc, seen_compare = _track_open_connections(monkeypatch)
+
+    if upgrade:
+        await fingerprint_audio(str(arrival), upgrade_target_id=original)
+    else:
+        await fingerprint_audio(str(arrival))
+
+    assert seen_fpcalc and seen_compare
+    assert set(seen_fpcalc) == {0}
+    assert set(seen_compare) == {0}
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, arrival)).duplicate_of == original

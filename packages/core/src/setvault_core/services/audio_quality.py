@@ -230,6 +230,9 @@ def measure_quality(path: Path) -> AudioQuality:
     if lossless:
         duration = float(fmt.get("duration") or st.get("duration") or 0)
         rate = _int_or_none(st.get("sample_rate")) or 0
+        # Accepted (A1): lossless below 44.1 kHz skips the cliff check. Its
+        # band limit is natural (a 32 kHz file has a 16 kHz Nyquist), so a
+        # lossy cutoff can't be told from it; such a file is rated lossless.
         try:
             tier = (_fake_lossless_tier(path, duration)
                     if duration > 0 and rate >= _MIN_SAMPLE_RATE else "lossless")

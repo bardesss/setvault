@@ -40,6 +40,7 @@ from setvault_core.services.monitor_match import score_confidence
 from setvault_core.services.quality_profile import (
     QualityProfile,
     cutoff_unmet,
+    effective_cutoff,
     get_profile,
     is_better,
     rank,
@@ -83,8 +84,11 @@ UPGRADE_QUEUE = "low"
 # queued or running, so a sweep can't fill the low queue with hours of
 # downloads.
 MAX_UPGRADE_RIPS_IN_FLIGHT = 2
-# A rip row not updated for this long is not running: RQ killed it at its
-# timeout (RIP_JOB_TIMEOUT, 1 h) without the job marking itself failed.
+# A rip started (or, still queued, created) longer ago than this is not
+# running: RQ kills a rip at RIP_JOB_TIMEOUT (1 h) without the job marking
+# itself failed; the extra hour covers the wait in the low queue. Measured
+# from the start, not ``updated_at``: any later write to the row (a swap
+# repointing it) bumps that without the rip being alive.
 UPGRADE_RIP_STALE_AFTER = timedelta(hours=2)
 _RIP_DONE = ("ready", "failed")
 
@@ -113,10 +117,8 @@ async def due_sets(
     if not (await get_config(session)).auto_upgrades_enabled:
         return []
     profile = await get_profile(session)
-    if profile.cutoff not in profile.order:
-        return []
     # cutoff_unmet() in SQL: a measured tier that isn't the cutoff or above.
-    at_or_above = list(profile.order[: rank(profile, profile.cutoff) + 1])
+    at_or_above = list(profile.order[: rank(profile, effective_cutoff(profile)) + 1])
     stmt = (
         select(LiveSet)
         .where(
@@ -175,7 +177,10 @@ def pick_candidate(
     Plausible: duration close, title/uploader matching the set's query, not
     tried before, and an expected tier that is unknown ("maybe") or strictly
     better. Known-better beats maybe, then tier rank, then the soundboard
-    hint, then search order."""
+    hint, then search order.
+
+    Accepted (A4): lossless-first can pick a large original (an Internet
+    Archive WAV); the rip is bounded by url_rip_job.MAX_DOWNLOAD_BYTES."""
     query = build_query(live)
     best: tuple[tuple[int, int, int, int], Candidate] | None = None
     for order, c in enumerate(candidates):
@@ -296,12 +301,12 @@ async def _rip_owner(session: AsyncSession, live: LiveSet) -> uuid.UUID | None:
     )).scalar_one_or_none()
 
 
-def _probe_failed_event(
-    live: LiveSet, c: Candidate, exc: Exception, *, trigger: str,
+def _rejected_event(
+    live: LiveSet, c: Candidate, reason: str, *, trigger: str,
 ) -> SetUpgradeEvent:
     return SetUpgradeEvent(
         live_set_id=live.id, trigger=trigger, outcome="rejected",
-        reason=f"probe failed: {exc}"[:200],
+        reason=reason[:200],
         from_tier=live.quality_tier, from_codec=live.audio_codec,
         from_bitrate_kbps=live.audio_bitrate_kbps, from_source_type=live.source_type,
         from_source_url=live.source_url,
@@ -316,7 +321,8 @@ async def upgrade_rips_in_flight(session: AsyncSession, *, now: datetime) -> int
         select(func.count()).select_from(RipJob).where(
             RipJob.upgrade_target_set_id.is_not(None),
             RipJob.status.not_in(_RIP_DONE),
-            RipJob.updated_at >= now - UPGRADE_RIP_STALE_AFTER,
+            func.coalesce(RipJob.started_at, RipJob.created_at)
+            >= now - UPGRADE_RIP_STALE_AFTER,
         )
     ) or 0)
 
@@ -397,6 +403,8 @@ async def search_upgrade_for_set(
         except DuplicateRipError:
             # Already ripped (any set, any time): not a new copy. It doesn't
             # count against the cap, so a fresh lower-ranked pick is reached.
+            # Accepted (A2): not recorded as rejected, since that other rip
+            # may still succeed or fail (and then become retryable).
             continue
         except SQLAlchemyError:
             raise
@@ -406,7 +414,7 @@ async def search_upgrade_for_set(
             failed_probes += 1
             logger.warning("upgrade search for set %s: submit failed for %s",
                            live.id, pick.webpage_url, exc_info=True)
-            session.add(_probe_failed_event(live, pick, exc, trigger=trigger))
+            session.add(_rejected_event(live, pick, f"probe failed: {exc}", trigger=trigger))
             await session.flush()
             continue
         live.last_upgrade_search_at = now
@@ -419,6 +427,8 @@ async def search_upgrade_for_set(
             logger.exception("upgrade search: enqueue failed for rip %s", rip.id)
             rip.status = "failed"
             rip.error_text = "failed to enqueue worker"
+            # Like any failed upgrade rip: a rejected event in the history.
+            session.add(_rejected_event(live, pick, rip.error_text, trigger=trigger))
             await session.commit()
         return "queued"
 

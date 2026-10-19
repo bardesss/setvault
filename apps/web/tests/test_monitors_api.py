@@ -139,7 +139,10 @@ async def test_rip_discovery_marks_job_failed_when_enqueue_fails(authed_admin_cl
         await s.commit()
         discovery_id = d.id
 
-    async def fake_submit(session, *, user_id, url):
+    triggers = []
+
+    async def fake_submit(session, *, user_id, url, trigger=None):
+        triggers.append(trigger)
         job = RipJob(submitted_by=user_id, source_url=url, status="queued")
         session.add(job)
         await session.flush()
@@ -163,3 +166,5 @@ async def test_rip_discovery_marks_job_failed_when_enqueue_fails(authed_admin_cl
         job = await s.get(RipJob, d.url_rip_id)
         assert job.status == "failed"
         assert job.error_text == "failed to enqueue worker"
+    # A manually approved discovery is still a monitor find.
+    assert triggers == ["monitor"]

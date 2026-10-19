@@ -4,9 +4,9 @@ import logging
 import os
 import re
 import shutil
-from typing import Annotated
+from typing import Annotated, get_args
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from setvault_core.models.api_token import ApiToken
 from setvault_core.models.catalog import LiveSet, MediaRoot
@@ -90,6 +90,9 @@ async def system_info(
     }
 
 
+_SCHEDULES = get_args(SettingsOut.model_fields["upgrade_search_schedule"].annotation)
+
+
 def _settings_out(config) -> SettingsOut:
     return SettingsOut(
         audit_retention_days=config.audit_retention_days,
@@ -99,7 +102,13 @@ def _settings_out(config) -> SettingsOut:
         quality_tiers_order=list(config.quality_tiers_order),
         quality_cutoff=config.quality_cutoff,
         auto_upgrades_enabled=config.auto_upgrades_enabled,
-        upgrade_search_schedule=config.upgrade_search_schedule,
+        # An unknown stored value (hand-edited / older build) falls back to
+        # the default instead of failing response validation with a 500.
+        upgrade_search_schedule=(
+            config.upgrade_search_schedule
+            if config.upgrade_search_schedule in _SCHEDULES
+            else "weekly"
+        ),
     )
 
 
@@ -207,10 +216,13 @@ async def quality_backfill_candidates(
 class QualityBackfillIn(BaseModel):
     # Also merge published sets that turn out to be the same audio.
     cleanup: bool = False
+    # Forget earlier failures so those sets are tried again.
+    retry_failed: bool = False
 
 
 @router.post("/maintenance/quality-backfill", status_code=202)
 async def quality_backfill(
+    response: Response,
     session: Annotated[AsyncSession, Depends(db_session)],
     admin: Annotated[User, Depends(current_user)],
     _: Annotated[object, Depends(require_admin)],
@@ -218,20 +230,30 @@ async def quality_backfill(
 ):
     """Enqueue the first slice of the fingerprint + quality backfill; each
     slice queues the next one until nothing is left. With ``cleanup`` the
-    duplicate cleanup runs after it, also in slices."""
-    from setvault_core.jobs.quality_backfill import (
-        backfill_candidates,
-        start_quality_backfill,
-    )
+    duplicate cleanup runs after it, also in slices; with ``retry_failed``
+    the failure markers are cleared first. Only one run at a time: while one
+    is queued or running this changes nothing and answers
+    ``{"status": "already_running"}`` (200)."""
+    from setvault_core.jobs import quality_backfill as qb
 
+    if qb.quality_backfill_in_flight():
+        response.status_code = 200
+        return {"status": "already_running"}
     cleanup = bool(body and body.cleanup)
-    candidates = await backfill_candidates(session)
-    rq_job = start_quality_backfill(cleanup=cleanup)
+    retry_failed = bool(body and body.retry_failed)
+    retried = await qb.clear_backfill_failures(session) if retry_failed else 0
+    await qb.clear_stale_failures(session)
+    await session.commit()
+    candidates = await qb.backfill_candidates(session)
+    rq_job = qb.start_quality_backfill(cleanup=cleanup)
+    if rq_job is None:  # another request started one meanwhile
+        response.status_code = 200
+        return {"status": "already_running"}
     await audit_log(
         session,
         actor_user_id=admin.id,
         action="maintenance.quality_backfill_requested",
-        after={**candidates, "cleanup": cleanup},
+        after={**candidates, "cleanup": cleanup, "retried": retried},
     )
     await session.commit()
     return {"status": "queued", "job_id": rq_job.id, "cleanup": cleanup, **candidates}

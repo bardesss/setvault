@@ -33,7 +33,7 @@ LEGACY_EXACT_MATCH = MatchResult(
 
 async def find_original_match(
     session: AsyncSession, live: LiveSet, raw: array.array, duration: float,
-    *, legacy_hash: str | None = None,
+    *, legacy_hash: str | None = None, release_connection: bool = False,
 ) -> tuple[LiveSet, MatchResult] | None:
     """The original set that ``raw`` is another copy of, with the match result.
 
@@ -46,6 +46,10 @@ async def find_original_match(
     earliest-created live one wins, else the earliest soft-deleted one (the
     caller undeletes it, spec §A6). The result's offset is for
     ``compare(existing, arrival)``: > 0 means the arrival starts later.
+
+    ``release_connection``: end the session's transaction (rollback) before
+    each compare so no DB connection is held while it runs. Only for a
+    read-only session with nothing pending; its loaded objects get expired.
     """
     tol = max(DURATION_TOLERANCE_PCT * duration, DURATION_TOLERANCE_SECONDS)
     comparable = and_(
@@ -89,15 +93,20 @@ async def find_original_match(
         if compares >= MAX_COMPARES:
             if not capped:
                 capped = True
+                # Only candidates the fuzzy compare could still have matched:
+                # exact-digest rows are still checked past the cap.
+                fuzzy_only = {r[0] for r in rows if r[2] and not r[3]}
                 logger.warning(
                     "match for %s: stopped after %d candidates (cap), %d left unchecked",
-                    live.id, compares, len({r[0] for r in rows} - seen),
+                    live.id, compares, len(fuzzy_only - seen),
                 )
             continue  # keep scanning: a later exact-digest hit still counts
         fp_raw = (await session.execute(
             select(SetFingerprint.raw).where(SetFingerprint.id == fp_id),
         )).scalar_one()
         compares += 1
+        if release_connection:
+            await session.rollback()
         # compare() is CPU-bound pure Python; keep the event loop free.
         result = await asyncio.to_thread(compare, raw_from_bytes(fp_raw), raw)
         if is_same_audio(result):
@@ -108,7 +117,7 @@ async def find_original_match(
 
 async def match_upgrade_target(
     session: AsyncSession, target_id: uuid.UUID, raw: array.array, duration: float,
-    *, legacy_hash: str | None = None,
+    *, legacy_hash: str | None = None, release_connection: bool = False,
 ) -> tuple[LiveSet, MatchResult] | None:
     """Is ``raw`` the same audio as the upgrade target? (R28)
 
@@ -117,7 +126,8 @@ async def match_upgrade_target(
     or a recycled look-alike must not decide whether it can upgrade the
     target. Uses the target's current-version raw fingerprint; only when the
     target has none does the legacy exact-hash rule apply. The offset is for
-    ``compare(target, arrival)``, as in :func:`find_original_match`.
+    ``compare(target, arrival)``, as in :func:`find_original_match`;
+    ``release_connection`` likewise.
     """
     target = await session.get(LiveSet, target_id)
     if target is None:
@@ -130,8 +140,17 @@ async def match_upgrade_target(
         (r for r in rows if r.raw is not None and r.raw_version == MATCHER_VERSION), None,
     )
     if current is not None:
-        result = await asyncio.to_thread(compare, raw_from_bytes(current.raw), raw)
-        return (target, result) if is_same_audio(result) else None
+        target_raw = raw_from_bytes(current.raw)
+        if release_connection:
+            await session.rollback()
+        result = await asyncio.to_thread(compare, target_raw, raw)
+        if not is_same_audio(result):
+            return None
+        if release_connection:
+            target = await session.get(LiveSet, target_id)  # reload (expired)
+            if target is None:
+                return None
+        return target, result
     if legacy_hash is not None and any(
         r.fingerprint_hash == legacy_hash
         and abs(r.duration_seconds - duration) < LEGACY_DURATION_SECONDS

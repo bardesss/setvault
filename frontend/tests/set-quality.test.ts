@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { loginAs } from "./helpers/auth";
 
 // SW caches /api GETs; block so route stubs apply.
-test.use({ serviceWorkers: "block" });
+test.use({ serviceWorkers: "block", timezoneId: "UTC" });
 
 test("set page shows quality, upgrade history and the switch sends PATCH", async ({ page, request }) => {
   const seed = await loginAs(page, request);
@@ -19,10 +19,10 @@ test("set page shows quality, upgrade history and the switch sends PATCH", async
           upgrades_enabled: true,
           // Two events from one transaction share created_at; ids keep them apart.
           upgrade_history: [
-            { id: "e4", created_at: "2026-03-07T10:00:00Z", from_label: "MP3 128 kbps (SoundCloud)", to_label: "FLAC (Bandcamp)", outcome: "merged", tracklist_kept: true },
-            { id: "e3", created_at: "2026-03-06T10:00:00Z", from_label: "FLAC (Bandcamp)", to_label: "FLAC (Bandcamp)", outcome: "merged" },
-            { id: "e2", created_at: "2026-03-05T10:00:00Z", from_label: "MP3 320 kbps (YouTube)", to_label: "FLAC (Bandcamp)" },
-            { id: "e1", created_at: "2026-03-05T10:00:00Z", from_label: "MP3 128 kbps (YouTube)", to_label: "MP3 320 kbps (YouTube)" },
+            { id: "e4", created_at: "2026-03-07T12:00:00Z", from_label: "MP3 128 kbps (SoundCloud)", to_label: "FLAC (Bandcamp)", outcome: "merged", tracklist_kept: true },
+            { id: "e3", created_at: "2026-03-06T12:00:00Z", from_label: "FLAC (Bandcamp)", to_label: "FLAC (Bandcamp)", outcome: "merged" },
+            { id: "e2", created_at: "2026-03-05T12:00:00Z", from_label: "MP3 320 kbps (YouTube)", to_label: "FLAC (Bandcamp)" },
+            { id: "e1", created_at: "2026-03-05T12:00:00Z", from_label: "MP3 128 kbps (YouTube)", to_label: "MP3 320 kbps (YouTube)" },
           ],
         };
       }
@@ -41,6 +41,8 @@ test("set page shows quality, upgrade history and the switch sends PATCH", async
     /from MP3 320 kbps \(YouTube\) to FLAC \(Bandcamp\)/,
     /from MP3 128 kbps \(YouTube\) to MP3 320 kbps \(YouTube\)/,
   ]);
+
+  await expect(page.getByTestId("upgrade-history").locator("li").nth(2)).toContainText("Mar 5, 2026");
 
   const toggle = page.getByLabel("Find better copies automatically");
   await expect(toggle).toBeChecked();

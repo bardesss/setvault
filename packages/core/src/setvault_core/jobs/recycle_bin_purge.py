@@ -52,6 +52,20 @@ def _try_rmdir(path: Path) -> None:
         pass
 
 
+def _rmdir_empty_parents(path: Path, stop: Path) -> None:
+    """Remove ``path``'s now-empty parent dirs strictly below ``stop`` (the
+    ``originals/`` dir, which itself stays). Paths outside it are left be."""
+    parent = path.parent
+    if not parent.is_relative_to(stop):
+        return
+    while parent != stop:
+        try:
+            parent.rmdir()
+        except OSError:
+            return  # not empty (or gone / not permitted): stop here
+        parent = parent.parent
+
+
 async def purge_recycle_bin() -> dict:
     """Walk eligible sets and delete them. Returns ``{"purged": N, "errors": N}``."""
     if "DATABASE_URL" in os.environ:
@@ -94,10 +108,14 @@ async def purge_recycle_bin() -> dict:
                     summary["errors"] += 1
                     continue
 
-                # Tidy up empty per-set originals/<set_id>/ dirs left behind.
+                # Tidy up empty per-set originals/<set_id>/ dirs left behind:
+                # this set's own, and the parents of every file deleted (after
+                # an upgrade swap the recycled copy's audio lives under the
+                # target's id).
                 if host_root is not None:
-                    set_dir = host_root / "originals" / str(live_set_id)
-                    _try_rmdir(set_dir)
+                    _try_rmdir(host_root / "originals" / str(live_set_id))
+                    for p in paths_to_delete:
+                        _rmdir_empty_parents(p, host_root / "originals")
 
                 await audit_log(
                     s,

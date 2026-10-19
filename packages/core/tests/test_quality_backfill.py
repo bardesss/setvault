@@ -55,7 +55,7 @@ async def test_backfill_fills_missing_fingerprint_and_quality(tmp_path: Path, re
 
     async with session_factory()() as s:
         before = await qb.backfill_candidates(s)
-    assert before == {"to_fingerprint": 1, "to_measure": 1}
+    assert before == {"to_fingerprint": 1, "to_measure": 1, "failed": 0}
 
     res = await qb.run_backfill_batch()
     assert res["processed"] == 1 and res["errors"] == 0 and res["remaining"] == 0
@@ -89,7 +89,9 @@ async def test_backfill_skips_already_done(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(qb, "measure_quality", boom)
 
     async with session_factory()() as s:
-        assert await qb.backfill_candidates(s) == {"to_fingerprint": 0, "to_measure": 0}
+        assert await qb.backfill_candidates(s) == {
+            "to_fingerprint": 0, "to_measure": 0, "failed": 0,
+        }
     res = await qb.run_backfill_batch()
     assert (res["processed"], res["errors"], res["remaining"]) == (0, 0, 0)
 
@@ -119,15 +121,15 @@ async def test_backfill_continues_after_one_bad_file(tmp_path: Path, monkeypatch
 
         # The failure is persisted, so the set is not picked up again.
         assert gone.quality_backfill_failed_at is not None
-        assert await qb.backfill_candidates(s) == {"to_fingerprint": 0, "to_measure": 0}
+        assert await qb.backfill_candidates(s) == {
+            "to_fingerprint": 0, "to_measure": 0, "failed": 1,
+        }
 
     res = await qb.run_backfill_batch()
     assert (res["processed"], res["errors"], res["remaining"]) == (0, 0, 0)
 
 
 async def test_batch_stops_at_deadline_and_reports_remaining(tmp_path: Path, monkeypatch):
-    from types import SimpleNamespace
-
     for n in ("a.flac", "b.flac", "c.flac"):
         (tmp_path / n).write_bytes(b"x")
     await _seed(tmp_path, ["a.flac", "b.flac", "c.flac"])
@@ -142,11 +144,10 @@ async def test_batch_stops_at_deadline_and_reports_remaining(tmp_path: Path, mon
     )
     # First deadline check passes, every later one is past the deadline.
     ticks = iter([0.0])
-    monkeypatch.setattr(
-        qb, "time", SimpleNamespace(monotonic=lambda: next(ticks, 10_000.0)),
-    )
 
-    res = await qb.run_backfill_batch(deadline=100.0)
+    res = await qb.run_backfill_batch(
+        deadline=100.0, clock=lambda: next(ticks, 10_000.0),
+    )
     assert res["processed"] == 1 and res["errors"] == 0
     assert res["remaining"] == 2
 
@@ -201,8 +202,6 @@ async def test_job_runs_one_slice_and_enqueues_the_next(
 
 
 async def test_job_slice_is_time_bounded(tmp_path: Path, monkeypatch, fake_queue):
-    from types import SimpleNamespace
-
     names = ["a.flac", "b.flac"]
     for n in names:
         (tmp_path / n).write_bytes(b"x")
@@ -210,12 +209,10 @@ async def test_job_slice_is_time_bounded(tmp_path: Path, monkeypatch, fake_queue
     _stub_tools(monkeypatch)
     # Slice start, first per-set check, then past BATCH_SECONDS.
     ticks = iter([0.0, 0.0])
-    monkeypatch.setattr(
-        qb, "time",
-        SimpleNamespace(monotonic=lambda: next(ticks, qb.BATCH_SECONDS + 1.0)),
-    )
 
-    res = await qb._run_quality_backfill()
+    res = await qb._run_quality_backfill(
+        clock=lambda: next(ticks, qb.BATCH_SECONDS + 1.0),
+    )
 
     assert res["processed"] == 1 and res["remaining"] == 1
     assert len(fake_queue) == 1
@@ -263,3 +260,121 @@ async def test_cleanup_run_carries_fill_errors_into_summary(
     state = fake_queue[0][2]["kwargs"]
     assert state["phase"] == "cleanup"
     assert state["counts"]["errors"] == 1
+
+
+async def test_set_hard_deleted_during_fpcalc_is_skipped(tmp_path: Path, monkeypatch):
+    """The set vanishes while fpcalc runs (no DB session is held then): the
+    write must skip it, not fail with a foreign-key IntegrityError."""
+    import asyncio
+
+    from sqlalchemy import delete
+
+    (tmp_path / "a.flac").write_bytes(b"x")
+    ids = await _seed(tmp_path, ["a.flac"])
+    loop = asyncio.get_running_loop()
+
+    async def _hard_delete():
+        async with session_factory()() as s:
+            await s.execute(delete(LiveSet).where(LiveSet.id == ids["a.flac"]))
+            await s.commit()
+
+    def fpcalc_then_delete(_p):
+        asyncio.run_coroutine_threadsafe(_hard_delete(), loop).result()
+        return array.array("I", [1, 2, 3]), 3.0
+
+    _stub_tools(monkeypatch)
+    monkeypatch.setattr(qb, "compute_raw_fingerprint", fpcalc_then_delete)
+
+    res = await qb.run_backfill_batch()
+    assert res["errors"] == 0 and res["error_ids"] == []
+    assert res["fingerprinted"] == 0
+    async with session_factory()() as s:
+        assert (await s.execute(
+            select(SetFingerprint).where(SetFingerprint.live_set_id == ids["a.flac"])
+        )).first() is None
+
+
+async def _mark(live_set_id: uuid.UUID, when: datetime) -> None:
+    async with session_factory()() as s:
+        (await s.get(LiveSet, live_set_id)).quality_backfill_failed_at = when
+        await s.commit()
+
+
+async def test_clear_backfill_failures_resets_every_marker(tmp_path: Path):
+    ids = await _seed(tmp_path, ["a.flac", "b.flac"])
+    for sid in ids.values():
+        await _mark(sid, datetime.now(UTC))
+    async with session_factory()() as s:
+        assert (await qb.backfill_candidates(s))["failed"] == 2
+        assert await qb.clear_backfill_failures(s) == 2
+        await s.commit()
+        assert (await qb.backfill_candidates(s))["failed"] == 0
+        assert (await qb.backfill_candidates(s))["to_measure"] == 2
+
+
+async def test_marker_cleared_when_file_changed_after_the_failure(
+    tmp_path: Path, monkeypatch,
+):
+    from datetime import timedelta
+
+    for n in ("fixed.flac", "same.flac"):
+        (tmp_path / n).write_bytes(b"x")
+    ids = await _seed(tmp_path, ["fixed.flac", "same.flac"])
+    now = datetime.now(UTC)
+    # fixed.flac was replaced after it failed; same.flac hasn't changed since.
+    await _mark(ids["fixed.flac"], now - timedelta(hours=1))
+    await _mark(ids["same.flac"], now + timedelta(hours=1))
+    _stub_tools(monkeypatch)
+
+    res = await qb.run_backfill_batch()
+
+    assert res["processed"] == 1 and res["errors"] == 0
+    async with session_factory()() as s:
+        fixed = await s.get(LiveSet, ids["fixed.flac"])
+        assert fixed.quality_backfill_failed_at is None
+        assert fixed.quality_tier == "lossless"
+        same = await s.get(LiveSet, ids["same.flac"])
+        assert same.quality_backfill_failed_at is not None
+        assert same.quality_measured_at is None
+
+
+async def test_backfill_chain_is_a_singleton():
+    from redis import Redis
+    from rq.job import Job
+
+    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis.delete(qb.CHAIN_KEY)
+    first = qb.start_quality_backfill()
+    try:
+        assert first is not None
+        assert qb.quality_backfill_in_flight() is True
+        assert qb.start_quality_backfill() is None
+        assert qb.start_quality_backfill(cleanup=True) is None
+    finally:
+        Job.fetch(first.id, connection=redis).delete()
+    assert qb.quality_backfill_in_flight() is False
+    second = qb.start_quality_backfill()
+    try:
+        assert second is not None and second.id != first.id
+    finally:
+        Job.fetch(second.id, connection=redis).delete()
+        redis.delete(qb.CHAIN_KEY)
+
+
+def test_start_while_another_start_holds_the_lock_enqueues_nothing(monkeypatch):
+    import rq
+    from redis import Redis
+
+    calls = []
+    monkeypatch.setattr(rq.Queue, "enqueue", lambda self, func, **kw: calls.append(func))
+    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis.delete(qb.CHAIN_KEY)
+    redis.set(qb.START_LOCK_KEY, "1", ex=30)
+    try:
+        assert qb.start_quality_backfill() is None
+        assert qb.start_quality_backfill(cleanup=True) is None
+        assert calls == []
+        # The other start's lock is not released by the refused one.
+        assert redis.get(qb.START_LOCK_KEY) is not None
+    finally:
+        redis.delete(qb.START_LOCK_KEY)

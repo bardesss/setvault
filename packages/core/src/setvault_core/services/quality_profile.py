@@ -47,8 +47,17 @@ def is_better(
     return rank(profile, candidate_tier) < rank(profile, current_tier)
 
 
+def effective_cutoff(profile: QualityProfile) -> str:
+    """The cutoff tier to apply. A stored cutoff that isn't in the order
+    (stale or hand-edited config) is treated as the best tier rather than
+    the worst, so cutoff checks keep working."""
+    if profile.cutoff in profile.order or not profile.order:
+        return profile.cutoff
+    return profile.order[0]
+
+
 def cutoff_unmet(profile: QualityProfile, tier: str | None) -> bool:
-    """True when a measured set sits below the cutoff tier."""
+    """True when a measured set sits below the (effective) cutoff tier."""
     if tier is None:
         return False
-    return rank(profile, tier) > rank(profile, profile.cutoff)
+    return rank(profile, tier) > rank(profile, effective_cutoff(profile))

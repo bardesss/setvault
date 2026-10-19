@@ -323,6 +323,7 @@
     },
     "upgrades": {
       "toggle": "Find better copies automatically",
+      "failed": "Could not save the change",
       "library_off": "Automatic upgrades are switched off for the whole library",
       "history_line": "Upgraded {date} from {from} to {to}",
       "history_merged_line": "Merged a duplicate copy ({from}) into this set on {date}",

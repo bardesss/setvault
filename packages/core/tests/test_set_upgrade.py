@@ -212,6 +212,41 @@ async def test_swap_negative_offset_shifts_later(tmp_path: Path, webhooks):
         assert [(e.start_seconds, e.end_seconds) for e in tl] == [(5, 10), (65, None)]
 
 
+async def test_swap_rounds_half_offsets_up(tmp_path: Path, webhooks):
+    # 2.5 s: round-half-up shifts int positions by 3 (banker's rounding: 2).
+    ids = await _seed(tmp_path, offset=2.5)
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    async with session_factory()() as s:
+        bm = (await s.execute(select(Bookmark).where(
+            Bookmark.live_set_id == ids["target"]))).scalar_one()
+        assert bm.position_seconds == 297
+        st = await s.get(UserSetState, (ids["user"], ids["target"]))
+        assert st.position_seconds == pytest.approx(998.0)  # floats shift exactly
+
+
+async def test_swap_clamps_positions_to_the_new_duration(tmp_path: Path, webhooks):
+    # The new copy (3590 s) starts 20 s earlier: late positions would land
+    # past its end and are clamped to it.
+    ids = await _seed(tmp_path, offset=-20.0)
+    async with session_factory()() as s:
+        s.add(Comment(live_set_id=ids["target"], user_id=ids["user"],
+                      position_seconds=3580, body="encore"))
+        st = await s.get(UserSetState, (ids["user"], ids["target"]))
+        st.position_seconds = 3585.5
+        await s.commit()
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    async with session_factory()() as s:
+        cs = (await s.execute(select(Comment).where(
+            Comment.live_set_id == ids["target"]))).scalars().all()
+        assert sorted(c.position_seconds for c in cs if c.position_seconds is not None) == [
+            140, 3590,
+        ]
+        st = await s.get(UserSetState, (ids["user"], ids["target"]))
+        assert st.position_seconds == pytest.approx(3590.0)
+
+
 async def test_swap_ignores_sub_second_offset(tmp_path: Path, webhooks):
     ids = await _seed(tmp_path, offset=0.6)
     async with session_factory()() as s:
@@ -359,6 +394,32 @@ async def test_discard_arrival_records_rejection_and_removes_files(tmp_path: Pat
         assert (tmp_path / rel).exists()
 
 
+async def test_discard_arrival_already_gone_still_records_rejection(tmp_path: Path):
+    """The arrival row was deleted meanwhile (another worker discarded it):
+    with a target the candidate must still be recorded as rejected, or it
+    would be downloaded again."""
+    from sqlalchemy import delete
+
+    ids = await _seed(tmp_path)
+    tid, aid = ids["target"], ids["arrival"]
+    async with session_factory()() as s:
+        target = await s.get(LiveSet, tid)
+        arrival = await s.get(LiveSet, aid)
+        async with session_factory()() as other:
+            await other.execute(delete(LiveSet).where(LiveSet.id == aid))
+            await other.commit()
+        await set_upgrade.discard_arrival(
+            s, arrival, target=target, trigger="scheduled", reason="not better",
+            candidate_source_kind="bandcamp", candidate_external_id="bc-new",
+        )
+    async with session_factory()() as s:
+        ev = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == tid))).scalars().one()
+        assert (ev.outcome, ev.reason) == ("rejected", "not better")
+        assert (ev.candidate_source_kind, ev.candidate_external_id) == ("bandcamp", "bc-new")
+        assert ev.to_tier == "lossless"
+
+
 async def test_discard_arrival_without_target(tmp_path: Path):
     ids = await _seed(tmp_path)
     async with session_factory()() as s:
@@ -431,6 +492,11 @@ async def test_purge_of_recycled_copy_spares_files_the_live_target_now_uses(
     # Files only the recycled row referenced are gone.
     assert not (tmp_path / f"originals/{tid}/old.mp3").exists()
     assert not (tmp_path / f"waveform/{tid}.json").exists()
+    # The recycled copy's audio lived under the target's id: that now-empty
+    # dir goes too, the dir holding the target's live audio stays.
+    assert not (tmp_path / f"originals/{tid}").exists()
+    assert (tmp_path / "originals").is_dir()
+    assert (tmp_path / "waveform").is_dir()
 
 
 async def test_plain_purge_still_deletes_unreferenced_files(tmp_path: Path):
@@ -468,6 +534,44 @@ async def test_swap_repoints_rip_job_to_target(tmp_path: Path, webhooks):
         await _apply(s, ids)
     async with session_factory()() as s:
         assert (await s.get(RipJob, job_id)).live_set_id == ids["target"]
+
+
+async def test_swap_repoints_duplicates_and_unmatched_files_to_target(
+    tmp_path: Path, webhooks,
+):
+    """Rows that pointed at the arrival (a later held duplicate of it, a
+    watch-folder file resolved to it) follow the audio to the target."""
+    from setvault_core.models.watch_folder import UnmatchedFile, WatchFolder
+
+    ids = await _seed(tmp_path)
+    tid, aid = ids["target"], ids["arrival"]
+    async with session_factory()() as s:
+        target = await s.get(LiveSet, tid)
+        twin = LiveSet(slug=f"twin-{uuid.uuid4().hex[:6]}", title="twin",
+                       media_root_id=target.media_root_id, audio_path="originals/x/t.mp3",
+                       uploaded_by=ids["user"], status="draft", duplicate_of=aid)
+        wf = WatchFolder(name=f"wf{uuid.uuid4().hex[:6]}", host_path=str(tmp_path / "in"),
+                         target_media_root_id=target.media_root_id)
+        s.add_all([twin, wf])
+        await s.flush()
+        uf = UnmatchedFile(watch_folder_id=wf.id, file_path="in/new.flac",
+                           resolution="linked_to_set", resolved_to_set_id=aid)
+        s.add(uf)
+        await s.commit()
+        twin_id, uf_id, wf_id = twin.id, uf.id, wf.id
+    try:
+        async with session_factory()() as s:
+            await _apply(s, ids)
+        async with session_factory()() as s:
+            assert (await s.get(LiveSet, twin_id)).duplicate_of == tid
+            assert (await s.get(UnmatchedFile, uf_id)).resolved_to_set_id == tid
+            # The recycled old copy itself still points at the target.
+            assert (await s.get(LiveSet, aid)).duplicate_of == tid
+    finally:
+        async with session_factory()() as s:
+            await s.delete(await s.get(LiveSet, twin_id))
+            await s.delete(await s.get(WatchFolder, wf_id))
+            await s.commit()
 
 
 async def test_draft_target_upgrade_fires_no_webhook(tmp_path: Path, webhooks):

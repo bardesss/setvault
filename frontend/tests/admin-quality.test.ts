@@ -35,12 +35,12 @@ test("quality tab reorders tiers and saves the new order", async ({ page, reques
     if (r.request().method() === "POST") {
       backfillPost = r.request().postDataJSON();
       return r.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({
-        status: "queued", cleanup: true, to_fingerprint: 2, to_measure: 5,
+        status: "queued", cleanup: true, to_fingerprint: 2, to_measure: 5, failed: 1,
       }) });
     }
     backfillGets += 1;
     return r.fulfill(json({
-      to_fingerprint: 4, to_measure: 7, duplicate_pairs: 3, duplicate_pairs_complete: true,
+      to_fingerprint: 4, to_measure: 7, duplicate_pairs: 3, duplicate_pairs_complete: true, failed: 2,
     }));
   });
 
@@ -48,9 +48,13 @@ test("quality tab reorders tiers and saves the new order", async ({ page, reques
   await expect(page.getByTestId("backfill-counts")).toContainText("4 to fingerprint, 7 to measure");
   await expect(page.getByTestId("backfill-pairs")).toHaveText("3 duplicate pairs found.");
 
+  await expect(page.getByTestId("backfill-failed")).toHaveText("2 sets failed earlier and are skipped.");
+
   await page.getByLabel("Clean up duplicates").check();
+  await page.getByLabel("Retry failed sets").check();
   await page.getByRole("button", { name: "Run backfill" }).click();
-  await expect.poll(() => backfillPost).toEqual({ cleanup: true });
+  await expect.poll(() => backfillPost).toEqual({ cleanup: true, retry_failed: true });
+  await expect(page.getByTestId("backfill-failed")).toHaveText("1 set failed earlier and is skipped.");
   await expect(page.getByText("Duplicates are cleaned up when it finishes")).toBeVisible();
   // Counts come from the POST; the slow duplicate-pair scan isn't re-run.
   await expect(page.getByTestId("backfill-counts")).toContainText("2 to fingerprint, 5 to measure");
@@ -66,6 +70,24 @@ test("quality tab reorders tiers and saves the new order", async ({ page, reques
     upgrade_search_schedule: "daily",
     auto_upgrades_enabled: true,
   });
+});
+
+test("quality tab says when a backfill is already running", async ({ page, request }) => {
+  await loginAs(page, request);
+  await page.route(/\/api\/admin\/maintenance\/quality-backfill$/, (r) => {
+    if (r.request().method() === "POST") {
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "already_running" }) });
+    }
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      to_fingerprint: 4, to_measure: 7, duplicate_pairs: 0, duplicate_pairs_complete: true, failed: 0,
+    }) });
+  });
+  await page.goto("/admin/quality");
+  await expect(page.getByTestId("backfill-counts")).toBeVisible();
+  await expect(page.getByLabel("Retry failed sets")).toHaveCount(0);
+  await page.getByRole("button", { name: "Run backfill" }).click();
+  await expect(page.getByText("A backfill is already running")).toBeVisible();
+  await expect(page.getByText("Backfill started")).toHaveCount(0);
 });
 
 test("wanted tab lists a set and posts Search now", async ({ page, request }) => {

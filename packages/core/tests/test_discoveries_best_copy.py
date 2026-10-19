@@ -55,3 +55,31 @@ async def test_monitor_auto_ingests_only_best_copy_per_group(session, monkeypatc
         select(MonitorDiscovery).where(MonitorDiscovery.monitor_id == m.id))).scalars()}
     assert rows["lo"] == rows["unk"] == "pending_review"
     assert rows["best"] == "auto_ingested"
+
+
+def test_candidates_without_duration_are_each_their_own_group():
+    from setvault_core.services.audio_quality import TIERS
+    from setvault_core.services.quality_profile import QualityProfile
+
+    profile = QualityProfile(order=TIERS, cutoff="lossless")
+    items = [
+        (_c("a", "Bicep Live at Field Day", "low", dur=None), "high"),
+        (_c("b", "Bicep Live at Field Day", "lossless", dur=None), "high"),
+        (_c("c", "Bicep Live at Field Day", "ok", dur=0), "high"),
+    ]
+    # Without a duration "same set" can't be told, so none is dropped as a
+    # worse copy of another: every one is the best of its own group.
+    assert svc._best_copies(profile, items) == {0, 1, 2}
+
+
+def test_same_title_on_different_nights_stays_separate():
+    from setvault_core.services.audio_quality import TIERS
+    from setvault_core.services.quality_profile import QualityProfile
+
+    profile = QualityProfile(order=TIERS, cutoff="lossless")
+    items = [
+        (_c("n1", "Bicep Live at Field Day", "low", dur=3600), "high"),
+        (_c("n2", "Bicep Live at Field Day", "lossless", dur=5400), "high"),  # 50% longer
+        (_c("n1b", "Bicep Live at Field Day", "high", dur=3650), "high"),  # n1 again
+    ]
+    assert svc._best_copies(profile, items) == {1, 2}
