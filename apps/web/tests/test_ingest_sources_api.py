@@ -81,6 +81,42 @@ async def test_search_merges_and_flags_in_library(
 
 
 @pytest.mark.asyncio
+async def test_discarded_upgrade_attempts_do_not_count_as_in_library(
+    authed_admin_client, seeded_live_set,
+):
+    """An upgrade-attempt rip that was discarded (or failed) has no set of its
+    own: the candidate isn't in the library. One that upgraded the set is."""
+    import uuid
+
+    sid = uuid.UUID(seeded_live_set["id"])
+    init_engine(__import__("os").environ["TEST_DATABASE_URL"])
+    async with session_factory()() as s:
+        now = datetime.now(UTC)
+        s.add_all([
+            RipJob(source_url="https://youtu.be/discarded", source_platform="youtube",
+                   source_external_id="discarded", status="ready",
+                   upgrade_target_set_id=sid, live_set_id=None,
+                   created_at=now, updated_at=now),
+            RipJob(source_url="https://youtu.be/upgraded", source_platform="youtube",
+                   source_external_id="upgraded", status="ready",
+                   upgrade_target_set_id=sid, live_set_id=sid,
+                   created_at=now, updated_at=now),
+        ])
+        await s.commit()
+    cands = [
+        Candidate("youtube", "discarded", "d", "U", 60, None, "https://youtu.be/discarded"),
+        Candidate("youtube", "upgraded", "u", "U", 60, None, "https://youtu.be/upgraded"),
+    ]
+    result = SimpleNamespace(candidates=cands, errored_kinds=[])
+    with patch("setvault_web.api.ingest_sources.search_all_sources", return_value=result):
+        r = await authed_admin_client.post("/api/ingest-sources/search", json={"q": "set"})
+    assert r.status_code == 200, r.text
+    items = {c["external_id"]: c for c in r.json()["items"]}
+    assert items["discarded"]["already_in_library"] is False
+    assert items["upgraded"]["already_in_library"] is True
+
+
+@pytest.mark.asyncio
 async def test_search_proxies_external_thumbnails(authed_admin_client):
     """Candidate thumbnails are rewritten to the same-origin signed proxy so the
     strict CSP can keep blocking third-party image hosts; a missing thumbnail

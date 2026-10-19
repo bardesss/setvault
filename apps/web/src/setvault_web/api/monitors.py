@@ -190,7 +190,9 @@ async def rip_discovery(
     d = await _owned_discovery_or_404(session, user, discovery_id)
     if d.status == "pending_review":
         try:
-            job = await submit_rip(session, user_id=user.id, url=d.webpage_url)
+            job = await submit_rip(
+                session, user_id=user.id, url=d.webpage_url, trigger="monitor",
+            )
             d.url_rip_id = job.id
             _enqueue_rip(job)
         except DuplicateRipError as exc:
