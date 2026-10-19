@@ -3,7 +3,7 @@
 Lists rq-scheduler jobs (the periodic ones registered in
 ``apps/worker/src/setvault_worker/entrypoint.py`` plus anything added at
 runtime) with next-run + interval + meta, and exposes a Run-now button that
-enqueues the job onto the default queue immediately. Read-only otherwise —
+enqueues the job onto its queue immediately. Read-only otherwise —
 admins can't add or delete scheduled jobs from the UI for v0.1.0.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from redis import Redis
 from rq import Queue
 from rq.exceptions import NoSuchJobError
 from rq_scheduler import Scheduler
-from setvault_core.jobs.upgrade_search import UPGRADE_SEARCH_JOB_TIMEOUT
+from setvault_core.jobs.upgrade_search import UPGRADE_QUEUE, UPGRADE_SEARCH_JOB_TIMEOUT
 
 from setvault_web.deps import current_user, require_admin
 
@@ -36,6 +36,11 @@ def _redis() -> Redis:
 # _SCHEDULE; without one RQ kills the job after its 180 s default.
 _RUN_NOW_TIMEOUTS: dict[str, int] = {
     "setvault_core.jobs.upgrade_search.run_upgrade_search": UPGRADE_SEARCH_JOB_TIMEOUT,
+}
+
+# Queues for jobs that don't run on "default" (mirrors the worker's _QUEUES).
+_RUN_NOW_QUEUES: dict[str, str] = {
+    "setvault_core.jobs.upgrade_search.run_upgrade_search": UPGRADE_QUEUE,
 }
 
 
@@ -81,7 +86,8 @@ async def run_now(
     admin: Annotated[object, Depends(current_user)],
     _: Annotated[object, Depends(require_admin)],
 ):
-    """Enqueue the named function on the default queue immediately.
+    """Enqueue the named function on its queue (default, or low for upgrade
+    work) immediately.
 
     Body: ``{"func_name": "setvault_core.jobs.recycle_bin_purge.run_purge_recycle_bin"}``.
     The function must be one of the registered scheduled funcs — we reject
@@ -101,7 +107,7 @@ async def run_now(
         )
 
     try:
-        queue = Queue("default", connection=_redis())
+        queue = Queue(_RUN_NOW_QUEUES.get(func_path, "default"), connection=_redis())
         # Same timeout as the scheduled run.
         timeout = known[func_path].timeout or _RUN_NOW_TIMEOUTS.get(func_path)
         rq_job = queue.enqueue(func_path, job_timeout=timeout)

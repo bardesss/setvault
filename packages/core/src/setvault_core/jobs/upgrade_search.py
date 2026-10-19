@@ -20,7 +20,7 @@ from typing import Literal
 
 from setvault_ingest_sources.base import Candidate, SourceError
 from setvault_ingest_sources.registry import get_source
-from sqlalchemy import exists, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,8 +75,22 @@ _MAX_SUBMIT_ATTEMPTS = 3
 UPGRADE_SEARCH_BATCH_BUDGET_SECONDS = 20 * 60
 # Same in-flight set as jobs/monitor_dispatch.py.
 _IN_FLIGHT = {"queued", "started", "deferred", "scheduled"}
+# R30: upgrade batches, "search now" and upgrade rips run on their own queue;
+# the worker serves "default" first, so uploads and user rips never wait
+# behind upgrade work.
+UPGRADE_QUEUE = "low"
+# The scheduled search submits no new rip while this many upgrade rips are
+# queued or running, so a sweep can't fill the low queue with hours of
+# downloads.
+MAX_UPGRADE_RIPS_IN_FLIGHT = 2
+# A rip row not updated for this long is not running: RQ killed it at its
+# timeout (RIP_JOB_TIMEOUT, 1 h) without the job marking itself failed.
+UPGRADE_RIP_STALE_AFTER = timedelta(hours=2)
+_RIP_DONE = ("ready", "failed")
 
-Outcome = Literal["queued", "no_candidate", "rate_limited", "no_space", "not_eligible"]
+Outcome = Literal[
+    "queued", "no_candidate", "rate_limited", "no_space", "not_eligible", "busy",
+]
 
 
 async def due_sets(
@@ -283,6 +297,17 @@ def _probe_failed_event(
     )
 
 
+async def upgrade_rips_in_flight(session: AsyncSession, *, now: datetime) -> int:
+    """Upgrade rips queued or running (any set), ignoring stale rows."""
+    return int(await session.scalar(
+        select(func.count()).select_from(RipJob).where(
+            RipJob.upgrade_target_set_id.is_not(None),
+            RipJob.status.not_in(_RIP_DONE),
+            RipJob.updated_at >= now - UPGRADE_RIP_STALE_AFTER,
+        )
+    ) or 0)
+
+
 def _enqueue_rip(rip_job_id: uuid.UUID) -> None:
     from redis import Redis
     from rq import Queue
@@ -290,7 +315,7 @@ def _enqueue_rip(rip_job_id: uuid.UUID) -> None:
     from setvault_core.jobs.url_rip_job import RIP_JOB_TIMEOUT
 
     redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
-    Queue("default", connection=redis).enqueue(
+    Queue(UPGRADE_QUEUE, connection=redis).enqueue(
         "setvault_core.jobs.url_rip_job.run_rip_job", rip_job_id=str(rip_job_id),
         job_timeout=RIP_JOB_TIMEOUT,
     )
@@ -303,8 +328,9 @@ async def search_upgrade_for_set(
     trigger: Literal["scheduled", "search_now"],
 ) -> Outcome:
     """Search the sources for a better copy of one set and submit at most one
-    targeted upgrade rip. Commits. A rate limit or a full disk leaves the set
-    unstamped so the next run retries it first."""
+    targeted upgrade rip. Commits. A rate limit, a full disk or (scheduled
+    only) enough upgrade rips already in flight leaves the set unstamped so
+    the next run retries it first."""
     live = await session.get(LiveSet, live_set_id)
     profile = await get_profile(session)
     if (
@@ -319,6 +345,13 @@ async def search_upgrade_for_set(
     user_id = await _rip_owner(session, live)
     if user_id is None:
         return "not_eligible"
+    # Checked before searching, so a busy queue doesn't spend source budget.
+    # An explicit "search now" is one rip at most and not capped.
+    if trigger == SCHEDULED_TRIGGER and (
+        await upgrade_rips_in_flight(session, now=datetime.now(UTC))
+        >= MAX_UPGRADE_RIPS_IN_FLIGHT
+    ):
+        return "busy"
 
     query = build_query(live)
     try:
@@ -415,8 +448,9 @@ async def _run_batch() -> dict:
                     await s.commit()
         summary["searched"] += 1
         summary[outcome] = summary.get(outcome, 0) + 1
-        if outcome == "rate_limited":
-            # The budget is spent; the rest keep their place for next hour.
+        if outcome in ("rate_limited", "busy"):
+            # The source budget is spent, or enough upgrade rips are waiting:
+            # the rest keep their place for next hour.
             break
     return summary
 
@@ -455,7 +489,7 @@ def enqueue_search_upgrade_now(live_set_id: uuid.UUID) -> bool:
     existing = Job.fetch_many([job_id], connection=redis)[0]
     if existing is not None and existing.get_status(refresh=True) in _IN_FLIGHT:
         return False
-    Queue("default", connection=redis).enqueue(
+    Queue(UPGRADE_QUEUE, connection=redis).enqueue(
         "setvault_core.jobs.upgrade_search.run_search_upgrade_now",
         live_set_id=str(live_set_id), job_id=job_id, job_timeout=SEARCH_NOW_JOB_TIMEOUT,
     )

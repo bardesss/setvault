@@ -1,7 +1,9 @@
 """Worker entrypoint.
 
-Boots an RQ worker on the `default` queue plus an rq-scheduler so periodic
-jobs (e.g. MediaRoot health-checks) run on schedule.
+Boots an RQ worker on the `default` and `low` queues (in that priority order:
+upgrade searches and upgrade rips go on `low`, so they never hold up uploads)
+and registers the periodic jobs (e.g. MediaRoot health-checks) with
+rq-scheduler.
 
 Notes on API drift:
   * `rq>=2.0` removed `rq.Connection`; we pass `connection=` directly to
@@ -18,7 +20,7 @@ from redis import Redis
 from rq import Queue, Worker
 from rq_scheduler import Scheduler
 from setvault_core.db import init_engine
-from setvault_core.jobs.upgrade_search import UPGRADE_SEARCH_JOB_TIMEOUT
+from setvault_core.jobs.upgrade_search import UPGRADE_QUEUE, UPGRADE_SEARCH_JOB_TIMEOUT
 
 _HOURLY = 60 * 60
 _DAILY = 24 * 60 * 60
@@ -36,24 +38,35 @@ _SCHEDULE: tuple[tuple[str, int] | tuple[str, int, int], ...] = (
     ("setvault_core.jobs.upgrade_search.run_upgrade_search", _HOURLY,
      UPGRADE_SEARCH_JOB_TIMEOUT),
 )
+# Queue per scheduled job when not "default" (R30).
+_QUEUES: dict[str, str] = {
+    "setvault_core.jobs.upgrade_search.run_upgrade_search": UPGRADE_QUEUE,
+}
+_QUEUE_ORDER = ("default", UPGRADE_QUEUE)
 
 
 def _bootstrap_scheduler(redis: Redis) -> None:
     """Register every periodic job exactly once at boot. Existing scheduled
     entries are left in place — rq-scheduler doesn't expose an idempotent
     upsert, so the safest pattern is "only insert if not already present"
-    keyed on the func path."""
+    keyed on the func path. An entry registered on another queue than the
+    one it belongs on now is replaced."""
     scheduler = Scheduler(connection=redis)
-    already = {j.func_name for j in scheduler.get_jobs()}
+    already = {j.func_name: j for j in scheduler.get_jobs()}
     for func_path, interval, *timeout in _SCHEDULE:
-        if func_path in already:
-            continue
+        queue_name = _QUEUES.get(func_path, "default")
+        existing = already.get(func_path)
+        if existing is not None:
+            if existing.origin == queue_name:
+                continue
+            scheduler.cancel(existing)
         scheduler.schedule(
             scheduled_time=datetime.now(UTC),
             func=func_path,
             interval=interval,
             repeat=None,
             timeout=timeout[0] if timeout else None,
+            queue_name=queue_name,
         )
 
 
@@ -61,8 +74,8 @@ def main() -> None:
     init_engine(os.environ["DATABASE_URL"])
     redis = Redis.from_url(os.environ["REDIS_URL"])
     _bootstrap_scheduler(redis)
-    queue = Queue("default", connection=redis)
-    Worker([queue], connection=redis).work(with_scheduler=True)
+    queues = [Queue(name, connection=redis) for name in _QUEUE_ORDER]
+    Worker(queues, connection=redis).work(with_scheduler=True)
 
 
 if __name__ == "__main__":

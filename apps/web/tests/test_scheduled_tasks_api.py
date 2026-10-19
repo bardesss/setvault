@@ -15,6 +15,7 @@ def fake_rq(monkeypatch):
     jobs = [SimpleNamespace(func_name=UPGRADE, timeout=None),
             SimpleNamespace(func_name=PURGE, timeout=None)]
     enqueued: list[tuple[str, dict]] = []
+    queues: list[str] = []
 
     class FakeScheduler:
         def __init__(self, connection):
@@ -25,15 +26,16 @@ def fake_rq(monkeypatch):
 
     class FakeQueue:
         def __init__(self, name, connection):
-            pass
+            self.name = name
 
         def enqueue(self, func, **kw):
             enqueued.append((func, kw))
+            queues.append(self.name)
             return SimpleNamespace(id="job-1")
 
     monkeypatch.setattr(scheduled_tasks, "Scheduler", FakeScheduler)
     monkeypatch.setattr(scheduled_tasks, "Queue", FakeQueue)
-    return SimpleNamespace(jobs=jobs, enqueued=enqueued)
+    return SimpleNamespace(jobs=jobs, enqueued=enqueued, queues=queues)
 
 
 @pytest.mark.asyncio
@@ -63,3 +65,13 @@ async def test_run_now_rejects_unregistered_funcs(authed_admin_client, fake_rq):
     r = await authed_admin_client.post("/api/admin/tasks/run-now", json={"func_name": "os.system"})
     assert r.status_code == 400
     assert fake_rq.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_run_now_of_the_upgrade_search_uses_the_low_queue(authed_admin_client, fake_rq):
+    """R30: upgrade work never runs ahead of uploads, even on "Run now"."""
+    r = await authed_admin_client.post("/api/admin/tasks/run-now", json={"func_name": UPGRADE})
+    assert r.status_code == 200, r.text
+    r = await authed_admin_client.post("/api/admin/tasks/run-now", json={"func_name": PURGE})
+    assert r.status_code == 200, r.text
+    assert fake_rq.queues == ["low", "default"]

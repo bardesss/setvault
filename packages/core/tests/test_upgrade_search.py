@@ -522,12 +522,12 @@ def test_enqueue_search_upgrade_now_skips_while_in_flight(monkeypatch):
     monkeypatch.setattr(Job, "fetch_many", staticmethod(
         lambda ids, connection: [FakeJob() if status["value"] else None]))
     monkeypatch.setattr(Queue, "enqueue", lambda self, func, **kw: enqueued.append(
-        {"func": func, **kw}))
+        {"func": func, "queue": self.name, **kw}))
 
     set_id = uuid.uuid4()
     assert job.enqueue_search_upgrade_now(set_id) is True
     assert enqueued == [{
-        "func": "setvault_core.jobs.upgrade_search.run_search_upgrade_now",
+        "func": "setvault_core.jobs.upgrade_search.run_search_upgrade_now", "queue": "low",
         "live_set_id": str(set_id), "job_id": f"upgrade-search-now-{set_id}",
         "job_timeout": job.SEARCH_NOW_JOB_TIMEOUT,
     }]
@@ -537,3 +537,86 @@ def test_enqueue_search_upgrade_now_skips_while_in_flight(monkeypatch):
     status["value"] = "finished"
     assert job.enqueue_search_upgrade_now(set_id) is True
     assert len(enqueued) == 2
+
+
+# --- R30: low queue + in-flight cap --------------------------------------------
+
+
+def test_upgrade_rips_go_on_the_low_queue(monkeypatch):
+    from rq import Queue
+
+    enqueued: list[tuple[str, str]] = []
+    monkeypatch.setattr(Queue, "enqueue", lambda self, func, **kw: enqueued.append(
+        (self.name, func)))
+    job._enqueue_rip(uuid.uuid4())
+    assert enqueued == [("low", "setvault_core.jobs.url_rip_job.run_rip_job")]
+
+
+async def test_in_flight_upgrade_rips_are_counted(session, tmp_path):
+    """Queued/started upgrade rips count; finished ones, plain rips and rows
+    not touched for hours (a killed worker never marks them failed) don't."""
+    u, r = await _seed_base(session, tmp_path)
+    target = await _seed_set(session, root=r, user=u)
+    now = datetime.now(UTC)
+    before = await job.upgrade_rips_in_flight(session, now=now)
+
+    def rip(status, *, target_id=target.id, age=timedelta(0)):
+        return RipJob(submitted_by=u.id, source_url=f"https://x/{_uid()}", status=status,
+                      progress_pct=0, probed_metadata={}, upgrade_target_set_id=target_id,
+                      created_at=now - age, updated_at=now - age)
+
+    session.add_all([
+        rip("queued"), rip("downloading"),
+        rip("ready"), rip("failed"), rip("queued", target_id=None),
+        rip("transcoding", age=job.UPGRADE_RIP_STALE_AFTER + timedelta(minutes=1)),
+    ])
+    await session.flush()
+    assert await job.upgrade_rips_in_flight(session, now=now) == before + 2
+
+
+async def test_batch_skips_a_set_while_upgrade_rips_are_in_flight(
+    seeded, sources, monkeypatch,
+):
+    """At the cap the scheduled search neither searches nor stamps; the set
+    keeps its place for the next run. "Search now" is not capped."""
+    in_flight = {"n": job.MAX_UPGRADE_RIPS_IN_FLIGHT}
+
+    async def fake_count(session, *, now):
+        return in_flight["n"]
+
+    monkeypatch.setattr(job, "upgrade_rips_in_flight", fake_count)
+    sources["results"] = [_cand("better", tier="lossless")]
+    async with session_factory()() as s:
+        assert await job.search_upgrade_for_set(
+            s, seeded["set"], trigger="scheduled") == "busy"
+    assert sources["searched"] == [] and sources["submitted"] == []
+    assert await _stamp(seeded["set"]) is None
+
+    async with session_factory()() as s:
+        assert await job.search_upgrade_for_set(
+            s, seeded["set"], trigger="search_now") == "queued"
+
+    in_flight["n"] = job.MAX_UPGRADE_RIPS_IN_FLIGHT - 1
+    sources["results"] = [_cand("better2", tier="lossless")]
+    async with session_factory()() as s:
+        assert await job.search_upgrade_for_set(
+            s, seeded["set"], trigger="scheduled") == "queued"
+
+
+def test_run_upgrade_search_stops_the_batch_when_busy(monkeypatch):
+    ids = [uuid.uuid4() for _ in range(3)]
+    seen: list[uuid.UUID] = []
+
+    async def fake_due(session, *, now, schedule, limit):
+        return [LiveSet(id=i) for i in ids]
+
+    async def fake_search(session, live_set_id, *, trigger):
+        seen.append(live_set_id)
+        return "busy"
+
+    monkeypatch.setattr(job, "due_sets", fake_due)
+    monkeypatch.setattr(job, "search_upgrade_for_set", fake_search)
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    summary = job.run_upgrade_search()
+    assert seen == ids[:1]
+    assert summary["busy"] == 1
