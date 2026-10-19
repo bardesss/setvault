@@ -86,7 +86,12 @@ async def _notify_owner(
 
 def _same_set(a: Candidate, b: Candidate) -> bool:
     """Same set = titles match by score_confidence both ways (soundboard
-    keywords ignored) and durations within +-10%."""
+    keywords ignored) and durations within +-10%.
+
+    A candidate without a duration is never "the same set" as another, so it
+    forms its own group and is never dropped as a worse copy (we can't tell).
+    The duration rule also keeps the same title from different nights (a
+    festival set played every year) apart once their lengths differ."""
     ta, tb = strip_soundboard_terms(a.title), strip_soundboard_terms(b.title)
     if not (a.duration_seconds and b.duration_seconds):
         return False
