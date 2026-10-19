@@ -56,6 +56,10 @@ def upgrade() -> None:
             nullable=True,
         ),
     )
+    # The upgrade search and rip dedup look rips up by their target set.
+    op.create_index(
+        "ix_rip_jobs_upgrade_target_set_id", "rip_jobs", ["upgrade_target_set_id"]
+    )
     op.add_column("rip_jobs", sa.Column("trigger", sa.String(16), nullable=True))
     op.add_column(
         "live_sets",
@@ -66,6 +70,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_column("live_sets", "duplicate_kept_at")
     op.drop_column("rip_jobs", "trigger")
+    op.drop_index("ix_rip_jobs_upgrade_target_set_id", table_name="rip_jobs")
     op.drop_column("rip_jobs", "upgrade_target_set_id")
     op.drop_index("ix_set_upgrade_events_live_set_id", table_name="set_upgrade_events")
     op.drop_table("set_upgrade_events")

@@ -23,7 +23,8 @@ class RipJob(Base, UuidPkMixin):
     source_platform: Mapped[str | None] = mapped_column(String(40), nullable=True)
     # Set when this rip is an upgrade candidate for an existing set.
     upgrade_target_set_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("live_sets.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True), ForeignKey("live_sets.id", ondelete="SET NULL"), nullable=True,
+        index=True,
     )
     trigger: Mapped[str | None] = mapped_column(String(16), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
