@@ -1,15 +1,15 @@
 """set_upgrade_events, rip_jobs upgrade targeting, live_sets.duplicate_kept_at
 
-Revision ID: 0027_7d_upgrades
-Revises: 0026_7d_backfill_failed
+Revision ID: 0028_7d_upgrades
+Revises: 0027_purge_grace_reset
 Create Date: 2026-10-19 11:00:00
 """
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0027_7d_upgrades"
-down_revision = "0026_7d_backfill_failed"
+revision = "0028_7d_upgrades"
+down_revision = "0027_purge_grace_reset"
 branch_labels = None
 depends_on = None
 
