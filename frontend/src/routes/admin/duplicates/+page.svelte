@@ -71,10 +71,6 @@
     return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
   }
 
-  function fmtDate(iso: string | null): string {
-    if (!iso) return "";
-    return fmtLocalDateTime(iso, $locale);
-  }
 
   onMount(load);
 </script>
@@ -125,7 +121,7 @@
           </td>
           <td class="mono">{item.source_type}</td>
           <td class="mono">{fmtDuration(item.duration_seconds)}</td>
-          <td class="mono">{fmtDate(item.created_at)}</td>
+          <td class="mono">{fmtLocalDateTime(item.created_at, $locale)}</td>
           <td>
             {#if item.original}
               <a href={`/sets/${encodeURIComponent(item.original.slug)}`}>{item.original.title}</a>
