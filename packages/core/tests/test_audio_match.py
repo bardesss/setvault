@@ -12,6 +12,7 @@ from setvault_core.services.audio_match import (
     SAME_AUDIO_MAX_BER,
     WORST_WINDOW_MAX_BER,
     MatchResult,
+    _probe,
     compare,
     compute_raw_fingerprint,
     is_same_audio,
@@ -163,8 +164,16 @@ def test_mostly_shared_audio_with_different_last_third_does_not_match():
     a = _random_fp(3000, seed=1)
     b = a[:2000] + _random_fp(1000, seed=5)  # ~67% shared
     assert _ber_at(a, b, 0) < SAME_AUDIO_MAX_BER
-    r = compare(a, b)
-    assert r is None or not is_same_audio(r)
+    # The overall BER alone would pass, so prove which gate rejects it: the
+    # first two probes (items 750, 1500) find themselves at offset 0, the
+    # third (item 2250, in the replaced tail) doesn't, so the per-probe BER
+    # gate returns None before any full-overlap score is computed.
+    ab, bb = raw_to_bytes(a), raw_to_bytes(b)
+    radius = int(0.10 * len(a) + 120 * ITEMS_PER_SECOND)
+    assert _probe(ab, bb, len(b), 750, radius) == (0, 0.0)
+    assert _probe(ab, bb, len(b), 1500, radius) == (0, 0.0)
+    assert _probe(ab, bb, len(b), 2250, radius)[1] >= 0.35
+    assert compare(a, b) is None
 
 
 def test_every_probe_must_find_itself_not_just_the_best():
