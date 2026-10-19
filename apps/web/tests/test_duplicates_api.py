@@ -119,3 +119,45 @@ async def test_purge_now_spares_files_another_set_references(
     assert r.status_code == 204, r.text
     assert not (tmp_path / "originals/gone/a.mp3").exists()
     assert (tmp_path / "stream/shared.opus").exists()
+
+
+@pytest.mark.asyncio
+async def test_restored_replaced_copy_lands_on_the_duplicates_page(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    """R31: after an upgrade the old copy sits in the recycle bin; restoring
+    it brings it back as a held duplicate of the upgraded set, not as an
+    invisible draft."""
+    from setvault_core.services import set_upgrade
+
+    async def _no_webhooks(live, event):
+        return None
+
+    monkeypatch.setattr(set_upgrade, "fan_out_webhooks", _no_webhooks)
+    tid = uuid.UUID(seeded_live_set["id"])
+    async with session_factory()() as s:
+        target = await s.get(LiveSet, tid)
+        target.quality_tier, target.audio_lossless = "ok", False
+        target.streaming_path, target.waveform_path = f"stream/{tid}.opus", f"waveform/{tid}.json"
+        arrival = LiveSet(
+            slug=f"arr-{uuid.uuid4().hex[:6]}", title="better", media_root_id=target.media_root_id,
+            audio_path="originals/arr/a.flac", streaming_path="stream/arr.opus",
+            waveform_path="waveform/arr.json", status="draft", source_type="url_rip",
+            uploaded_by=target.uploaded_by, duplicate_of=tid, quality_tier="lossless",
+            audio_lossless=True,
+        )
+        s.add(arrival)
+        await s.commit()
+        aid, aslug = arrival.id, arrival.slug
+    async with session_factory()() as s:
+        await set_upgrade.apply_upgrade(
+            s, target=await s.get(LiveSet, tid), arrival=await s.get(LiveSet, aid),
+            trigger="upload",
+        )
+
+    r = await authed_admin_client.post(f"/api/admin/recycle/{aslug}/restore")
+    assert r.status_code == 200, r.text
+
+    listed = (await authed_admin_client.get("/api/admin/duplicates")).json()["items"]
+    (item,) = [i for i in listed if i["slug"] == aslug]
+    assert item["original"]["slug"] == seeded_live_set["slug"]

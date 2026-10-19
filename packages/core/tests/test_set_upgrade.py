@@ -134,7 +134,9 @@ async def test_swap_moves_audio_and_keeps_context(tmp_path: Path, webhooks):
         assert (a.quality_tier, a.audio_codec, a.audio_bitrate_kbps) == ("ok", "mp3", 128)
         assert a.source_url == "https://youtube.example/old"
         assert (a.duration_seconds, a.normalized_lufs) == (3600, -14.0)
-        assert a.status == "draft" and a.duplicate_of is None
+        # R31: still a duplicate of the target, so a restore lands on the
+        # Duplicates page rather than as an invisible draft.
+        assert a.status == "draft" and a.duplicate_of == tid
         assert a.title == "Set X (replaced copy)"
         assert a.deleted_at is not None
         assert a.purge_after_at - a.deleted_at == timedelta(days=14)
@@ -322,7 +324,7 @@ async def test_restoring_recycled_old_copy_does_not_touch_target(tmp_path: Path,
         assert t.status == "published" and t.deleted_at is None
         # The restored copy is a separate draft set with the old audio.
         assert a.audio_path == f"originals/{tid}/old.mp3" and a.status == "draft"
-        assert a.duplicate_of is None
+        assert a.duplicate_of == tid
     assert (tmp_path / f"originals/{aid}/new.flac").exists()
     assert (tmp_path / f"originals/{tid}/old.mp3").exists()
 

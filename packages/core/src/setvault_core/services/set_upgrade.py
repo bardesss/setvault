@@ -4,7 +4,7 @@
 tracklist, bookmarks, history) and swaps its audio with a processed arrival.
 The arrival takes the old audio and goes to the recycle bin, so the purge job
 removes the old files after the grace window and *Restore* brings the old copy
-back as a separate draft set.
+back as a held duplicate of the set (admin Duplicates page).
 
 Crash safety: the swap is DB-only. Files live under paths unique to the set or
 rip that created them (``originals/<id>/``, ``stream/<id>.opus``,
@@ -281,7 +281,11 @@ async def apply_upgrade(
         base = target.title[: _TITLE_MAX - len(_REPLACED_SUFFIX)]
         arrival.title = f"{base}{_REPLACED_SUFFIX}"
         arrival.status = "draft"
-        arrival.duplicate_of = None
+        # R31: the old copy stays a duplicate of the target, so restoring it
+        # from the recycle bin lands on the Duplicates page (never as an
+        # invisible draft). A row with duplicate_of set is never matched as
+        # an original (set_match) nor searched for upgrades (due_sets).
+        arrival.duplicate_of = target.id
         arrival.match_offset_seconds = None
         arrival.deleted_at = now
         arrival.purge_after_at = now + RECYCLE_GRACE
