@@ -126,8 +126,6 @@ async def test_backfill_continues_after_one_bad_file(tmp_path: Path, monkeypatch
 
 
 async def test_batch_stops_at_deadline_and_reports_remaining(tmp_path: Path, monkeypatch):
-    from types import SimpleNamespace
-
     for n in ("a.flac", "b.flac", "c.flac"):
         (tmp_path / n).write_bytes(b"x")
     await _seed(tmp_path, ["a.flac", "b.flac", "c.flac"])
@@ -142,11 +140,10 @@ async def test_batch_stops_at_deadline_and_reports_remaining(tmp_path: Path, mon
     )
     # First deadline check passes, every later one is past the deadline.
     ticks = iter([0.0])
-    monkeypatch.setattr(
-        qb, "time", SimpleNamespace(monotonic=lambda: next(ticks, 10_000.0)),
-    )
 
-    res = await qb.run_backfill_batch(deadline=100.0)
+    res = await qb.run_backfill_batch(
+        deadline=100.0, clock=lambda: next(ticks, 10_000.0),
+    )
     assert res["processed"] == 1 and res["errors"] == 0
     assert res["remaining"] == 2
 
@@ -201,8 +198,6 @@ async def test_job_runs_one_slice_and_enqueues_the_next(
 
 
 async def test_job_slice_is_time_bounded(tmp_path: Path, monkeypatch, fake_queue):
-    from types import SimpleNamespace
-
     names = ["a.flac", "b.flac"]
     for n in names:
         (tmp_path / n).write_bytes(b"x")
@@ -210,12 +205,10 @@ async def test_job_slice_is_time_bounded(tmp_path: Path, monkeypatch, fake_queue
     _stub_tools(monkeypatch)
     # Slice start, first per-set check, then past BATCH_SECONDS.
     ticks = iter([0.0, 0.0])
-    monkeypatch.setattr(
-        qb, "time",
-        SimpleNamespace(monotonic=lambda: next(ticks, qb.BATCH_SECONDS + 1.0)),
-    )
 
-    res = await qb._run_quality_backfill()
+    res = await qb._run_quality_backfill(
+        clock=lambda: next(ticks, qb.BATCH_SECONDS + 1.0),
+    )
 
     assert res["processed"] == 1 and res["remaining"] == 1
     assert len(fake_queue) == 1
@@ -263,3 +256,35 @@ async def test_cleanup_run_carries_fill_errors_into_summary(
     state = fake_queue[0][2]["kwargs"]
     assert state["phase"] == "cleanup"
     assert state["counts"]["errors"] == 1
+
+
+async def test_set_hard_deleted_during_fpcalc_is_skipped(tmp_path: Path, monkeypatch):
+    """The set vanishes while fpcalc runs (no DB session is held then): the
+    write must skip it, not fail with a foreign-key IntegrityError."""
+    import asyncio
+
+    from sqlalchemy import delete
+
+    (tmp_path / "a.flac").write_bytes(b"x")
+    ids = await _seed(tmp_path, ["a.flac"])
+    loop = asyncio.get_running_loop()
+
+    async def _hard_delete():
+        async with session_factory()() as s:
+            await s.execute(delete(LiveSet).where(LiveSet.id == ids["a.flac"]))
+            await s.commit()
+
+    def fpcalc_then_delete(_p):
+        asyncio.run_coroutine_threadsafe(_hard_delete(), loop).result()
+        return array.array("I", [1, 2, 3]), 3.0
+
+    _stub_tools(monkeypatch)
+    monkeypatch.setattr(qb, "compute_raw_fingerprint", fpcalc_then_delete)
+
+    res = await qb.run_backfill_batch()
+    assert res["errors"] == 0 and res["error_ids"] == []
+    assert res["fingerprinted"] == 0
+    async with session_factory()() as s:
+        assert (await s.execute(
+            select(SetFingerprint).where(SetFingerprint.live_set_id == ids["a.flac"])
+        )).first() is None

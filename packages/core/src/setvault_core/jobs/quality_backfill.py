@@ -22,6 +22,7 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -95,6 +96,7 @@ async def duplicate_pair_counts(session: AsyncSession) -> dict:
 
 async def run_backfill_batch(
     limit: int | None = None, deadline: float | None = None,
+    *, clock: Callable[[], float] = time.monotonic,
 ) -> dict:
     """Process up to ``limit`` (default BATCH_MAX_SETS) sets, oldest first.
 
@@ -104,7 +106,9 @@ async def run_backfill_batch(
     and of ``remaining``, so a permanently broken file cannot stall the
     backfill. ``deadline`` (``time.monotonic()`` value) is checked before each
     set; once passed the batch stops and the unprocessed sets stay in
-    ``remaining``.
+    ``remaining``. ``clock`` is what ``deadline`` is measured against
+    (injectable for tests). A set hard-deleted mid-way is skipped, not an
+    error.
     """
     if "DATABASE_URL" in os.environ:
         init_engine(os.environ["DATABASE_URL"])
@@ -123,7 +127,7 @@ async def run_backfill_batch(
     processed = fingerprinted = measured = 0
     error_ids: list[uuid.UUID] = []
     for live_set_id in ids:
-        if deadline is not None and time.monotonic() >= deadline:
+        if deadline is not None and clock() >= deadline:
             break
         try:
             did_fp, did_quality = await _backfill_one(live_set_id)
@@ -158,11 +162,12 @@ async def _mark_failed(live_set_id: uuid.UUID) -> None:
 async def _backfill_one(live_set_id: uuid.UUID) -> tuple[bool, bool]:
     """Returns (fingerprinted, measured)."""
     # Short sessions only: no DB connection is held across the slow
-    # fpcalc/ffprobe thread calls.
+    # fpcalc/ffprobe thread calls. The set can be hard-deleted meanwhile, so
+    # every write re-checks it still exists and skips it otherwise.
     async with session_factory()() as s:
         live = await s.get(LiveSet, live_set_id)
         if live is None:
-            raise RuntimeError(f"LiveSet {live_set_id} missing")
+            return False, False
         root = await s.get(MediaRoot, live.media_root_id)
         if root is None:
             raise RuntimeError("MediaRoot vanished")
@@ -183,6 +188,8 @@ async def _backfill_one(live_set_id: uuid.UUID) -> tuple[bool, bool]:
         raw_bytes = raw_to_bytes(raw)
         digest = await asyncio.to_thread(compute_legacy_digest, path)
         async with session_factory()() as s:
+            if await s.get(LiveSet, live_set_id) is None:
+                return False, False
             await store_fingerprint(s, live_set_id, raw_bytes, digest, duration)
             await s.commit()
 
@@ -224,6 +231,7 @@ def start_quality_backfill(*, cleanup: bool = False):
 async def _run_quality_backfill(
     *, cleanup: bool = False, phase: str = "fill",
     counts: dict | None = None, cursor: list | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> dict:
     """One slice: BATCH_SECONDS or BATCH_MAX_SETS, whichever comes first.
 
@@ -231,7 +239,7 @@ async def _run_quality_backfill(
     are followed by cleanup slices (``phase="cleanup"``); the last one sends
     the admin summary."""
     counts = {**dict.fromkeys(_COUNT_KEYS, 0), **(counts or {})}
-    deadline = time.monotonic() + BATCH_SECONDS
+    deadline = clock() + BATCH_SECONDS
     if phase == "cleanup":
         res = await run_cleanup_batch(cursor=cursor, deadline=deadline)
         counts["merged"] += res["merged"]
@@ -247,7 +255,7 @@ async def _run_quality_backfill(
         await _send_summary(counts)
         return res
 
-    res = await run_backfill_batch(deadline=deadline)
+    res = await run_backfill_batch(deadline=deadline, clock=clock)
     counts["fingerprinted"] += res["fingerprinted"]
     counts["measured"] += res["measured"]
     counts["errors"] += res["errors"]  # sets that failed fingerprinting/measuring
