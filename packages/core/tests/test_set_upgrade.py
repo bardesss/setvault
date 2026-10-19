@@ -510,6 +510,44 @@ async def test_swap_repoints_rip_job_to_target(tmp_path: Path, webhooks):
         assert (await s.get(RipJob, job_id)).live_set_id == ids["target"]
 
 
+async def test_swap_repoints_duplicates_and_unmatched_files_to_target(
+    tmp_path: Path, webhooks,
+):
+    """Rows that pointed at the arrival (a later held duplicate of it, a
+    watch-folder file resolved to it) follow the audio to the target."""
+    from setvault_core.models.watch_folder import UnmatchedFile, WatchFolder
+
+    ids = await _seed(tmp_path)
+    tid, aid = ids["target"], ids["arrival"]
+    async with session_factory()() as s:
+        target = await s.get(LiveSet, tid)
+        twin = LiveSet(slug=f"twin-{uuid.uuid4().hex[:6]}", title="twin",
+                       media_root_id=target.media_root_id, audio_path="originals/x/t.mp3",
+                       uploaded_by=ids["user"], status="draft", duplicate_of=aid)
+        wf = WatchFolder(name=f"wf{uuid.uuid4().hex[:6]}", host_path=str(tmp_path / "in"),
+                         target_media_root_id=target.media_root_id)
+        s.add_all([twin, wf])
+        await s.flush()
+        uf = UnmatchedFile(watch_folder_id=wf.id, file_path="in/new.flac",
+                           resolution="linked_to_set", resolved_to_set_id=aid)
+        s.add(uf)
+        await s.commit()
+        twin_id, uf_id, wf_id = twin.id, uf.id, wf.id
+    try:
+        async with session_factory()() as s:
+            await _apply(s, ids)
+        async with session_factory()() as s:
+            assert (await s.get(LiveSet, twin_id)).duplicate_of == tid
+            assert (await s.get(UnmatchedFile, uf_id)).resolved_to_set_id == tid
+            # The recycled old copy itself still points at the target.
+            assert (await s.get(LiveSet, aid)).duplicate_of == tid
+    finally:
+        async with session_factory()() as s:
+            await s.delete(await s.get(LiveSet, twin_id))
+            await s.delete(await s.get(WatchFolder, wf_id))
+            await s.commit()
+
+
 async def test_draft_target_upgrade_fires_no_webhook(tmp_path: Path, webhooks):
     ids = await _seed(tmp_path)
     async with session_factory()() as s:

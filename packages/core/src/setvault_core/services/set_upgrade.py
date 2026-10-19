@@ -37,6 +37,7 @@ from setvault_core.models.identity import User
 from setvault_core.models.tracklist import TracklistEntry
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
+from setvault_core.models.watch_folder import UnmatchedFile
 from setvault_core.services.notifications import notify_set_upgraded
 from setvault_core.services.quality_profile import QualityProfile, get_profile, is_better
 from setvault_core.services.storage import path_in_use
@@ -293,6 +294,21 @@ async def apply_upgrade(
             update(RipJob)
             .where(RipJob.live_set_id == arrival.id)
             .values(live_set_id=target.id)
+            .execution_options(synchronize_session="fetch")
+        )
+        # So do other rows that pointed at the arrival: a held duplicate of
+        # it and a watch-folder file resolved to it. (The arrival becomes
+        # the recycled old copy, which they never meant.)
+        await session.execute(
+            update(LiveSet)
+            .where(LiveSet.duplicate_of == arrival.id, LiveSet.id != target.id)
+            .values(duplicate_of=target.id)
+            .execution_options(synchronize_session="fetch")
+        )
+        await session.execute(
+            update(UnmatchedFile)
+            .where(UnmatchedFile.resolved_to_set_id == arrival.id)
+            .values(resolved_to_set_id=target.id)
             .execution_options(synchronize_session="fetch")
         )
         if offset is not None and abs(offset) >= MIN_SHIFT_SECONDS:
