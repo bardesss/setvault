@@ -93,9 +93,12 @@ async def find_original_match(
         if compares >= MAX_COMPARES:
             if not capped:
                 capped = True
+                # Only candidates the fuzzy compare could still have matched:
+                # exact-digest rows are still checked past the cap.
+                fuzzy_only = {r[0] for r in rows if r[2] and not r[3]}
                 logger.warning(
                     "match for %s: stopped after %d candidates (cap), %d left unchecked",
-                    live.id, compares, len({r[0] for r in rows} - seen),
+                    live.id, compares, len(fuzzy_only - seen),
                 )
             continue  # keep scanning: a later exact-digest hit still counts
         fp_raw = (await session.execute(

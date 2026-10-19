@@ -178,3 +178,57 @@ async def test_exact_legacy_hash_matches_row_that_has_raw(world):
     got = await find_original_match(
         world.s, new, _items(2, 40), 5.0, legacy_hash="samedigest")
     assert got is not None and got[0].id == a.id
+
+
+async def _digest(world, live) -> str:
+    return (await world.s.execute(
+        select(SetFingerprint.fingerprint_hash).where(SetFingerprint.live_set_id == live.id),
+    )).scalar_one()
+
+
+async def test_earliest_original_wins_whether_exact_or_fuzzy(world):
+    """Exact and fuzzy hits are one ordered scan: the earliest-created
+    original wins, however it matched."""
+    fuzzy_first = await world.add(_items(1))  # same audio as the arrival
+    exact_later = await world.add()  # legacy row, same digest as the arrival
+    arrival = await world.add()
+    digest = await _digest(world, exact_later)
+    hit = await find_original_match(world.s, arrival, _items(1), 300.0, legacy_hash=digest)
+    assert hit is not None and hit[0].id == fuzzy_first.id
+    assert hit[1].similarity == 1.0
+
+
+async def test_earlier_exact_hit_wins_without_any_compare(world, monkeypatch):
+    from setvault_core.services import set_match
+
+    exact_first = await world.add()
+    await world.add(_items(1))  # would match fuzzily, but is newer
+    arrival = await world.add()
+    digest = await _digest(world, exact_first)
+    monkeypatch.setattr(set_match, "compare", lambda a, b: pytest.fail("compared"))
+    hit = await find_original_match(world.s, arrival, _items(1), 300.0, legacy_hash=digest)
+    assert hit is not None and hit[0].id == exact_first.id
+    assert hit[1] is set_match.LEGACY_EXACT_MATCH
+
+
+async def test_exact_hit_after_the_compare_cap_still_counts(world, monkeypatch, caplog):
+    from setvault_core.services import set_match
+
+    for seed in range(2, 6):  # four unrelated candidates fill the cap
+        await world.add(_items(seed))
+    await world.add()  # legacy row, no raw, no digest match: exact-only, unchecked
+    exact_last = await world.add()
+    arrival = await world.add()
+    digest = await _digest(world, exact_last)
+    calls = []
+    real = set_match.compare
+    monkeypatch.setattr(set_match, "compare", lambda a, b: calls.append(1) or real(a, b))
+    monkeypatch.setattr(set_match, "MAX_COMPARES", 2)
+
+    with caplog.at_level("WARNING", logger="setvault_core.services.set_match"):
+        hit = await find_original_match(world.s, arrival, _items(1), 300.0, legacy_hash=digest)
+    assert hit is not None and hit[0].id == exact_last.id
+    assert len(calls) == 2
+    # Only candidates the fuzzy compare could still have matched are "left
+    # unchecked": the two comparable ones past the cap, not the raw-less rows.
+    assert "2 left unchecked" in caplog.text
