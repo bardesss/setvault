@@ -71,7 +71,7 @@ test("wanted tab lists a set and posts Search now", async ({ page, request }) =>
   await page.goto("/admin/wanted");
   await expect(page.getByRole("link", { name: "Old Mix" })).toBeVisible();
   await expect(page.getByText("MP3 128 kbps (YouTube)")).toBeVisible();
-  await expect(page.getByText("rejected: not better")).toBeVisible();
+  await expect(page.getByText("Rejected: not better")).toBeVisible();
 
   await page.getByRole("button", { name: "Search now" }).click();
   await expect.poll(() => searched).toBe(true);

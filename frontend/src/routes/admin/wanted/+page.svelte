@@ -3,6 +3,7 @@
   import { api, ApiError } from "$lib/api/client";
   import AdminTable from "$lib/components/AdminTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
+  import { fmtLocalDateTime, wantedResult, type WantedEvent } from "$lib/wanted";
 
   interface WantedItem {
     id: string;
@@ -11,7 +12,7 @@
     quality_label: string;
     quality_tier: string | null;
     last_upgrade_search_at: string | null;
-    last_event: { outcome: string; reason: string | null; created_at: string } | null;
+    last_event: WantedEvent | null;
   }
 
   let items: WantedItem[] = [];
@@ -52,16 +53,6 @@
     }
   }
 
-  function fmtDate(iso: string | null): string {
-    if (!iso) return "";
-    return iso.slice(0, 16).replace("T", " ");
-  }
-
-  function fmtResult(ev: WantedItem["last_event"]): string {
-    if (!ev) return "None yet";
-    return ev.reason ? `${ev.outcome}: ${ev.reason}` : ev.outcome;
-  }
-
   onMount(load);
 </script>
 
@@ -91,8 +82,8 @@
         <tr>
           <td><a href={`/sets/${encodeURIComponent(item.slug)}`}>{item.title}</a></td>
           <td>{item.quality_label}</td>
-          <td class="mono">{item.last_upgrade_search_at ? fmtDate(item.last_upgrade_search_at) : "Never"}</td>
-          <td>{fmtResult(item.last_event)}</td>
+          <td class="mono">{item.last_upgrade_search_at ? fmtLocalDateTime(item.last_upgrade_search_at) : "Never"}</td>
+          <td>{wantedResult(item.last_event, item.last_upgrade_search_at)}</td>
           <td class="cell-actions">
             <button
               type="button"

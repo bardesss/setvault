@@ -14,6 +14,7 @@ from setvault_core.jobs.upgrade_search import enqueue_search_upgrade_now
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.services.audio_quality import quality_label
+from setvault_core.services.notifications import source_name
 from setvault_core.services.quality_profile import cutoff_unmet, get_profile, rank
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,7 +56,8 @@ async def list_wanted(
         events = (await session.execute(
             select(SetUpgradeEvent)
             .where(SetUpgradeEvent.live_set_id.in_([r.id for r in rows]))
-            .order_by(SetUpgradeEvent.created_at.asc())
+            # id breaks ties between events written in one transaction.
+            .order_by(SetUpgradeEvent.created_at.asc(), SetUpgradeEvent.id.asc())
         )).scalars()
         for ev in events:  # ascending, so the newest per set wins
             last[ev.live_set_id] = ev
@@ -67,7 +69,7 @@ async def list_wanted(
             "title": live.title,
             "quality_label": quality_label(
                 live.quality_tier, live.audio_codec, live.audio_bitrate_kbps,
-                live.source_type,
+                source_name(live.source_type, live.source_url),
             ),
             "quality_tier": live.quality_tier,
             "last_upgrade_search_at": (
@@ -98,6 +100,10 @@ async def search_now(
     )).unique().scalar_one_or_none()
     if live is None:
         raise HTTPException(status_code=404, detail="set not found")
+    if not live.upgrades_enabled:
+        raise HTTPException(status_code=409, detail="upgrades are off for this set")
+    if live.quality_tier is None:
+        raise HTTPException(status_code=409, detail="quality not measured yet")
     profile = await get_profile(session)
     if not cutoff_unmet(profile, live.quality_tier):
         raise HTTPException(status_code=409, detail="set already meets the quality cutoff")

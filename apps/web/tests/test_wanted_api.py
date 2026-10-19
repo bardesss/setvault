@@ -110,3 +110,57 @@ async def test_wanted_lists_never_searched_first(authed_admin_client, seeded_liv
     items = (await authed_admin_client.get("/api/admin/wanted")).json()["items"]
     ids = [i["id"] for i in items]
     assert ids.index(other_id) < ids.index(first)
+
+
+@pytest.mark.asyncio
+async def test_wanted_label_names_the_rip_platform(authed_admin_client, seeded_live_set):
+    """R26: one label format with the set page: a url_rip shows its platform."""
+    sid = seeded_live_set["id"]
+    await _set_quality(
+        sid, quality_tier="ok", audio_codec="mp3", audio_bitrate_kbps=128,
+        source_type="url_rip", source_url="https://www.youtube.com/watch?v=abcdefghijk",
+    )
+    items = (await authed_admin_client.get("/api/admin/wanted")).json()["items"]
+    (item,) = [i for i in items if i["id"] == sid]
+    assert item["quality_label"] == "MP3 128 kbps (YouTube)"
+
+
+@pytest.mark.asyncio
+async def test_wanted_newest_event_is_deterministic_on_ties(
+    authed_admin_client, seeded_live_set,
+):
+    from datetime import UTC, datetime
+
+    sid = uuid.UUID(seeded_live_set["id"])
+    await _set_quality(str(sid), quality_tier="ok")
+    at = datetime.now(UTC)
+    ids = sorted([uuid.uuid4(), uuid.uuid4()])
+    async with session_factory()() as s:
+        # Inserted largest id first, same timestamp (one transaction's now()).
+        for eid, reason in ((ids[1], "second"), (ids[0], "first")):
+            s.add(SetUpgradeEvent(id=eid, live_set_id=sid, trigger="scheduled",
+                                  outcome="rejected", reason=reason, created_at=at))
+        await s.commit()
+    for _ in range(3):
+        items = (await authed_admin_client.get("/api/admin/wanted")).json()["items"]
+        (item,) = [i for i in items if i["id"] == str(sid)]
+        assert item["last_event"]["reason"] == "second"
+
+
+@pytest.mark.asyncio
+async def test_search_now_refuses_sets_with_upgrades_off_or_unmeasured(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    monkeypatch.setattr(
+        "setvault_web.api.wanted.enqueue_search_upgrade_now", lambda set_id: True,
+    )
+    url = f"/api/admin/wanted/{seeded_live_set['slug']}/search"
+    await _set_quality(seeded_live_set["id"], quality_tier="low", upgrades_enabled=False)
+    r = await authed_admin_client.post(url)
+    assert r.status_code == 409
+    assert r.json()["detail"] == "upgrades are off for this set"
+
+    await _set_quality(seeded_live_set["id"], quality_tier=None, upgrades_enabled=True)
+    r = await authed_admin_client.post(url)
+    assert r.status_code == 409
+    assert r.json()["detail"] == "quality not measured yet"
