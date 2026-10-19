@@ -11,3 +11,9 @@ _PATTERN = re.compile(
 
 def has_soundboard_hint(text: str | None) -> bool:
     return bool(text and _PATTERN.search(text))
+
+
+def strip_soundboard_terms(text: str | None) -> str:
+    """``text`` with the soundboard keywords blanked out, so two titles that
+    differ only by "(SBD)" compare as the same set."""
+    return _PATTERN.sub(" ", text or "")
