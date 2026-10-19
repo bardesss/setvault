@@ -394,6 +394,32 @@ async def test_discard_arrival_records_rejection_and_removes_files(tmp_path: Pat
         assert (tmp_path / rel).exists()
 
 
+async def test_discard_arrival_already_gone_still_records_rejection(tmp_path: Path):
+    """The arrival row was deleted meanwhile (another worker discarded it):
+    with a target the candidate must still be recorded as rejected, or it
+    would be downloaded again."""
+    from sqlalchemy import delete
+
+    ids = await _seed(tmp_path)
+    tid, aid = ids["target"], ids["arrival"]
+    async with session_factory()() as s:
+        target = await s.get(LiveSet, tid)
+        arrival = await s.get(LiveSet, aid)
+        async with session_factory()() as other:
+            await other.execute(delete(LiveSet).where(LiveSet.id == aid))
+            await other.commit()
+        await set_upgrade.discard_arrival(
+            s, arrival, target=target, trigger="scheduled", reason="not better",
+            candidate_source_kind="bandcamp", candidate_external_id="bc-new",
+        )
+    async with session_factory()() as s:
+        ev = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == tid))).scalars().one()
+        assert (ev.outcome, ev.reason) == ("rejected", "not better")
+        assert (ev.candidate_source_kind, ev.candidate_external_id) == ("bandcamp", "bc-new")
+        assert ev.to_tier == "lossless"
+
+
 async def test_discard_arrival_without_target(tmp_path: Path):
     ids = await _seed(tmp_path)
     async with session_factory()() as s:

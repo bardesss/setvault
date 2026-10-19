@@ -382,8 +382,23 @@ async def discard_arrival(
         raise ValueError("cannot discard the target itself")
     locked = await _lock_sets(session, arrival.id)
     if arrival.id not in locked:
-        await session.rollback()
-        return  # already gone
+        # Already gone (discarded meanwhile). Still record the rejection on
+        # the target, from the caller's copy of the arrival, so the
+        # candidate isn't downloaded again.
+        if target is None:
+            await session.rollback()
+            return
+        try:
+            session.add(_event(
+                target, arrival, outcome="rejected", trigger=trigger, reason=reason[:200],
+                candidate_source_kind=candidate_source_kind,
+                candidate_external_id=candidate_external_id,
+            ))
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        return
     arrival = locked[arrival.id]
     if arrival.deleted_at is not None:
         # A recycled row holds some set's old copy (e.g. after a swap); the
