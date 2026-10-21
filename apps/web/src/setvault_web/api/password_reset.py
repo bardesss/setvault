@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from setvault_core.models.identity import EmailToken, User
+from setvault_core.services.password_policy import MIN_PASSWORD_LENGTH
 from setvault_core.services.passwords import hash_password
 from setvault_core.services.tokens import expires, generate_token, hash_token, now_utc
 from sqlalchemy import select
@@ -83,7 +84,7 @@ async def admin_link(
 
 
 class RedeemIn(BaseModel):
-    password: str = Field(min_length=12)
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH)
 
 
 @router.post("/{token}/redeem", status_code=204,

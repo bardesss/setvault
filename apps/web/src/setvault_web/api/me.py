@@ -17,6 +17,7 @@ from setvault_core.schemas.feeds import (
     RssTokenWithPlaintextOut,
 )
 from setvault_core.services.api_tokens import mint_api_token, revoke_api_token
+from setvault_core.services.password_policy import MIN_PASSWORD_LENGTH
 from setvault_core.services.passwords import hash_password, verify_password
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,7 +55,7 @@ class HomeSummaryOut(BaseModel):
 
 class ChangePasswordIn(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=12)
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH)
 
 
 @router.post("/change-password", status_code=204)

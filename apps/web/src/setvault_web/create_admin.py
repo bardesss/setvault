@@ -23,13 +23,12 @@ from datetime import UTC, datetime
 
 from setvault_core.db import init_engine, session_factory
 from setvault_core.models.identity import User
+from setvault_core.services.password_policy import MIN_PASSWORD_LENGTH
 from setvault_core.services.passwords import hash_password
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.config import get_settings
-
-MIN_PASSWORD_LENGTH = 12
 
 
 class CreateAdminError(Exception):

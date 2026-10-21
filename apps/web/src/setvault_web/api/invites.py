@@ -5,9 +5,10 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from setvault_core.models.identity import EmailToken, User
 from setvault_core.services.audit import log as audit_log
+from setvault_core.services.password_policy import MIN_PASSWORD_LENGTH
 from setvault_core.services.passwords import hash_password
 from setvault_core.services.sessions import SESSION_COOKIE, SESSION_TTL, SessionSigner
 from setvault_core.services.tokens import expires, generate_token, hash_token, now_utc
@@ -88,7 +89,7 @@ async def _try_send_invite_email(session, email, plaintext, settings) -> bool:
 class InviteRedeemIn(BaseModel):
     username: str
     display_name: str
-    password: str
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH)
 
 
 class LoginOut(BaseModel):
@@ -115,7 +116,7 @@ async def redeem(
         raise HTTPException(status_code=410, detail="invite invalid or expired")
     if (await session.execute(
         select(User).where((User.email == row.email) | (User.username == body.username))
-    )).scalar_one_or_none() is not None:
+    )).first() is not None:
         raise HTTPException(status_code=400, detail="email or username already in use")
     user = User(
         email=row.email, username=body.username, display_name=body.display_name,
