@@ -22,5 +22,25 @@ if [ ! -s "${PGDATA}/PG_VERSION" ]; then
   } >> "${PGDATA}/postgresql.conf"
 fi
 
+# An unclean stop (docker rm -f, OOM, power loss) leaves postmaster.pid on the
+# volume. PIDs repeat across container starts, so its PID may now belong to
+# another service (e.g. redis) and postgres would refuse to start forever.
+# Remove it only when the recorded PID is not a live postgres process.
+PIDFILE="${PGDATA}/postmaster.pid"
+if [ -f "${PIDFILE}" ]; then
+  oldpid="$(head -n 1 "${PIDFILE}" 2>/dev/null | tr -dc '0-9' || true)"
+  comm=""
+  if [ -n "${oldpid}" ] && [ -r "/proc/${oldpid}/comm" ]; then
+    comm="$(cat "/proc/${oldpid}/comm" 2>/dev/null || true)"
+  fi
+  case "${comm}" in
+    postgres|postmaster) ;;
+    *)
+      echo "[setvault] removing stale postmaster.pid (PID ${oldpid:-?} is not a running postgres)" >&2
+      rm -f "${PIDFILE}"
+      ;;
+  esac
+fi
+
 exec s6-setuidgid "${PUID:-1000}:${PGID:-1000}" \
   "${PGBIN}/postgres" -D "${PGDATA}"
