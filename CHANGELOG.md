@@ -4,6 +4,53 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0](https://github.com/bardesss/setvault/compare/v0.18.0...v0.19.0) (2026-10-21)
+
+
+### Features
+
+* **backfill:** retry failed sets and run one backfill chain at a time ([b4d05c6](https://github.com/bardesss/setvault/commit/b4d05c697fad41fda67fe15926b4025760db17c6))
+* **db:** widen set_upgrade_events.trigger to 32 characters ([dfd9e31](https://github.com/bardesss/setvault/commit/dfd9e3162b50dc7125b43a85d675bf0da4684970))
+* **web:** Quality tab shows failed backfill sets, offers retry, and reports an already-running backfill ([7192b8c](https://github.com/bardesss/setvault/commit/7192b8c09083c5e00396735be91aef4222b0ba9d))
+
+
+### Bug Fixes
+
+* **audit:** kept-arrival audit names the recycled original, not duplicate_of ([96e2ff4](https://github.com/bardesss/setvault/commit/96e2ff4522d70aaf5d3c6e1da5d374ea62ad7a87))
+* **backfill:** lock around the in-flight check and enqueue; review minors ([399b976](https://github.com/bardesss/setvault/commit/399b97639a8cea3fa37a89323d853eff7742170a))
+* **backfill:** skip a set hard-deleted during fpcalc; inject the clock ([bfe65c3](https://github.com/bardesss/setvault/commit/bfe65c38fed3c44ff1432448e65e5c4471d5dc57))
+* **fingerprint:** don't hold a DB connection across fpcalc or compares ([d5006b0](https://github.com/bardesss/setvault/commit/d5006b00b895de77df55e0c0515d620fbd243dc0))
+* **frontend:** drop invalid selector list around the light-theme [@media](https://github.com/media) block ([4415b1f](https://github.com/bardesss/setvault/commit/4415b1f0622ad2837040340ba6003bf874977213))
+* **internet-archive:** _has_flac tolerates any format shape ([7178558](https://github.com/bardesss/setvault/commit/7178558b77b963e030cce9284888741782b52bba))
+* **purge:** remove now-empty originals/ dirs of every deleted file ([aae0bcd](https://github.com/bardesss/setvault/commit/aae0bcdfd98835da2bf586718b485b6e5605a6e3))
+* **quality:** 7D follow-ups — robustness, data hygiene and UI polish ([e768b52](https://github.com/bardesss/setvault/commit/e768b52f72714fc7fd3db66161f162e107d532f9))
+* **quality:** treat an unknown stored cutoff as the best tier ([4c19e78](https://github.com/bardesss/setvault/commit/4c19e7890bdc4e3fec9a4170131a1fb16f02f112))
+* **set_match:** "left unchecked" counts only fuzzy-only candidates; ordering tests ([1171c11](https://github.com/bardesss/setvault/commit/1171c11a00396a4d4907e8728b7eea64c9d20918))
+* **settings:** tolerate an unknown stored upgrade schedule; test partial PUT ([5412545](https://github.com/bardesss/setvault/commit/541254507fd9f24f8b8d687dee3a2111b2d65e78))
+* **sources:** discarded upgrade attempts aren't "in library"; approvals are monitor finds ([f1b4b7e](https://github.com/bardesss/setvault/commit/f1b4b7ece05a999cb141fd84fda46ddf24b0be62))
+* **upgrade:** clamp shifted positions to the new duration, round half up ([120d3df](https://github.com/bardesss/setvault/commit/120d3dfd3df4698510f88f9be5799a0c64d885e2))
+* **upgrade:** discard an upgrade-attempt rip the locked re-check refuses ([cf428f6](https://github.com/bardesss/setvault/commit/cf428f6ae5cfaa57cca7ef27ef17f0bc9905b877))
+* **upgrade:** in-flight staleness by start time; enqueue-failure and rip-failed events ([00fd81b](https://github.com/bardesss/setvault/commit/00fd81b7594878c323e9d767257491528f876c22))
+* **upgrade:** record the rejection even when the arrival row is already gone ([ca9c23f](https://github.com/bardesss/setvault/commit/ca9c23f407f3795aaad213bfa34bae053c52a09e))
+* **upgrade:** swap repoints duplicates and resolved watch-folder files ([7a4e356](https://github.com/bardesss/setvault/commit/7a4e3569594d621f38bbae57d640f3a09d7bc336))
+* **web:** bookmark toggle race behind the flaky e2e ([c5ae9f7](https://github.com/bardesss/setvault/commit/c5ae9f7158e55a61710901153b15df4f1513b1ec))
+* **web:** bookmark toggle waits for its initial list; fixes flaky e2e ([8f1f602](https://github.com/bardesss/setvault/commit/8f1f60266dc87751767de205c6f5c0c368a6b361))
+* **web:** format 7D dates in the UI language ([6e758c8](https://github.com/bardesss/setvault/commit/6e758c8dab7331d3bf97dc2efa0718915ee6bfb1))
+* **web:** reactive Arrived date and time-zone independent date tests ([d6e1f87](https://github.com/bardesss/setvault/commit/d6e1f873cae16801f42d947cc7b64ca0d07b8d34))
+* **web:** SetQuality uses the UI locale (en fallback), an i18n failure message and the error colour token ([d4e4c97](https://github.com/bardesss/setvault/commit/d4e4c973b08b5a2b37e577297aa6bd2e39df572d))
+
+
+### Refactors
+
+* **frontend:** replace $lib alias with #lib subpath imports ([2c6594d](https://github.com/bardesss/setvault/commit/2c6594dd389a65375dab9dff31320941e2efce48))
+* **ready:** remove unused mark_ready_sync ([d158427](https://github.com/bardesss/setvault/commit/d15842720eaf64314d5e9488b71b96f0a5c4b6fa))
+* **soundboard:** public strip_soundboard_terms; discoveries uses it ([d9b52f9](https://github.com/bardesss/setvault/commit/d9b52f989e0c73ce9cd342a7a15267d672d86820))
+
+
+### Documentation
+
+* **7d:** note the accepted limitations A1-A4 in code comments ([f1f497a](https://github.com/bardesss/setvault/commit/f1f497abeb4bd23aeea1309aecd88a285a985946))
+
 ## [0.18.0](https://github.com/bardesss/setvault/compare/v0.17.0...v0.18.0) (2026-10-19)
 
 
