@@ -16,4 +16,4 @@ build-backend = "hatchling.build"
 packages = ["src/setvault_providers"]
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21"]
+dev = ["pytest>=9.1.1", "pytest-asyncio>=0.23", "respx>=0.21"]
