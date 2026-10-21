@@ -4,6 +4,34 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1](https://github.com/bardesss/setvault/compare/v0.19.0...v0.19.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **auth:** enforce 12-char minimum on invite redeem and avoid 500 on invite collisions ([743374c](https://github.com/bardesss/setvault/commit/743374cce6b6fdff3a487628aaa85f3010d8d0ad))
+* **auth:** revoke sessions on disable, password change or reset, and admin reset links ([6c9452c](https://github.com/bardesss/setvault/commit/6c9452cb8b3d343ff8f2f39a3d9e99889c782fe8))
+* **auth:** version session cookies and check user status on stream, waveform, WS and upload hooks ([4d5a12a](https://github.com/bardesss/setvault/commit/4d5a12a18aa933ac44a047e1555c44af202362c1))
+* **docker:** clear a stale postmaster.pid left by an unclean stop ([eb14541](https://github.com/bardesss/setvault/commit/eb14541853a6c7e285c4c93c5f50644a4f4d8e9a))
+* **docker:** fail boot on a rejected persisted secret instead of replacing it ([d77e4c8](https://github.com/bardesss/setvault/commit/d77e4c8e49089bcdca4c5d67d361ce08f743f4f8))
+* **docker:** keep bundled data under /data and harden secrets handling ([084a8cc](https://github.com/bardesss/setvault/commit/084a8cca52af449ea4d1c0c4d596567ec440797b))
+* **docker:** only clear postmaster.pid in the PID-reuse case ([7e732cc](https://github.com/bardesss/setvault/commit/7e732cc6fc5cfe2125cd59a0fe0658fee9d7bbe5))
+* **migrations:** escape % in DATABASE_URL for alembic config ([0467456](https://github.com/bardesss/setvault/commit/0467456df36d58e3cffa2f6a04529f9d0d6287fa))
+* P0 data safety and security ([0d1ff7e](https://github.com/bardesss/setvault/commit/0d1ff7e3b6897387694061284ec24dfc7e39c11c))
+* **pwa:** never cache admin responses; backup is no-store ([a161fe4](https://github.com/bardesss/setvault/commit/a161fe40c0308754acc8a75e1108129938718e33))
+* **sources:** reject a zero rate-limit window and clamp bad stored values ([035872c](https://github.com/bardesss/setvault/commit/035872ca853d9df64cd939b490e5d5d72af0c3e7))
+* **storage:** apply every legacy pair to all path targets, audit as system.paths_repaired, report sub-path roots ([0356c66](https://github.com/bardesss/setvault/commit/0356c66259d0e1aa2b505af209e3df120b79bb8c))
+* **storage:** leave rows under a live /srv sub-mount alone in the legacy repair ([7d3c608](https://github.com/bardesss/setvault/commit/7d3c6087eefe0c41113634437d76984759fd8829))
+* **storage:** name the effective media path and the README in the damage warning ([565b092](https://github.com/bardesss/setvault/commit/565b09294bcd4b5ed89965be58c687a8e65d3453))
+* **storage:** repair legacy /srv paths in the DB on boot and report missing set files ([cd60615](https://github.com/bardesss/setvault/commit/cd60615a7537a74125cd84e0390f77b296591f90))
+* **storage:** skip watch-folder rows whose repaired path is already taken ([f5a2327](https://github.com/bardesss/setvault/commit/f5a2327aa3fbc30409d4e8725c461fcb52a2d69c))
+
+
+### Documentation
+
+* bundled upgrade rescue step for data in /srv ([f884692](https://github.com/bardesss/setvault/commit/f88469229b5ee2e5f39b94fe09fc497b304431fb))
+* note that an env SECRET_KEY now overrides the persisted one ([fdee628](https://github.com/bardesss/setvault/commit/fdee628358c83fc203921c83a91f867a14440b41))
+
 ## [0.19.0](https://github.com/bardesss/setvault/compare/v0.18.0...v0.19.0) (2026-10-21)
 
 
