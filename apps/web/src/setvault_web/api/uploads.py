@@ -6,9 +6,9 @@ runs without a CSRF token (tusd cannot send one) — see ``middleware/csrf.py``
 ``EXEMPT_PATHS``.
 
 Authentication is replayed from the original browser session cookie that tusd
-forwards in ``HTTPRequest.Header.Cookie``; we verify it with the same
-``SessionSigner`` used by ``deps.current_user`` so an attacker cannot post
-hooks directly without a valid logged-in session.
+forwards in ``HTTPRequest.Header.Cookie``; we resolve it with the same
+``deps.resolve_session_user`` used by ``deps.current_user`` so an attacker
+cannot post hooks directly without a valid logged-in session.
 """
 from __future__ import annotations
 
@@ -19,35 +19,29 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from setvault_core.jobs.pipeline import PIPELINE_JOB_TIMEOUT
 from setvault_core.models.catalog import LiveSet, MediaRoot
-from setvault_core.models.identity import User
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web import tusd_hooks
 from setvault_web.config import get_settings
-from setvault_web.deps import db_session
+from setvault_web.deps import db_session, resolve_session_user
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
 
-def _user_id_from_hook_cookies(headers: dict[str, list[str]]) -> str | None:
-    """Extract + verify the ``session`` cookie from the forwarded HTTP headers.
+def _session_cookie_from_hook_headers(headers: dict[str, list[str]]) -> str | None:
+    """Extract the raw ``session`` cookie from the forwarded HTTP headers.
 
     tusd forwards request headers as a ``{name: [values]}`` map. The ``Cookie``
-    header may contain multiple ``k=v`` pairs separated by ``;``.
+    header may contain multiple ``k=v`` pairs separated by ``;``. Verification
+    happens in ``deps.resolve_session_user``.
     """
-    cookies_raw = headers.get("Cookie") or []
-    if not cookies_raw:
-        return None
-    signer = SessionSigner(get_settings().secret_key)
-    for entry in cookies_raw:
+    for entry in headers.get("Cookie") or []:
         for chunk in entry.split(";"):
             k, _, v = chunk.strip().partition("=")
-            if k == SESSION_COOKIE:
-                data = signer.read(v)
-                if data is not None:
-                    return data.user_id
+            if k == SESSION_COOKIE and v:
+                return v
     return None
 
 
@@ -61,18 +55,17 @@ async def tusd_hook(
     event = body.get("Event", {}) or {}
     headers = (event.get("HTTPRequest") or {}).get("Header") or {}
 
-    user_id = _user_id_from_hook_cookies(headers)
-    if not user_id:
+    raw_cookie = _session_cookie_from_hook_headers(headers)
+    if not raw_cookie:
         raise HTTPException(
             status_code=401, detail="upload requires an authenticated session",
         )
-    # Same liveness rule as deps.current_user: a signed cookie alone isn't
-    # enough once the account is gone or disabled.
-    try:
-        user = await session.get(User, uuid.UUID(user_id))
-    except ValueError:
-        user = None
-    if user is None or user.disabled_at is not None:
+    # Same rule as deps.current_user: a signed cookie alone isn't enough once
+    # the account is gone, disabled, or its sessions were revoked.
+    user = await resolve_session_user(
+        session, SessionSigner(get_settings().secret_key), raw_cookie,
+    )
+    if user is None:
         raise HTTPException(status_code=401, detail="user inactive")
 
     if event_type == "pre-create":
@@ -141,7 +134,7 @@ async def tusd_hook(
             audio_path=relative,
             status="processing",
             source_type="upload",
-            uploaded_by=uuid.UUID(user_id),
+            uploaded_by=user.id,
         )
         session.add(live)
         await session.commit()

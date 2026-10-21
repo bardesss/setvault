@@ -1,15 +1,18 @@
 #!/usr/bin/with-contenv bash
 #
 # Auto-generate any secrets that weren't provided so first-boot "just
-# works" for noob installs. Secrets are written to /srv/config/.secrets
-# so they persist across container restarts (the file lives on the
-# named volume bound to ${SETVAULT_CONFIG_PATH}).
+# works" for noob installs. Generated secrets are persisted to
+# ${SETVAULT_CONFIG_PATH}/.secrets (resolved by 00-mode: /data/config in
+# bundled mode, /srv/config in external mode) so they survive container
+# restarts and recreates.
 #
-# If the user provided their own values in .env they take precedence.
+# Precedence: a SECRET_KEY / POSTGRES_PASSWORD set in the container env always
+# wins; the persisted file only fills values the user left unset. The file is
+# parsed as KEY=VALUE lines (never sourced or eval'd) and kept root:root 0600.
 
 set -e
 
-CONFIG_DIR="${SETVAULT_CONFIG_PATH:-/srv/config}"
+CONFIG_DIR="${SETVAULT_CONFIG_PATH:?SETVAULT_CONFIG_PATH unset (00-mode should set it)}"
 SECRETS_FILE="${CONFIG_DIR}/.secrets"
 mkdir -p "${CONFIG_DIR}"
 
@@ -21,17 +24,91 @@ mkdir -p "${CONFIG_DIR}"
 [ -f "${SECRETS_FILE}" ] || (umask 077; : > "${SECRETS_FILE}")
 chmod 600 "${SECRETS_FILE}"
 
-# Load any previously persisted secrets first.
-if [ -f "${SECRETS_FILE}" ]; then
-  # shellcheck disable=SC1090
-  source "${SECRETS_FILE}"
+# Append KEY=VALUE, first terminating a final line that lacks a newline so the
+# new entry can't be glued onto it.
+append_secret() {
+  if [ -s "${SECRETS_FILE}" ] && [ -n "$(tail -c1 "${SECRETS_FILE}")" ]; then
+    echo >> "${SECRETS_FILE}"
+  fi
+  printf '%s=%s\n' "$1" "$2" >> "${SECRETS_FILE}"
+}
+
+# Remember what the user supplied BEFORE reading the file.
+user_secret_key_set=0; [ -n "${SECRET_KEY:-}" ] && user_secret_key_set=1
+user_pg_pw_set=0;      [ -n "${POSTGRES_PASSWORD:-}" ] && user_pg_pw_set=1
+
+# Parse persisted secrets. Only SECRET_KEY and POSTGRES_PASSWORD with values of
+# [A-Za-z0-9_-] are accepted; anything else is warned about (by line number,
+# never by value) and ignored. A rejected SECRET_KEY / POSTGRES_PASSWORD line is
+# remembered: replacing it with a fresh value would silently log everyone out
+# (or desync the embedded DB role), so boot fails below instead.
+persisted_secret_key=""
+persisted_pg_pw=""
+rejected_secret_key=0
+rejected_pg_pw=0
+lineno=0
+while IFS= read -r line || [ -n "${line}" ]; do
+  lineno=$((lineno + 1))
+  line="${line//$'\r'/}"
+  # Skip blank / whitespace-only lines and comments.
+  trimmed="${line#"${line%%[![:space:]]*}"}"
+  case "${trimmed}" in
+    ''|'#'*) continue ;;
+  esac
+  if [ "${line#*=}" = "${line}" ]; then
+    echo "[setvault] WARNING: ignoring malformed line ${lineno} in ${SECRETS_FILE}" >&2
+    continue
+  fi
+  key="${line%%=*}"
+  value="${line#*=}"
+  case "${key}" in
+    SECRET_KEY|POSTGRES_PASSWORD) ;;
+    *)
+      echo "[setvault] WARNING: ignoring unrecognised line ${lineno} in ${SECRETS_FILE}" >&2
+      continue
+      ;;
+  esac
+  if ! [[ "${value}" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "[setvault] WARNING: ignoring ${key} on line ${lineno} in ${SECRETS_FILE} (invalid characters)" >&2
+    case "${key}" in
+      SECRET_KEY)        rejected_secret_key=1 ;;
+      POSTGRES_PASSWORD) rejected_pg_pw=1 ;;
+    esac
+    continue
+  fi
+  case "${key}" in
+    SECRET_KEY)        persisted_secret_key="${value}" ;;
+    POSTGRES_PASSWORD) persisted_pg_pw="${value}" ;;
+  esac
+done < "${SECRETS_FILE}"
+
+if [ "${user_secret_key_set}" = "1" ]; then
+  if [ -n "${persisted_secret_key}" ] && [ "${persisted_secret_key}" != "${SECRET_KEY}" ]; then
+    echo "[setvault] using SECRET_KEY from environment (persisted value ignored)" >&2
+  fi
+else
+  SECRET_KEY="${persisted_secret_key}"
 fi
+if [ "${user_pg_pw_set}" = "1" ]; then
+  if [ -n "${persisted_pg_pw}" ] && [ "${persisted_pg_pw}" != "${POSTGRES_PASSWORD}" ]; then
+    echo "[setvault] using POSTGRES_PASSWORD from environment (persisted value ignored)" >&2
+  fi
+else
+  POSTGRES_PASSWORD="${persisted_pg_pw}"
+fi
+unset persisted_secret_key persisted_pg_pw line trimmed key value
 
 # Auto-generate SECRET_KEY if unset. It signs every session cookie + HMAC
 # share URL, so it MUST be stable across restarts — persist to .secrets.
+# Generate only when .secrets had no SECRET_KEY line at all.
+if [ -z "${SECRET_KEY}" ] && [ "${rejected_secret_key}" = "1" ]; then
+  echo "[setvault] FATAL: the SECRET_KEY line in ${SECRETS_FILE} is invalid (allowed: A-Z a-z 0-9 _ -)." >&2
+  echo "[setvault] FATAL: fix that line, or set SECRET_KEY in the container env. Not generating a new key: it would sign everyone out and break saved connector settings." >&2
+  exit 1
+fi
 if [ -z "${SECRET_KEY}" ]; then
   SECRET_KEY="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')"
-  echo "SECRET_KEY=${SECRET_KEY}" >> "${SECRETS_FILE}"
+  append_secret SECRET_KEY "${SECRET_KEY}"
   echo "[setvault] generated SECRET_KEY (persisted to ${SECRETS_FILE})" >&2
 fi
 
@@ -47,12 +124,16 @@ fi
 # Power users with an external postgres pass DATABASE_URL directly.
 if [ -z "${DATABASE_URL}" ]; then
   if [ -z "${POSTGRES_PASSWORD}" ]; then
-    if [ "${SETVAULT_PG_EMBEDDED}" = "1" ]; then
+    if [ "${SETVAULT_PG_EMBEDDED}" = "1" ] && [ "${rejected_pg_pw}" = "1" ]; then
+      echo "[setvault] FATAL: the POSTGRES_PASSWORD line in ${SECRETS_FILE} is invalid (allowed: A-Z a-z 0-9 _ -)." >&2
+      echo "[setvault] FATAL: fix that line, or set POSTGRES_PASSWORD in the container env. Not generating a new one: the embedded database role would be given a different password." >&2
+      exit 1
+    elif [ "${SETVAULT_PG_EMBEDDED}" = "1" ]; then
       # Bundled postgres + no password given: generate a strong one and persist
       # it (init-db.sh ALTER USERs the embedded role to match). Loopback-only,
       # but no reason to ship a weak default.
       POSTGRES_PASSWORD="$(python -c 'import secrets;print(secrets.token_urlsafe(24))')"
-      echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" >> "${SECRETS_FILE}"
+      append_secret POSTGRES_PASSWORD "${POSTGRES_PASSWORD}"
       echo "[setvault] generated embedded POSTGRES_PASSWORD (persisted to ${SECRETS_FILE})" >&2
     else
       # External postgres with neither DATABASE_URL nor POSTGRES_PASSWORD — leave
@@ -61,7 +142,14 @@ if [ -z "${DATABASE_URL}" ]; then
     fi
   fi
   if [ -n "${POSTGRES_PASSWORD}" ]; then
-    DATABASE_URL="postgresql+asyncpg://${POSTGRES_USER:-setvault}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-setvault}"
+    # URL-encode user, password and database name so characters like @ : / %
+    # can't corrupt the URL. -I keeps the interpreter isolated from cwd / env.
+    urlquote='import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))'
+    user_enc="$(/srv/.venv/bin/python -I -c "${urlquote}" "${POSTGRES_USER:-setvault}")"
+    pw_enc="$(/srv/.venv/bin/python -I -c "${urlquote}" "${POSTGRES_PASSWORD}")"
+    db_enc="$(/srv/.venv/bin/python -I -c "${urlquote}" "${POSTGRES_DB:-setvault}")"
+    DATABASE_URL="postgresql+asyncpg://${user_enc}:${pw_enc}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${db_enc}"
+    unset user_enc pw_enc db_enc urlquote
   fi
 fi
 
@@ -78,16 +166,25 @@ mkdir -p /run/s6/container_environment
   printf '%s' "${BASE_URL}" > /run/s6/container_environment/BASE_URL
 )
 
-# Default data directories — create on first boot so PUID/PGID bind-mounts
-# don't fail with "directory not found".
+# Data directories (resolved by 00-mode) — create on first boot so PUID/PGID
+# bind-mounts don't fail with "directory not found".
 for d in \
-  "${SETVAULT_MEDIA_PATH:-/srv/media}" \
-  "${SETVAULT_CACHE_PATH:-/srv/cache}" \
-  "${SETVAULT_CONFIG_PATH:-/srv/config}" \
-  "${SETVAULT_WATCH_FOLDERS_PATH:-/srv/watch}"; do
+  "${SETVAULT_MEDIA_PATH:?}" \
+  "${SETVAULT_CACHE_PATH:?}" \
+  "${SETVAULT_CONFIG_PATH:?}" \
+  "${SETVAULT_WATCH_FOLDERS_PATH:?}"; do
   mkdir -p "${d}"
   chown -R "${PUID:-1000}:${PGID:-1000}" "${d}" 2>/dev/null || true
 done
+
+# The chown -R above handed .secrets to the app uid; it is read by root on the
+# next boot, so take it back. Nothing in the app reads it (services get env
+# from /run/s6/container_environment). Best-effort: some bind mounts (rootless,
+# NFS root_squash) refuse it, and that must not stop boot.
+if ! chown root:root "${SECRETS_FILE}" 2>/dev/null; then
+  echo "[setvault] WARNING: could not chown .secrets to root" >&2
+fi
+chmod 600 "${SECRETS_FILE}" 2>/dev/null || true
 
 # srv tree must be writable by app uid for the venv + caches.
 chown -R "${PUID:-1000}:${PGID:-1000}" /srv/.venv 2>/dev/null || true

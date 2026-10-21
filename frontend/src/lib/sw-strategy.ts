@@ -29,6 +29,9 @@ export function chooseStrategy(
   // Audio stream is cache-first under an admin-configurable cap.
   if (AUDIO_RE.test(pathname)) return "audio";
 
+  // Admin responses (backup dumps, settings) must never touch a cache.
+  if (pathname.startsWith("/api/admin/")) return "bypass";
+
   // Every other /api/ call (including waveform JSON) is network-first: fresh
   // when online, served from the runtime cache when offline so SPA pages still
   // render after a first online load.

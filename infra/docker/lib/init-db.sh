@@ -20,22 +20,25 @@ if [ "${SETVAULT_PG_EMBEDDED}" = "1" ]; then
     sleep 2
   done
 
-  DB="${POSTGRES_DB:-setvault}"
-  has_db="$(s6-setuidgid "${PUID:-1000}:${PGID:-1000}" \
-    "${PGBIN}/psql" -h /tmp -U setvault -d postgres -tAc \
-    "SELECT 1 FROM pg_database WHERE datname='${DB}'" || true)"
-  if [ "${has_db}" != "1" ]; then
-    s6-setuidgid "${PUID:-1000}:${PGID:-1000}" \
-      "${PGBIN}/psql" -h /tmp -U setvault -d postgres -c \
-      "CREATE DATABASE ${DB} OWNER setvault"
-  fi
-  # Set the password via stdin: psql performs :'pw' substitution on stdin/-f
-  # (but NOT with -c). -v passes the value out-of-band and :'pw' quotes it, so
-  # special characters can't break the statement or inject SQL.
+  # Connect as the bootstrap superuser `setvault` (initdb -U setvault, see
+  # s6-rc.d/postgres/run) and ensure the app role ${POSTGRES_USER} exists as a
+  # LOGIN role, owns ${POSTGRES_DB} when we create it, and has the password.
+  # Everything goes via stdin: psql performs :'x' / :"x" substitution on
+  # stdin/-f (but NOT with -c, and never inside $$ bodies — hence the
+  # SELECT format(...) \gexec form). -v passes values out-of-band and the
+  # quoting forms escape them, so special characters can't break the statement
+  # or inject SQL. CREATE DATABASE can't run in a transaction; \gexec runs each
+  # generated statement on its own, in autocommit.
   s6-setuidgid "${PUID:-1000}:${PGID:-1000}" \
-    "${PGBIN}/psql" -h /tmp -U setvault -d postgres \
+    "${PGBIN}/psql" -h /tmp -U setvault -d postgres -v ON_ERROR_STOP=1 -q \
+    -v role="${POSTGRES_USER:-setvault}" \
+    -v db="${POSTGRES_DB:-setvault}" \
     -v pw="${POSTGRES_PASSWORD:-setvault}" <<'PWSQL'
-ALTER USER setvault PASSWORD :'pw';
+SELECT format('CREATE ROLE %I LOGIN', :'role')
+  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'role') \gexec
+SELECT format('CREATE DATABASE %I OWNER %I', :'db', :'role')
+  WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'db') \gexec
+ALTER USER :"role" PASSWORD :'pw';
 PWSQL
 fi
 
@@ -52,6 +55,11 @@ until s6-setuidgid "${PUID:-1000}:${PGID:-1000}" /srv/.venv/bin/alembic upgrade 
   sleep 2
 done
 echo "[setvault] migrations up-to-date" >&2
+
+# Repoint legacy /srv paths (old images) at the /data layout; non-fatal.
+s6-setuidgid "${PUID:-1000}:${PGID:-1000}" \
+  /srv/.venv/bin/python -m setvault_core.jobs.repair_legacy_paths \
+  || echo "[setvault] legacy path repair skipped (non-fatal)" >&2
 
 # 4) Seed the default media root from the mounted storage folder (both modes).
 # Radarr/Sonarr style: the volume bound at ${SETVAULT_MEDIA_PATH} is the library

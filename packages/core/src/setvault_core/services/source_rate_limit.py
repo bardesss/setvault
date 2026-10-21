@@ -8,10 +8,13 @@ the next poll rather than incrementing the auto-disable counter.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 
 from redis.asyncio import Redis
+
+logger = logging.getLogger(__name__)
 
 _redis: Redis | None = None
 _redis_loop: asyncio.AbstractEventLoop | None = None
@@ -44,6 +47,11 @@ async def allow(kind: str, *, limit: int, window_seconds: int) -> bool:
     True if the call is within budget, False if it would exceed `limit`."""
     if limit <= 0:
         return True
+    if window_seconds < 1:
+        logger.warning(
+            "source %s has non-positive rate-limit window %s; using 1s", kind, window_seconds
+        )
+        window_seconds = 1
     redis = _client()
     bucket = int(time.time() // window_seconds)
     key = f"srcrl:{kind}:{bucket}"

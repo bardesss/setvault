@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from redis.asyncio import Redis
+from setvault_core.db import session_factory
 from setvault_core.progress import channel_for_set
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
 
 from setvault_web.config import get_settings
+from setvault_web.deps import resolve_session_user
 
 router = APIRouter()
 
@@ -14,7 +16,12 @@ router = APIRouter()
 async def progress_ws(ws: WebSocket, set_id: str) -> None:
     settings = get_settings()
     session_cookie = ws.cookies.get(SESSION_COOKIE)
-    if not session_cookie or not SessionSigner(settings.secret_key).read(session_cookie):
+    # Short-lived DB session: only the auth check needs it, not the stream.
+    async with session_factory()() as session:
+        user = await resolve_session_user(
+            session, SessionSigner(settings.secret_key), session_cookie,
+        )
+    if user is None:
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     await ws.accept()

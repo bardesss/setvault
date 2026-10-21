@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from setvault_core.models.identity import EmailToken, User
+from setvault_core.services.password_policy import MIN_PASSWORD_LENGTH
 from setvault_core.services.passwords import hash_password
 from setvault_core.services.tokens import expires, generate_token, hash_token, now_utc
 from sqlalchemy import select
@@ -77,13 +78,14 @@ async def admin_link(
     token = EmailToken(user_id=user.id, email=user.email, kind="password_reset",
                        token_hash=digest, payload={}, expires_at=expires(1))
     session.add(token)
+    user.session_version += 1
     await session.commit()
     return AdminLinkOut(reset_link=f"{settings.base_url}/reset/{plaintext}",
                         expires_at=token.expires_at)
 
 
 class RedeemIn(BaseModel):
-    password: str = Field(min_length=12)
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH)
 
 
 @router.post("/{token}/redeem", status_code=204,
@@ -102,5 +104,6 @@ async def redeem(token: str, body: RedeemIn,
     if user is None:
         raise HTTPException(status_code=410, detail="user no longer exists")
     user.password_hash = hash_password(body.password)
+    user.session_version += 1
     row.used_at = datetime.now(UTC)
     await session.commit()
