@@ -197,6 +197,10 @@ fresh data dir, and restore (see below).
 >   at `/data` automatically on boot.
 > - **SECRET_KEY:** if you never set it and `.secrets` sat in the layer, each past update made a new
 >   key. Users must sign in again, and SMTP or connector settings saved under an old key must be re-entered.
+> - **SECRET_KEY in env now wins:** if the boot log says "using SECRET_KEY from environment
+>   (persisted value ignored)", the key in your env is used instead of the one in `.secrets` (before,
+>   it was the other way round). To keep existing sessions and saved connector settings, set
+>   `SECRET_KEY` to the value in `.secrets`.
 > - **Sessions:** signed-in sessions survive this upgrade. From now on, disabling a user or
 >   changing/resetting a password signs that user out everywhere.
 > - **External mode:** a `.secrets` file on a host bind mount is now `root`-owned `0600`; read it with `sudo`.
