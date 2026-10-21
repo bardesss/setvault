@@ -225,3 +225,110 @@ async def test_damage_report_covers_subpath_roots(tmp_path):
     env = {**BUNDLED, "SETVAULT_MEDIA_PATH": tmp_path.as_posix()}
     async with session_factory()() as s:
         assert await damage_report(s, env) == (1, [slug])
+
+
+def test_read_mounts_decodes_octal_escapes(tmp_path):
+    info = tmp_path / "mountinfo"
+    info.write_text(
+        "22 1 0:21 / / rw - overlay overlay rw\n"
+        "30 22 8:1 /x /srv/watch/my\\040inbox rw,relatime - ext4 /dev/sda1 rw\n"
+        "garbage\n",
+        encoding="utf-8",
+    )
+    assert mod.read_mounts(str(info)) == ["/", "/srv/watch/my inbox"]
+
+
+def test_read_mounts_missing_file_is_empty(tmp_path):
+    assert mod.read_mounts(str(tmp_path / "nope")) == []
+
+
+async def _seed_watch_mount_case():
+    async with session_factory()() as s:
+        root = MediaRoot(name=f"r-{uuid.uuid4().hex[:6]}", host_path="/data/media")
+        s.add(root)
+        await s.flush()
+        live = WatchFolder(name="live", host_path="/srv/watch/incoming",
+                           target_media_root_id=root.id)
+        stale = WatchFolder(name="stale", host_path="/srv/watch/old",
+                            target_media_root_id=root.id)
+        s.add_all([live, stale])
+        await s.flush()
+        s.add_all([
+            UnmatchedFile(watch_folder_id=live.id, file_path="/srv/watch/incoming/a.mp3"),
+            UnmatchedFile(watch_folder_id=stale.id, file_path="/srv/watch/old/b.mp3"),
+        ])
+        user = User(email=f"u-{uuid.uuid4().hex[:6]}@x.test",
+                    username=f"u{uuid.uuid4().hex[:6]}", display_name="u",
+                    password_hash=hash_password("aaaaaaaa"))
+        s.add(user)
+        await s.flush()
+        for url in ("/srv/watch/incoming/c.mp3", "/srv/watch/old/d.mp3"):
+            s.add(LiveSet(slug=f"s-{uuid.uuid4().hex[:6]}", title="t",
+                          media_root_id=root.id, audio_path="x.flac",
+                          uploaded_by=user.id, source_url=url))
+        await s.commit()
+
+
+async def test_repair_skips_rows_under_a_mounted_watch_subfolder(capsys):
+    await _seed_watch_mount_case()
+    async with session_factory()() as s:
+        counts = await repair(s, BUNDLED, mounts=["/", "/data", "/srv/watch/incoming"])
+        await s.commit()
+    assert counts["watch_folders"] == 1
+    assert counts["unmatched_files"] == 1
+    assert counts["live_sets"] == 1
+    _, wfs, unm, urls = await _values()
+    assert sorted(wfs) == ["/data/watch/old", "/srv/watch/incoming"]
+    assert sorted(unm) == ["/data/watch/old/b.mp3", "/srv/watch/incoming/a.mp3"]
+    assert urls == ["/data/watch/old/d.mp3", "/srv/watch/incoming/c.mp3"]
+    out = capsys.readouterr().out
+    assert out.count("[setvault]") == 1
+    assert "/srv/watch/incoming" in out
+
+
+async def test_repair_skips_a_mounted_media_root():
+    async with session_factory()() as s:
+        s.add_all([
+            MediaRoot(name=f"nas-{uuid.uuid4().hex[:6]}", host_path="/srv/media/nas"),
+            MediaRoot(name=f"main-{uuid.uuid4().hex[:6]}", host_path="/srv/media"),
+        ])
+        await s.commit()
+    async with session_factory()() as s:
+        counts = await repair(s, BUNDLED, mounts=["/srv/media/nas/"])
+        await s.commit()
+    assert counts["media_roots"] == 1
+    roots, *_ = await _values()
+    assert sorted(roots) == ["/data/media", "/srv/media/nas"]
+
+
+async def test_repair_ignores_unrelated_mounts():
+    await _seed()
+    async with session_factory()() as s:
+        plain = await repair(s, BUNDLED, mounts=[])
+        await s.rollback()
+    async with session_factory()() as s:
+        counts = await repair(s, BUNDLED, mounts=["/nas", "/srv/media2", "/data/media"])
+        await s.commit()
+    assert counts == plain
+    roots, wfs, *_ = await _values()
+    assert roots == ["/data/media"]
+    assert wfs == ["/data/watch/in"]
+
+
+async def test_damage_report_ignores_sets_on_a_mounted_legacy_root():
+    async with session_factory()() as s:
+        user = User(email=f"u-{uuid.uuid4().hex[:6]}@x.test",
+                    username=f"u{uuid.uuid4().hex[:6]}", display_name="u",
+                    password_hash=hash_password("aaaaaaaa"))
+        nas = MediaRoot(name=f"nas-{uuid.uuid4().hex[:6]}", host_path="/srv/media/nas")
+        s.add_all([user, nas])
+        await s.flush()
+        s.add(LiveSet(slug=f"nas-{uuid.uuid4().hex[:6]}", title="t",
+                      media_root_id=nas.id, audio_path="nope.flac", uploaded_by=user.id))
+        await s.commit()
+    mounts = ["/srv/media/nas"]
+    async with session_factory()() as s:
+        await repair(s, BUNDLED, mounts)
+        await s.commit()
+    async with session_factory()() as s:
+        assert await damage_report(s, BUNDLED, mounts) == (0, [])

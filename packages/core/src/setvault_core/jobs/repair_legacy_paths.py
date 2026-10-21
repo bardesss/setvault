@@ -7,14 +7,17 @@ this job repoints those rows so ingest keeps working.
 
 Idempotent and conservative: only runs in bundled mode, only rewrites values
 equal to the legacy prefix or strictly below it (``/srv/media2`` is untouched),
-and does nothing when the effective path equals the legacy one.
+and does nothing when the effective path equals the legacy one. Rows at or
+below a live mount point under a legacy prefix (for example a user-mounted
+watch folder ``/srv/watch/incoming``) are left alone: that path is real.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +43,9 @@ _TARGETS: tuple[tuple[str, str], ...] = (
 
 _BATCH = 500
 
+MOUNTINFO = "/proc/self/mountinfo"
+_OCTAL = re.compile(rb"\\([0-7]{3})")
+
 
 def rewrite_prefix(value: str | None, legacy: str, effective: str) -> str | None:
     """Pure-Python twin of the SQL rule: the new value, or ``None`` when
@@ -49,6 +55,34 @@ def rewrite_prefix(value: str | None, legacy: str, effective: str) -> str | None
     if value == legacy or value.startswith(legacy + "/"):
         return effective + value[len(legacy):]
     return None
+
+
+def _unescape_mount(field: str) -> str:
+    """Decode the ``\\040``-style octal escapes the kernel uses in mountinfo."""
+    raw = field.encode("utf-8", "surrogateescape")
+    raw = _OCTAL.sub(lambda m: bytes([int(m.group(1), 8)]), raw)
+    return raw.decode("utf-8", "surrogateescape")
+
+
+def read_mounts(path: str = MOUNTINFO) -> list[str]:
+    """Mount points (field 5) listed in ``path``; empty when it can't be read
+    (non-Linux, no /proc)."""
+    try:
+        with open(path, encoding="utf-8", errors="surrogateescape") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return []
+    mounts: list[str] = []
+    for line in lines:
+        fields = line.split(" ")
+        if len(fields) >= 5:
+            mounts.append(_unescape_mount(fields[4]))
+    return mounts
+
+
+def _under(value: str, prefix: str) -> bool:
+    """``value`` equals ``prefix`` or lies strictly below ``prefix + '/'``."""
+    return value == prefix or value.startswith(prefix + "/")
 
 
 def _bundled(env: Mapping[str, str]) -> bool:
@@ -66,11 +100,43 @@ def _effective(env: Mapping[str, str], legacy: str, var: str) -> str | None:
     return eff
 
 
-async def repair(session: AsyncSession, env: Mapping[str, str]) -> dict[str, int]:
+def _legacy_mounts(env: Mapping[str, str], mounts: Iterable[str]) -> list[str]:
+    """Mount points at or below any legacy prefix that is being repaired."""
+    legacies = [
+        legacy for legacy, var in LEGACY_PAIRS if _effective(env, legacy, var) is not None
+    ]
+    out: list[str] = []
+    for m in mounts:
+        if len(m) > 1:
+            m = m.rstrip("/")
+        if m not in out and any(_under(m, legacy) for legacy in legacies):
+            out.append(m)
+    return out
+
+
+def _mount_filter(col: str, mounts: list[str]) -> tuple[str, dict[str, object]]:
+    """SQL fragment (and params) excluding rows equal to or under ``mounts``."""
+    sql = ""
+    params: dict[str, object] = {}
+    for i, m in enumerate(mounts):
+        sql += f" AND NOT ({col} = :m{i} OR left({col}, :mn{i}) = :ms{i})"
+        params.update({f"m{i}": m, f"mn{i}": len(m) + 1, f"ms{i}": m + "/"})
+    return sql, params
+
+
+async def repair(
+    session: AsyncSession,
+    env: Mapping[str, str],
+    mounts: Iterable[str] | None = None,
+) -> dict[str, int]:
     """Rewrite legacy-prefixed paths; returns per-table changed counts (empty
-    when not bundled). The caller commits."""
+    when not bundled). ``mounts`` defaults to the mount points in
+    /proc/self/mountinfo. The caller commits."""
     if not _bundled(env):
         return {}
+    skip = _legacy_mounts(env, read_mounts() if mounts is None else mounts)
+    for m in skip:
+        print(f"[setvault] legacy path repair: {m} is a mount, leaving paths under it unchanged")
     counts: dict[str, int] = {}
     for legacy, var in LEGACY_PAIRS:
         eff = _effective(env, legacy, var)
@@ -78,14 +144,17 @@ async def repair(session: AsyncSession, env: Mapping[str, str]) -> dict[str, int
             continue
         for table, col in _TARGETS:
             # Table/column names come from the constant map above, never input.
+            mount_sql, mount_params = _mount_filter(col, skip)
             res = await session.execute(
                 text(
                     f"UPDATE {table} SET {col} = :eff || substr({col}, :n) "  # noqa: S608
-                    f"WHERE {col} = :legacy OR left({col}, :n1) = :legacy_slash"
+                    f"WHERE ({col} = :legacy OR left({col}, :n1) = :legacy_slash)"
+                    f"{mount_sql}"
                 ),
                 {
                     "eff": eff, "n": len(legacy) + 1, "n1": len(legacy) + 1,
                     "legacy": legacy, "legacy_slash": legacy + "/",
+                    **mount_params,
                 },
             )
             counts[table] = counts.get(table, 0) + (res.rowcount or 0)
@@ -97,10 +166,13 @@ def _exists(root: str, rel: str) -> bool:
 
 
 async def damage_report(
-    session: AsyncSession, env: Mapping[str, str],
+    session: AsyncSession,
+    env: Mapping[str, str],
+    mounts: Iterable[str] | None = None,
 ) -> tuple[int, list[str]]:
     """Count sets under the repaired media root whose audio file is missing on
-    disk. Returns (missing count, first 20 slugs)."""
+    disk, ignoring roots at or below a live legacy mount. Returns (missing
+    count, first 20 slugs)."""
     if not _bundled(env):
         return 0, []
     effs = [
@@ -109,6 +181,7 @@ async def damage_report(
     ]
     if not effs:
         return 0, []
+    skip = _legacy_mounts(env, read_mounts() if mounts is None else mounts)
     cond = or_(*(
         or_(MediaRoot.host_path == e, MediaRoot.host_path.startswith(e + "/", autoescape=True))
         for e in effs
@@ -116,6 +189,7 @@ async def damage_report(
     roots = {
         r.id: r.host_path
         for r in (await session.execute(select(MediaRoot).where(cond))).scalars()
+        if not any(_under(r.host_path, m) for m in skip)
     }
     if not roots:
         return 0, []
@@ -143,10 +217,11 @@ async def damage_report(
     return missing, slugs
 
 
-async def _run(env: Mapping[str, str]) -> None:
+async def _run(env: Mapping[str, str], mounts: Iterable[str] | None = None) -> None:
+    mounts = read_mounts() if mounts is None else list(mounts)
     async with session_factory()() as s:
         try:
-            counts = await repair(s, env)
+            counts = await repair(s, env, mounts)
             if any(counts.values()):
                 await audit_log(
                     s, actor_user_id=None, actor_kind="system",
@@ -159,7 +234,7 @@ async def _run(env: Mapping[str, str]) -> None:
             raise
         if any(counts.values()):
             print(f"[setvault] repaired legacy paths: {counts}")
-        missing, slugs = await damage_report(s, env)
+        missing, slugs = await damage_report(s, env, mounts)
         if missing:
             print(
                 f"[setvault] WARNING: {missing} set file(s) missing under the media "
