@@ -34,14 +34,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.config import Settings, get_settings
-from setvault_web.deps import current_user, db_session, require_admin
+from setvault_web.deps import current_user, db_session, require_admin, resolve_session_user
 
 router = APIRouter(prefix="/api/sets", tags=["sets"])
 
 
-def _stream_authorize(
+async def _stream_authorize(
     live: LiveSet,
     *,
+    session: AsyncSession,
     sig: str | None,
     exp: int | None,
     session_cookie: str | None,
@@ -56,7 +57,8 @@ def _stream_authorize(
          signature is HMAC-SHA256 over ``slug:exp`` with secret_key; this is
          the path podcast apps use, via short-TTL URLs embedded in RSS
          enclosures.
-      3. If a valid session cookie is present, allow.
+      3. If the session cookie resolves to an active user whose session
+         version matches (``deps.resolve_session_user``), allow.
       4. Otherwise, 401.
 
     The rss-scope ApiToken does *not* authorize stream access by itself - it
@@ -70,14 +72,8 @@ def _stream_authorize(
         secret_key=secret_key, slug=live.slug, exp=exp, sig=sig,
     ):
         return
-    if session_cookie:
-        data = signer.read(session_cookie)
-        if data is not None:
-            try:
-                uuid.UUID(data.user_id)
-                return
-            except ValueError:
-                pass
+    if await resolve_session_user(session, signer, session_cookie) is not None:
+        return
     raise HTTPException(status_code=401, detail="not authenticated")
 
 
@@ -362,8 +358,8 @@ async def stream_set(
     ).scalar_one_or_none()
     if row is None or row.streaming_path is None:
         raise HTTPException(status_code=404, detail="not ready")
-    _stream_authorize(
-        row, sig=sig, exp=exp,
+    await _stream_authorize(
+        row, session=session, sig=sig, exp=exp,
         session_cookie=session_cookie,
         signer=SessionSigner(settings.secret_key),
         secret_key=settings.secret_key,
@@ -394,8 +390,8 @@ async def waveform(
     ).scalar_one_or_none()
     if row is None or row.waveform_path is None:
         raise HTTPException(status_code=404, detail="not ready")
-    _stream_authorize(
-        row, sig=sig, exp=exp,
+    await _stream_authorize(
+        row, session=session, sig=sig, exp=exp,
         session_cookie=session_cookie,
         signer=SessionSigner(settings.secret_key),
         secret_key=settings.secret_key,

@@ -23,6 +23,31 @@ async def db_session() -> AsyncIterator[AsyncSession]:
         yield s
 
 
+async def resolve_session_user(
+    session: AsyncSession, signer: SessionSigner, raw_cookie: str | None,
+) -> User | None:
+    """The single gate for cookie auth: every surface that accepts the session
+    cookie (API deps, /api/auth/me, stream/waveform, WS, tusd hook) resolves
+    the user here. Returns ``None`` unless the signature is valid, the user id
+    is a UUID, the user exists and is not disabled, and the cookie's version
+    matches ``User.session_version`` (bumping it revokes every old cookie)."""
+    if not raw_cookie:
+        return None
+    data = signer.read(raw_cookie)
+    if data is None:
+        return None
+    try:
+        user_id = uuid.UUID(data.user_id)
+    except ValueError:
+        return None
+    user = await session.get(User, user_id)
+    if user is None or user.disabled_at is not None:
+        return None
+    if data.version != user.session_version:
+        return None
+    return user
+
+
 async def current_user(
     session: Annotated[AsyncSession, Depends(db_session)],
     signer: Annotated[SessionSigner, Depends(get_signer)],
@@ -30,18 +55,9 @@ async def current_user(
 ) -> User:
     if not session_cookie:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
-    data = signer.read(session_cookie)
-    if not data:
+    user = await resolve_session_user(session, signer, session_cookie)
+    if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid session")
-    try:
-        user_id = uuid.UUID(data.user_id)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid session"
-        ) from exc
-    user = await session.get(User, user_id)
-    if user is None or user.disabled_at is not None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="user inactive")
     return user
 
 

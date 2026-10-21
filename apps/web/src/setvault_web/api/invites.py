@@ -127,7 +127,7 @@ async def redeem(
     row.used_at = datetime.now(UTC)
     await session.commit()
 
-    cookie = signer.issue(str(user.id))
+    cookie = signer.issue(str(user.id), user.session_version)
     secure = cookie_secure()
     response.set_cookie(SESSION_COOKIE, cookie, httponly=True, secure=secure, samesite="lax",
                         max_age=int(SESSION_TTL.total_seconds()), path="/")

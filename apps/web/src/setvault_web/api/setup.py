@@ -67,7 +67,7 @@ async def create_first_admin(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
-    cookie = signer.issue(str(user.id))
+    cookie = signer.issue(str(user.id), user.session_version)
     secure = _cookie_secure()
     response.set_cookie(
         SESSION_COOKIE, cookie,

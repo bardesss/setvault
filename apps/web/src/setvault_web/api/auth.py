@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import secrets as _secrets
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
@@ -14,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.cookies import cookie_secure as _cookie_secure
-from setvault_web.deps import current_user, db_session, get_signer
+from setvault_web.deps import current_user, db_session, get_signer, resolve_session_user
 from setvault_web.middleware.csrf import CSRF_COOKIE
 from setvault_web.rate_limit import enforce_auth_strict
 
@@ -71,7 +70,7 @@ def _issue_session(response: Response, signer: SessionSigner, user: User) -> Non
     by the password login and the single-user auto-login path."""
     secure = _cookie_secure()
     response.set_cookie(
-        SESSION_COOKIE, signer.issue(str(user.id)),
+        SESSION_COOKIE, signer.issue(str(user.id), user.session_version),
         httponly=True, secure=secure, samesite="lax",
         max_age=int(SESSION_TTL.total_seconds()), path="/",
     )
@@ -85,19 +84,7 @@ async def _user_from_session(
     session: AsyncSession, signer: SessionSigner, session_cookie: str | None,
 ) -> User | None:
     """Resolve the session user without raising (None when logged out)."""
-    if not session_cookie:
-        return None
-    data = signer.read(session_cookie)
-    if not data:
-        return None
-    try:
-        user_id = uuid.UUID(data.user_id)
-    except ValueError:
-        return None
-    user = await session.get(User, user_id)
-    if user is None or user.disabled_at is not None:
-        return None
-    return user
+    return await resolve_session_user(session, signer, session_cookie)
 
 
 @router.post("/logout", status_code=204)
