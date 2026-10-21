@@ -89,6 +89,7 @@ async def test_backup_admin_streams_tar(authed_admin_client, monkeypatch):
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/x-tar"
     assert "attachment" in response.headers["content-disposition"]
+    assert "no-store" in response.headers["cache-control"]
 
     # Body is a valid tar containing db.sql with the stubbed content.
     tar = tarfile.open(fileobj=io.BytesIO(response.content), mode="r:*")
@@ -96,6 +97,13 @@ async def test_backup_admin_streams_tar(authed_admin_client, monkeypatch):
     assert "db.sql" in names
     extracted = tar.extractfile("db.sql").read()
     assert extracted == b"-- fake pg_dump output\nSELECT 1;\n"
+
+
+async def test_backup_response_is_no_store(authed_admin_client, monkeypatch):
+    _stub_pg_dump(monkeypatch)
+    response = await authed_admin_client.get("/api/admin/backup")
+    assert response.status_code == 200
+    assert "no-store" in response.headers["cache-control"]
 
 
 # --------------------------------------------------------------------------- #

@@ -162,6 +162,8 @@ async def download_backup(
     safe = "".join(c for c in filename if c.isalnum() or c in "-.")
     headers = {
         "Content-Disposition": f'attachment; filename="{safe}"',
+        # Contains the full DB dump; no browser/SW/proxy may keep a copy.
+        "Cache-Control": "no-store",
     }
     return StreamingResponse(
         _stream_tar(settings.database_url, roots),

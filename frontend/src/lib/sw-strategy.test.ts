@@ -43,4 +43,10 @@ describe("chooseStrategy", () => {
     expect(chooseStrategy("/settings", PRECACHED)).toBe("navigation");
     expect(chooseStrategy("/embed/foo", PRECACHED)).toBe("navigation");
   });
+
+  it("returns 'bypass' for admin API routes, 'api' for others", () => {
+    expect(chooseStrategy("/api/admin/backup", PRECACHED)).toBe("bypass");
+    expect(chooseStrategy("/api/admin/settings", PRECACHED)).toBe("bypass");
+    expect(chooseStrategy("/api/sets", PRECACHED)).toBe("api");
+  });
 });
