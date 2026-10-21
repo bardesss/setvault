@@ -14,7 +14,7 @@
 ARG S6_OVERLAY_VERSION=3.2.1.0
 
 # ── Frontend stage ──────────────────────────────────────────────────────────
-FROM node:20-alpine AS frontend
+FROM node:26-alpine AS frontend
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json frontend/
 RUN cd frontend && npm ci
