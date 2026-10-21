@@ -39,9 +39,13 @@ user_pg_pw_set=0;      [ -n "${POSTGRES_PASSWORD:-}" ] && user_pg_pw_set=1
 
 # Parse persisted secrets. Only SECRET_KEY and POSTGRES_PASSWORD with values of
 # [A-Za-z0-9_-] are accepted; anything else is warned about (by line number,
-# never by value) and ignored.
+# never by value) and ignored. A rejected SECRET_KEY / POSTGRES_PASSWORD line is
+# remembered: replacing it with a fresh value would silently log everyone out
+# (or desync the embedded DB role), so boot fails below instead.
 persisted_secret_key=""
 persisted_pg_pw=""
+rejected_secret_key=0
+rejected_pg_pw=0
 lineno=0
 while IFS= read -r line || [ -n "${line}" ]; do
   lineno=$((lineno + 1))
@@ -66,6 +70,10 @@ while IFS= read -r line || [ -n "${line}" ]; do
   esac
   if ! [[ "${value}" =~ ^[A-Za-z0-9_-]+$ ]]; then
     echo "[setvault] WARNING: ignoring ${key} on line ${lineno} in ${SECRETS_FILE} (invalid characters)" >&2
+    case "${key}" in
+      SECRET_KEY)        rejected_secret_key=1 ;;
+      POSTGRES_PASSWORD) rejected_pg_pw=1 ;;
+    esac
     continue
   fi
   case "${key}" in
@@ -92,6 +100,12 @@ unset persisted_secret_key persisted_pg_pw line trimmed key value
 
 # Auto-generate SECRET_KEY if unset. It signs every session cookie + HMAC
 # share URL, so it MUST be stable across restarts — persist to .secrets.
+# Generate only when .secrets had no SECRET_KEY line at all.
+if [ -z "${SECRET_KEY}" ] && [ "${rejected_secret_key}" = "1" ]; then
+  echo "[setvault] FATAL: the SECRET_KEY line in ${SECRETS_FILE} is invalid (allowed: A-Z a-z 0-9 _ -)." >&2
+  echo "[setvault] FATAL: fix that line, or set SECRET_KEY in the container env. Not generating a new key: it would sign everyone out and break saved connector settings." >&2
+  exit 1
+fi
 if [ -z "${SECRET_KEY}" ]; then
   SECRET_KEY="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')"
   append_secret SECRET_KEY "${SECRET_KEY}"
@@ -110,7 +124,11 @@ fi
 # Power users with an external postgres pass DATABASE_URL directly.
 if [ -z "${DATABASE_URL}" ]; then
   if [ -z "${POSTGRES_PASSWORD}" ]; then
-    if [ "${SETVAULT_PG_EMBEDDED}" = "1" ]; then
+    if [ "${SETVAULT_PG_EMBEDDED}" = "1" ] && [ "${rejected_pg_pw}" = "1" ]; then
+      echo "[setvault] FATAL: the POSTGRES_PASSWORD line in ${SECRETS_FILE} is invalid (allowed: A-Z a-z 0-9 _ -)." >&2
+      echo "[setvault] FATAL: fix that line, or set POSTGRES_PASSWORD in the container env. Not generating a new one: the embedded database role would be given a different password." >&2
+      exit 1
+    elif [ "${SETVAULT_PG_EMBEDDED}" = "1" ]; then
       # Bundled postgres + no password given: generate a strong one and persist
       # it (init-db.sh ALTER USERs the embedded role to match). Loopback-only,
       # but no reason to ship a weak default.
@@ -124,13 +142,14 @@ if [ -z "${DATABASE_URL}" ]; then
     fi
   fi
   if [ -n "${POSTGRES_PASSWORD}" ]; then
-    # URL-encode user and password so characters like @ : / % can't corrupt
-    # the URL. -I keeps the interpreter isolated from cwd / env.
+    # URL-encode user, password and database name so characters like @ : / %
+    # can't corrupt the URL. -I keeps the interpreter isolated from cwd / env.
     urlquote='import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))'
     user_enc="$(/srv/.venv/bin/python -I -c "${urlquote}" "${POSTGRES_USER:-setvault}")"
     pw_enc="$(/srv/.venv/bin/python -I -c "${urlquote}" "${POSTGRES_PASSWORD}")"
-    DATABASE_URL="postgresql+asyncpg://${user_enc}:${pw_enc}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-setvault}"
-    unset user_enc pw_enc urlquote
+    db_enc="$(/srv/.venv/bin/python -I -c "${urlquote}" "${POSTGRES_DB:-setvault}")"
+    DATABASE_URL="postgresql+asyncpg://${user_enc}:${pw_enc}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${db_enc}"
+    unset user_enc pw_enc db_enc urlquote
   fi
 fi
 
@@ -160,9 +179,12 @@ done
 
 # The chown -R above handed .secrets to the app uid; it is read by root on the
 # next boot, so take it back. Nothing in the app reads it (services get env
-# from /run/s6/container_environment).
-chown root:root "${SECRETS_FILE}"
-chmod 600 "${SECRETS_FILE}"
+# from /run/s6/container_environment). Best-effort: some bind mounts (rootless,
+# NFS root_squash) refuse it, and that must not stop boot.
+if ! chown root:root "${SECRETS_FILE}" 2>/dev/null; then
+  echo "[setvault] WARNING: could not chown .secrets to root" >&2
+fi
+chmod 600 "${SECRETS_FILE}" 2>/dev/null || true
 
 # srv tree must be writable by app uid for the venv + caches.
 chown -R "${PUID:-1000}:${PGID:-1000}" /srv/.venv 2>/dev/null || true
