@@ -48,6 +48,11 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    ignore:
+      # Python minor upgrades are a deliberate move (wheels for every
+      # dependency, e.g. lxml, must exist first); only take patch bumps.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     commit-message:
       prefix: "chore"
       include: "scope"
