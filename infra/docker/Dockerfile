@@ -24,7 +24,7 @@ RUN cd frontend && npm run build
 
 # ── Base: native deps + s6-overlay ──────────────────────────────────────────
 # bookworm pin matches the audiowaveform deb's boost ABI.
-FROM python:3.12-slim-bookworm AS base
+FROM python:3.15-slim-bookworm AS base
 ARG TARGETARCH
 ARG S6_OVERLAY_VERSION
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
