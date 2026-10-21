@@ -56,6 +56,11 @@ until s6-setuidgid "${PUID:-1000}:${PGID:-1000}" /srv/.venv/bin/alembic upgrade 
 done
 echo "[setvault] migrations up-to-date" >&2
 
+# Repoint legacy /srv paths (old images) at the /data layout; non-fatal.
+s6-setuidgid "${PUID:-1000}:${PGID:-1000}" \
+  /srv/.venv/bin/python -m setvault_core.jobs.repair_legacy_paths \
+  || echo "[setvault] legacy path repair skipped (non-fatal)" >&2
+
 # 4) Seed the default media root from the mounted storage folder (both modes).
 # Radarr/Sonarr style: the volume bound at ${SETVAULT_MEDIA_PATH} is the library
 # and the app uses it with no Settings step. Idempotent — only seeds when no

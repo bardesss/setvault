@@ -1,0 +1,157 @@
+import asyncio
+import os
+import uuid
+
+import pytest
+from setvault_core.db import init_engine, session_factory
+from setvault_core.jobs import repair_legacy_paths as mod
+from setvault_core.jobs.repair_legacy_paths import damage_report, repair, rewrite_prefix
+from setvault_core.models.catalog import LiveSet, MediaRoot
+from setvault_core.models.identity import User
+from setvault_core.models.watch_folder import UnmatchedFile, WatchFolder
+from setvault_core.services.passwords import hash_password
+from sqlalchemy import delete, select
+
+BUNDLED = {
+    "SETVAULT_PG_EMBEDDED": "1",
+    "SETVAULT_MEDIA_PATH": "/data/media",
+    "SETVAULT_WATCH_FOLDERS_PATH": "/data/watch",
+}
+
+
+@pytest.fixture(autouse=True)
+async def _engine_and_clean():
+    init_engine(os.environ["TEST_DATABASE_URL"])
+    async def _wipe():
+        async with session_factory()() as s:
+            await s.execute(delete(UnmatchedFile))
+            await s.execute(delete(WatchFolder))
+            await s.commit()
+    await _wipe()
+    yield
+    await _wipe()
+
+
+def test_rewrite_prefix_exact_and_under():
+    assert rewrite_prefix("/srv/media", "/srv/media", "/data/media") == "/data/media"
+    assert rewrite_prefix("/srv/media/a/b", "/srv/media", "/data/media") == "/data/media/a/b"
+    assert rewrite_prefix("/srv/media/", "/srv/media", "/data/media") == "/data/media/"
+
+
+@pytest.mark.parametrize(
+    "value", ["/srv/media2", "/srv/mediabackup", "https://x/srv/media", None],
+)
+def test_rewrite_prefix_ignores_lookalikes(value):
+    assert rewrite_prefix(value, "/srv/media", "/data/media") is None
+
+
+async def _seed():
+    async with session_factory()() as s:
+        user = User(email=f"u-{uuid.uuid4().hex[:6]}@x.test",
+                    username=f"u{uuid.uuid4().hex[:6]}", display_name="u",
+                    password_hash=hash_password("aaaaaaaa"))
+        root = MediaRoot(name=f"r-{uuid.uuid4().hex[:6]}", host_path="/srv/media")
+        s.add_all([user, root])
+        await s.flush()
+        wf = WatchFolder(name="w", host_path="/srv/watch/in",
+                         target_media_root_id=root.id)
+        s.add(wf)
+        await s.flush()
+        s.add(UnmatchedFile(watch_folder_id=wf.id, file_path="/srv/watch/in/a.mp3"))
+        for slug, url in (("b", "/srv/watch/in/b.mp3"), ("c", "https://soundcloud.com/x")):
+            s.add(LiveSet(slug=f"{slug}-{uuid.uuid4().hex[:6]}", title="t",
+                          media_root_id=root.id, audio_path="x.flac",
+                          uploaded_by=user.id, source_url=url))
+        await s.commit()
+
+
+async def _values():
+    async with session_factory()() as s:
+        return (
+            (await s.execute(select(MediaRoot.host_path))).scalars().all(),
+            (await s.execute(select(WatchFolder.host_path))).scalars().all(),
+            (await s.execute(select(UnmatchedFile.file_path))).scalars().all(),
+            sorted((await s.execute(select(LiveSet.source_url))).scalars().all()),
+        )
+
+
+async def test_repair_rewrites_all_four_tables():
+    await _seed()
+    async with session_factory()() as s:
+        counts = await repair(s, BUNDLED)
+        await s.commit()
+    assert counts == {"media_roots": 1, "watch_folders": 1,
+                      "unmatched_files": 1, "live_sets": 1}
+    roots, wfs, unm, urls = await _values()
+    assert roots == ["/data/media"]
+    assert wfs == ["/data/watch/in"]
+    assert unm == ["/data/watch/in/a.mp3"]
+    assert urls == ["/data/watch/in/b.mp3", "https://soundcloud.com/x"]
+
+
+async def test_repair_is_idempotent():
+    await _seed()
+    async with session_factory()() as s:
+        await repair(s, BUNDLED)
+        await s.commit()
+    async with session_factory()() as s:
+        counts = await repair(s, BUNDLED)
+        await s.commit()
+    assert set(counts.values()) == {0}
+
+
+async def test_repair_noop_when_not_bundled():
+    await _seed()
+    before = await _values()
+    env = {k: v for k, v in BUNDLED.items() if k != "SETVAULT_PG_EMBEDDED"}
+    async with session_factory()() as s:
+        assert await repair(s, env) == {}
+        await s.commit()
+    assert await _values() == before
+
+
+async def test_repair_noop_when_effective_is_legacy():
+    await _seed()
+    before = await _values()
+    env = {**BUNDLED, "SETVAULT_MEDIA_PATH": "/srv/media",
+           "SETVAULT_WATCH_FOLDERS_PATH": "/srv/watch"}
+    async with session_factory()() as s:
+        counts = await repair(s, env)
+        await s.commit()
+    assert set(counts.values()) <= {0}
+    assert await _values() == before
+
+
+async def test_damage_report_counts_missing_files(tmp_path):
+    (tmp_path / "ok.flac").write_bytes(b"x")
+    async with session_factory()() as s:
+        user = User(email=f"u-{uuid.uuid4().hex[:6]}@x.test",
+                    username=f"u{uuid.uuid4().hex[:6]}", display_name="u",
+                    password_hash=hash_password("aaaaaaaa"))
+        root = MediaRoot(name=f"r-{uuid.uuid4().hex[:6]}", host_path=str(tmp_path))
+        s.add_all([user, root])
+        await s.flush()
+        missing = f"gone-{uuid.uuid4().hex[:6]}"
+        for slug, path in ((f"ok-{uuid.uuid4().hex[:6]}", "ok.flac"), (missing, "nope.flac")):
+            s.add(LiveSet(slug=slug, title="t", media_root_id=root.id,
+                          audio_path=path, uploaded_by=user.id))
+        await s.commit()
+    env = {**BUNDLED, "SETVAULT_MEDIA_PATH": str(tmp_path)}
+    async with session_factory()() as s:
+        assert await damage_report(s, env) == (1, [missing])
+
+
+async def test_main_is_nonfatal_on_error(monkeypatch):
+    await _seed()
+    before = await _values()
+
+    async def boom(session, env):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mod, "repair", boom)
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    for k, v in BUNDLED.items():
+        monkeypatch.setenv(k, v)
+    await asyncio.to_thread(mod.main)
+    init_engine(os.environ["TEST_DATABASE_URL"])
+    assert await _values() == before
