@@ -139,7 +139,9 @@
    light surfaces.
    ============================================================ */
 
-:root[data-theme="light"],
+/* The explicit [data-theme="light"] case is the override block below; a
+   selector list can't contain an @media rule (Vite 8's lightningcss rejects
+   it, and browsers dropped the whole rule anyway). */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     --bg-base:      #ebeae3;
