@@ -10,17 +10,16 @@ test("/me/bookmarks page renders heading", async ({ page, request }) => {
 test("set-level bookmark toggles via button", async ({ page, request }) => {
   const seed = await loginAs(page, request);
   await page.goto(`/sets/${seed.set.slug}`);
-  // Wait for the initial listForSet fetch to settle before reading the
-  // initial aria-pressed state — otherwise a pre-existing bookmark from a
-  // prior test run can land between our read and our click, making the
-  // direction of the toggle non-deterministic.
-  await page.waitForLoadState("networkidle");
 
-  // BookmarkButton now lives behind the Bookmarks tab in the SidePanel.
+  // BookmarkButton lives behind the Bookmarks tab in the SidePanel and only
+  // mounts (and fetches its list) once the tab opens.
   await page.getByRole("tab", { name: "Bookmarks" }).click();
 
+  // The button stays disabled until its initial bookmark list has loaded.
+  // Reading aria-pressed before then could see "false" while a bookmark left
+  // by an earlier test is still on its way, flipping the toggle's direction.
   const btn = page.locator("button.bookmark");
-  await btn.waitFor({ state: "visible", timeout: 15_000 });
+  await expect(btn).toBeEnabled({ timeout: 15_000 });
 
   const initial = await btn.getAttribute("aria-pressed");
   await btn.click();

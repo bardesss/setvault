@@ -8,12 +8,26 @@
   export let flat = false;
 
   let bookmarks: Bookmark[] = [];
+  // The set-level toggle stays disabled until the initial list has loaded, so
+  // its pressed state reflects the server before the user can flip it.
+  let loaded = false;
+  // Set once the user changes bookmarks locally (the B shortcut works before
+  // the list arrives); the initial load then merges instead of overwriting.
+  let touched = false;
 
   onMount(async () => {
     try {
-      bookmarks = await listForSet(slug);
+      const fetched = await listForSet(slug);
+      if (touched) {
+        const known = new Set(fetched.map((b) => b.id));
+        bookmarks = [...fetched, ...bookmarks.filter((b) => !known.has(b.id))];
+      } else {
+        bookmarks = fetched;
+      }
     } catch {
       /* best-effort */
+    } finally {
+      loaded = true;
     }
   });
 
@@ -39,6 +53,7 @@
   async function bookmarkPlayhead() {
     const t = Math.floor($player.position ?? 0);
     const b = await createBookmark(slug, t, null);
+    touched = true;
     bookmarks = [...bookmarks, b];
   }
 
@@ -61,7 +76,13 @@
 
 <svelte:window on:keydown={onKey} />
 
-<button class="bookmark" class:flat on:click={toggleSetLevel} aria-pressed={!!setBookmark}>
+<button
+  class="bookmark"
+  class:flat
+  on:click={toggleSetLevel}
+  aria-pressed={!!setBookmark}
+  disabled={!loaded}
+>
   {setBookmark ? "★" : "☆"}
   {$_(setBookmark ? "bookmarks.unsave_set" : "bookmarks.save_set")}
 </button>
