@@ -17,7 +17,9 @@ if config.config_file_name:
 
 env_url = os.environ.get("DATABASE_URL")
 if env_url:
-    config.set_main_option("sqlalchemy.url", env_url)
+    # Alembic's Config is a ConfigParser with %-interpolation, so a URL-encoded
+    # password (p%40ss) must have its % escaped or set_main_option raises.
+    config.set_main_option("sqlalchemy.url", env_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
