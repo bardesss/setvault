@@ -19,3 +19,13 @@ async def test_put_updates_rate_limit(authed_admin_client):
     body = r.json()
     assert body["rate_limit_max"] == 7
     assert body["rate_limit_window_seconds"] == 120
+
+
+@pytest.mark.asyncio
+async def test_window_zero_rejected(authed_admin_client):
+    r = await authed_admin_client.put("/api/admin/ingest-sources/youtube",
+                                      json={"enabled": True, "rate_limit_window_seconds": 0})
+    assert r.status_code == 422
+    r = await authed_admin_client.put("/api/admin/ingest-sources/youtube",
+                                      json={"enabled": True, "rate_limit_window_seconds": 1})
+    assert r.status_code == 200
