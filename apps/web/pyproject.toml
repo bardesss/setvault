@@ -6,7 +6,7 @@ dependencies = [
   "setvault-core",
   "setvault-providers",
   "setvault-ingest-sources",
-  "fastapi>=0.111",
+  "fastapi>=0.143.3",
   "uvicorn[standard]>=0.30",
   "itsdangerous>=2.2",
   "python-multipart>=0.0.9",
