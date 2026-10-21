@@ -4,7 +4,7 @@
   import FilterSidebar from "#lib/components/FilterSidebar.svelte";
   import FilterBar from "#lib/components/FilterBar.svelte";
   import BulkActionToolbar from "#lib/components/BulkActionToolbar.svelte";
-  import { invalidateAll } from "$app/navigation";
+  import { refreshAll } from "$app/navigation";
   import { session } from "#lib/stores/session.ts";
   import type { PageData } from "./$types";
 
@@ -87,7 +87,7 @@
 
   async function afterBulkAction(_action: string) {
     clearSelection();
-    await invalidateAll();
+    await refreshAll();
   }
 </script>
 

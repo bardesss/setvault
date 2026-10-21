@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { api, ApiError } from "#lib/api/client.ts";
   let password = "", error: string | null = null;
@@ -7,7 +7,7 @@
   async function submit() {
     error = null;
     try {
-      await api(`/api/password-reset/${$page.params.token}/redeem`, {
+      await api(`/api/password-reset/${page.params.token}/redeem`, {
         method: "POST",
         body: JSON.stringify({ password }),
       });

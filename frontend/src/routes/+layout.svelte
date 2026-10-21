@@ -6,7 +6,8 @@
   import "#lib/styles/components.css";
   import { onMount } from "svelte";
   import { browser } from "$app/env";
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
+  import { toStore } from "svelte/store";
   import { session } from "#lib/stores/session.ts";
   import { setupI18n } from "#lib/i18n/index.ts";
   import NavRail from "#lib/components/NavRail.svelte";
@@ -32,11 +33,14 @@
   export let data: { user: import("#lib/api/auth.ts").CurrentUser | null };
   $: session.set(data.user);
 
+  // Legacy `$:` statements don't track rune state like `page`; a store does.
+  const pageUrl = toStore(() => page.url);
+
   $: user = data.user;
-  $: showShell = !!user && !$page.url.pathname.startsWith("/login")
-                  && !$page.url.pathname.startsWith("/invite/")
-                  && !$page.url.pathname.startsWith("/reset/")
-                  && !$page.url.pathname.startsWith("/embed/");
+  $: showShell = !!user && !$pageUrl.pathname.startsWith("/login")
+                  && !$pageUrl.pathname.startsWith("/invite/")
+                  && !$pageUrl.pathname.startsWith("/reset/")
+                  && !$pageUrl.pathname.startsWith("/embed/");
 </script>
 
 <AudioHost />

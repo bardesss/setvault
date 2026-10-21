@@ -1,7 +1,7 @@
 /**
  * Offline audio cache state.
  *
- * The service worker (see `src/service-worker.ts`) does the actual caching
+ * The service worker (see `src/service-worker/index.ts`) does the actual caching
  * and quota enforcement. This store wraps the read side:
  *
  *  - The user-configured cap lives in localStorage so it survives reloads.

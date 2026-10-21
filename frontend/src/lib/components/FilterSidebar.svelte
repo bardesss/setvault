@@ -1,17 +1,21 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
+  import { toStore } from "svelte/store";
 
   export let tags: string[] = [];
   export let venueKinds: string[] = [];
   export let years: number[] = [];
 
+  // Legacy `$:` statements don't track rune state like `page`; a store does.
+  const pageUrl = toStore(() => page.url);
+
   function setParam(key: string, value: string | null) {
-    const params = new URLSearchParams($page.url.searchParams);
+    const params = new URLSearchParams(page.url.searchParams.toString());
     if (value && value !== "") params.set(key, value);
     else params.delete(key);
     const qs = params.toString();
-    goto(qs ? `?${qs}` : "?", { keepFocus: true, replaceState: true });
+    goto(qs ? `?${qs}` : "?", { reset: false, replace: true });
   }
 
   function onSelect(key: string, event: Event) {
@@ -19,9 +23,9 @@
     setParam(key, target.value);
   }
 
-  $: currentTag = $page.url.searchParams.get("tag") ?? "";
-  $: currentVenueKind = $page.url.searchParams.get("venue_kind") ?? "";
-  $: currentYear = $page.url.searchParams.get("year") ?? "";
+  $: currentTag = $pageUrl.searchParams.get("tag") ?? "";
+  $: currentVenueKind = $pageUrl.searchParams.get("venue_kind") ?? "";
+  $: currentYear = $pageUrl.searchParams.get("year") ?? "";
 </script>
 
 <aside class="filter-sidebar" aria-label="Filters">

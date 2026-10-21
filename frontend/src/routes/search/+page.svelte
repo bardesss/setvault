@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { _ } from "svelte-i18n";
   import FilterBar from "#lib/components/FilterBar.svelte";
@@ -71,7 +71,7 @@
   }
 
   onMount(() => {
-    const q = $page.url.searchParams.get("q") ?? "";
+    const q = page.url.searchParams.get("q") ?? "";
     query = q;
     initialized = true;
     if (q) runSearch(q);
@@ -87,9 +87,8 @@
 
   async function runSearch(q: string) {
     goto(`/search?q=${encodeURIComponent(q)}`, {
-      keepFocus: true,
-      noScroll: true,
-      replaceState: true,
+      reset: false,
+      replace: true,
     });
     if (!q) {
       results = null;

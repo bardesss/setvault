@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
+  import { toStore } from "svelte/store";
   import { api, ApiError } from "#lib/api/client.ts";
   import { session } from "#lib/stores/session.ts";
 
@@ -30,7 +31,9 @@
     { href: "/admin/system", label: "System" },
   ];
 
-  $: currentPath = $page.url.pathname;
+  // Legacy `$:` statements don't track rune state like `page`; a store does.
+  const pageUrl = toStore(() => page.url);
+  $: currentPath = $pageUrl.pathname;
 
   // New-version banner (§J16). Snooze persists in LocalStorage for 24h.
   interface HealthVersion {

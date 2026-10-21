@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import { invalidateAll } from "$app/navigation";
+  import { refreshAll } from "$app/navigation";
   import { _ } from "svelte-i18n";
   import { login } from "#lib/api/auth.ts";
   import { ApiError } from "#lib/api/client.ts";
@@ -13,7 +13,7 @@
     error = null; busy = true;
     try {
       await login(email, password);
-      await invalidateAll();
+      await refreshAll();
       await goto("/");
     } catch (e) {
       error = e instanceof ApiError && e.status === 429
