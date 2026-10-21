@@ -174,6 +174,35 @@ Read the [CHANGELOG](CHANGELOG.md) before any major/minor bump. Notably, bundled
 **Postgres 18** in `v0.6.0`: a PG 16 data dir is not compatible — back up on 16, start `v0.6.0`+ on a
 fresh data dir, and restore (see below).
 
+> ⚠️ **Upgrading a bundled install from ≤ 0.19.x**
+>
+> Older bundled images kept media, config and watch folders under `/srv` inside the container
+> unless you mounted them, so they lived in the container layer and **an update threw them away**.
+> New images keep everything under `/data`. Check whether you're affected:
+>
+> ```bash
+> docker exec <container> sh -c 'printenv | grep SETVAULT_; du -sh /srv/media /srv/config'
+> ```
+>
+> You're affected if `SETVAULT_MEDIA_PATH=/srv/media`, those paths aren't mounts, and `du` shows data.
+> Then run this **before** pulling the new image (`-n` never overwrites; copying the cache is optional):
+>
+> ```bash
+> docker exec <container> sh -c 'cp -an /srv/media/. /data/media/ && cp -an /srv/config/. /data/config/ && cp -an /srv/watch/. /data/watch/'
+> ```
+>
+> - **Hard links:** media hardlinked from watch folders become separate copies (more disk use).
+> - **If you skip it**, files already in the container layer are lost on update. The boot log
+>   warns and lists the sets whose audio is gone. Database paths pointing at `/srv` are repointed
+>   at `/data` automatically on boot.
+> - **SECRET_KEY:** if you never set it and `.secrets` sat in the layer, each past update made a new
+>   key. Users must sign in again, and SMTP or connector settings saved under an old key must be re-entered.
+> - **Sessions:** signed-in sessions survive this upgrade. From now on, disabling a user or
+>   changing/resetting a password signs that user out everywhere.
+> - **External mode:** a `.secrets` file on a host bind mount is now `root`-owned `0600`; read it with `sudo`.
+> - **Postgres names:** mixed-case `POSTGRES_DB` / `POSTGRES_USER` are now kept as given. Changing
+>   `POSTGRES_USER` after first boot isn't supported: the database stays owned by the original role.
+
 ## 💾 Backup & restore
 
 The admin backup endpoint streams a tarball of a fresh `pg_dump` + your media:
