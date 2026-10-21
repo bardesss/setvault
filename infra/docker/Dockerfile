@@ -138,14 +138,13 @@ ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 
 # Defaults for the noob-friendly compose path. DATABASE_URL is left
 # unset so cont-init can synthesize it from POSTGRES_PASSWORD; override
-# directly if you point at an external postgres.
+# directly if you point at an external postgres. The SETVAULT_*_PATH data
+# dirs are deliberately NOT preset here: cont-init.d/00-mode resolves them per
+# mode (bundled => /data/<x>, or a mounted /srv/<x>; external => /srv/<x>), and
+# an image-level default would mask the bundled /data defaults.
 ENV POSTGRES_USER=setvault \
     POSTGRES_DB=setvault \
     POSTGRES_PORT=5432 \
-    SETVAULT_MEDIA_PATH=/srv/media \
-    SETVAULT_CACHE_PATH=/srv/cache \
-    SETVAULT_CONFIG_PATH=/srv/config \
-    SETVAULT_WATCH_FOLDERS_PATH=/srv/watch \
     PUID=1000 \
     PGID=1000
 

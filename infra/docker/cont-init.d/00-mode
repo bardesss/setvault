@@ -22,12 +22,39 @@ if ! getent passwd "${PUID:-1000}" >/dev/null 2>&1; then
   echo "setvault:x:${PUID:-1000}:${PGID:-1000}:SetVault:/srv:/usr/sbin/nologin" >> /etc/passwd
 fi
 
-# Bundled (single-container) => one /data volume, unless user overrode paths.
+# True if $1 is a mount point. Prefer util-linux mountpoint(1); fall back to
+# matching field 5 (the mount point) of /proc/self/mountinfo.
+is_mounted() {
+  if command -v mountpoint >/dev/null 2>&1; then
+    mountpoint -q "$1"
+  else
+    awk -v p="$1" '$5 == p { found = 1 } END { exit !found }' /proc/self/mountinfo 2>/dev/null
+  fi
+}
+
+# Bundled data dir for one variable: keep a user-set value; else a mounted
+# legacy /srv/<x> (checked every boot, so it sticks while the mount exists);
+# else /data/<x>.
+resolve_bundled_dir() {
+  local var="$1" name="$2"
+  if [ -n "${!var:-}" ]; then
+    return 0
+  fi
+  if is_mounted "/srv/${name}"; then
+    printf -v "${var}" '%s' "/srv/${name}"
+    echo "[setvault] using mounted /srv/${name}" >&2
+  else
+    printf -v "${var}" '%s' "/data/${name}"
+  fi
+}
+
+# Bundled (single-container) => one /data volume, unless user overrode paths
+# or mounted the legacy /srv/<x> location.
 if [ "${SETVAULT_PG_EMBEDDED}" = "1" ]; then
-  : "${SETVAULT_MEDIA_PATH:=/data/media}"
-  : "${SETVAULT_CACHE_PATH:=/data/cache}"
-  : "${SETVAULT_CONFIG_PATH:=/data/config}"
-  : "${SETVAULT_WATCH_FOLDERS_PATH:=/data/watch}"
+  resolve_bundled_dir SETVAULT_MEDIA_PATH         media
+  resolve_bundled_dir SETVAULT_CACHE_PATH         cache
+  resolve_bundled_dir SETVAULT_CONFIG_PATH        config
+  resolve_bundled_dir SETVAULT_WATCH_FOLDERS_PATH watch
   : "${SETVAULT_PGDATA:=/data/db}"
   : "${SETVAULT_REDIS_DIR:=/data/redis}"
 else
