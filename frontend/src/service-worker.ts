@@ -1,6 +1,6 @@
 /// <reference types="@sveltejs/kit" />
 import { build, files, version } from "$service-worker";
-import { chooseStrategy } from "$lib/sw-strategy";
+import { chooseStrategy } from "#lib/sw-strategy.ts";
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 

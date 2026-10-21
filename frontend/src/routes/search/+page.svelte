@@ -3,10 +3,10 @@
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { _ } from "svelte-i18n";
-  import FilterBar from "$lib/components/FilterBar.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import { searchSources, type SourceCandidate } from "$lib/api/ingest_sources";
-  import { submitUrl } from "$lib/api/url_rip";
+  import FilterBar from "#lib/components/FilterBar.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import { searchSources, type SourceCandidate } from "#lib/api/ingest_sources.ts";
+  import { submitUrl } from "#lib/api/url_rip.ts";
 
   type SearchResults = {
     sets: { slug: string; title: string }[];

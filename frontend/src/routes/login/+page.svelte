@@ -2,8 +2,8 @@
   import { goto } from "$app/navigation";
   import { invalidateAll } from "$app/navigation";
   import { _ } from "svelte-i18n";
-  import { login } from "$lib/api/auth";
-  import { ApiError } from "$lib/api/client";
+  import { login } from "#lib/api/auth.ts";
+  import { ApiError } from "#lib/api/client.ts";
   let email = "";
   let password = "";
   let error: string | null = null;

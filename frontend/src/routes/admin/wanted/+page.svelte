@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { locale } from "svelte-i18n";
-  import { api, ApiError } from "$lib/api/client";
-  import AdminTable from "$lib/components/AdminTable.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import { fmtLocalDateTime, searchRefusal, wantedResult, type WantedEvent } from "$lib/wanted";
+  import { api, ApiError } from "#lib/api/client.ts";
+  import AdminTable from "#lib/components/AdminTable.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import { fmtLocalDateTime, searchRefusal, wantedResult, type WantedEvent } from "#lib/wanted.ts";
 
   interface WantedItem {
     id: string;

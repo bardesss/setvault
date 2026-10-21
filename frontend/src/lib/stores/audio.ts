@@ -1,8 +1,8 @@
 import { writable, get } from "svelte/store";
-import { browser } from "$app/environment";
-import type { SetDetail } from "$lib/api/sets";
-import { getSetState, putSetState } from "$lib/api/sets";
-import { listTracklist, type TracklistEntry } from "$lib/api/tracklist";
+import { browser } from "$app/env";
+import type { SetDetail } from "#lib/api/sets.ts";
+import { getSetState, putSetState } from "#lib/api/sets.ts";
+import { listTracklist, type TracklistEntry } from "#lib/api/tracklist.ts";
 
 export interface PlayerState {
   set: SetDetail | null;

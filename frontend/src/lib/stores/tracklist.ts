@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
-import type { TracklistEntry } from "$lib/api/tracklist";
+import type { TracklistEntry } from "#lib/api/tracklist.ts";
 
 interface TracklistState {
   entries: TracklistEntry[];

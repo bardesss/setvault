@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import * as audio from "$lib/stores/audio";
+  import * as audio from "#lib/stores/audio.ts";
 
   onMount(() => {
     audio.init();

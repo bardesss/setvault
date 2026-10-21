@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
-  import { api, ApiError } from "$lib/api/client";
+  import { api, ApiError } from "#lib/api/client.ts";
   let password = "", error: string | null = null;
 
   async function submit() {

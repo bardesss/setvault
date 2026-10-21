@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import Waveform from "$lib/components/Waveform.svelte";
-  import type { SetDetail } from "$lib/api/sets";
-  import { player, load, toggle, seekBy, setRate, clearLoop, formatTime, fullscreenOpen } from "$lib/stores/audio";
+  import Waveform from "#lib/components/Waveform.svelte";
+  import type { SetDetail } from "#lib/api/sets.ts";
+  import { player, load, toggle, seekBy, setRate, clearLoop, formatTime, fullscreenOpen } from "#lib/stores/audio.ts";
 
   export let set: SetDetail;
 

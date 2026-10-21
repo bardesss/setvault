@@ -1,8 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import { _ } from "svelte-i18n";
-  import { postComment } from "$lib/api/comments";
-  import { player } from "$lib/stores/audio";
+  import { postComment } from "#lib/api/comments.ts";
+  import { player } from "#lib/stores/audio.ts";
 
   export let slug: string;
   export let parent_id: string | null = null;

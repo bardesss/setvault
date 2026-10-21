@@ -1,10 +1,10 @@
 <script lang="ts">
   import { invalidateAll, goto } from "$app/navigation";
   import { _ } from "svelte-i18n";
-  import AdminTable from "$lib/components/AdminTable.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import { mergeEntities, deleteEntity, unmergeEntity } from "$lib/api/catalog_admin";
-  import type { EntityKind } from "$lib/api/catalog";
+  import AdminTable from "#lib/components/AdminTable.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import { mergeEntities, deleteEntity, unmergeEntity } from "#lib/api/catalog_admin.ts";
+  import type { EntityKind } from "#lib/api/catalog.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;

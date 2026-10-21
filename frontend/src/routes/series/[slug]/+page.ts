@@ -1,7 +1,7 @@
 // frontend/src/routes/series/[slug]/+page.ts
 import { error } from "@sveltejs/kit";
 import type { PageLoad } from "./$types";
-import { getSeries, getEntitySets, type Series, type EntitySet } from "$lib/api/catalog";
+import { getSeries, getEntitySets, type Series, type EntitySet } from "#lib/api/catalog.ts";
 
 export const load: PageLoad = async ({ params }) => {
   let series: Series;

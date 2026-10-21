@@ -1,8 +1,8 @@
 <script lang="ts">
   import { _ } from "svelte-i18n";
-  import AddSetUrlTab from "$lib/components/AddSetUrlTab.svelte";
-  import Uploader from "$lib/components/Uploader.svelte";
-  import TabStrip from "$lib/components/TabStrip.svelte";
+  import AddSetUrlTab from "#lib/components/AddSetUrlTab.svelte";
+  import Uploader from "#lib/components/Uploader.svelte";
+  import TabStrip from "#lib/components/TabStrip.svelte";
 
   let active = "upload";
   $: tabs = [

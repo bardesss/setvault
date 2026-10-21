@@ -1,11 +1,11 @@
 <script lang="ts">
-  import SetCard from "$lib/components/SetCard.svelte";
-  import SetRow from "$lib/components/SetRow.svelte";
-  import FilterSidebar from "$lib/components/FilterSidebar.svelte";
-  import FilterBar from "$lib/components/FilterBar.svelte";
-  import BulkActionToolbar from "$lib/components/BulkActionToolbar.svelte";
+  import SetCard from "#lib/components/SetCard.svelte";
+  import SetRow from "#lib/components/SetRow.svelte";
+  import FilterSidebar from "#lib/components/FilterSidebar.svelte";
+  import FilterBar from "#lib/components/FilterBar.svelte";
+  import BulkActionToolbar from "#lib/components/BulkActionToolbar.svelte";
   import { invalidateAll } from "$app/navigation";
-  import { session } from "$lib/stores/session";
+  import { session } from "#lib/stores/session.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;

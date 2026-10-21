@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import { ApiError } from "$lib/api/client";
-  import { submitUrl, listMyRipJobs, hasActiveRips, replaceRipJob, type RipJob } from "$lib/api/url_rip";
+  import { ApiError } from "#lib/api/client.ts";
+  import { submitUrl, listMyRipJobs, hasActiveRips, replaceRipJob, type RipJob } from "#lib/api/url_rip.ts";
   import RipJobRow from "./RipJobRow.svelte";
 
   let url = "";

@@ -1,6 +1,6 @@
 import { error } from "@sveltejs/kit";
 import type { PageLoad } from "./$types";
-import type { SetSummary } from "$lib/api/sets";
+import type { SetSummary } from "#lib/api/sets.ts";
 
 export const load: PageLoad = async ({ fetch }) => {
   // Auth is enforced by the API: an unauthenticated /api/sets returns 401,

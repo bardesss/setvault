@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PageData } from "./$types";
-  import AdminTable from "$lib/components/AdminTable.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
+  import AdminTable from "#lib/components/AdminTable.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
   export let data: PageData;
 
   function formatBytes(n: number | null): string {

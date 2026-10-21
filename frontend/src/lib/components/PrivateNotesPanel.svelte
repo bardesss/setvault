@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import { getNote, saveNote, type PrivateNote } from "$lib/api/notes";
+  import { getNote, saveNote, type PrivateNote } from "#lib/api/notes.ts";
 
   export let slug: string;
   export let flat = false;

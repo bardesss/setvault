@@ -1,5 +1,5 @@
 import { redirect } from "@sveltejs/kit";
-import { isPublicRoute } from "$lib/auth/routes";
+import { isPublicRoute } from "#lib/auth/routes.ts";
 import type { LayoutLoad } from "./$types";
 
 // Pure client-side SPA: the bundled image serves the static build via FastAPI,

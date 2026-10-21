@@ -1,8 +1,8 @@
 <script lang="ts">
   import { goto, invalidateAll } from "$app/navigation";
   import { _ } from "svelte-i18n";
-  import { setupFirstAdmin } from "$lib/api/auth";
-  import { ApiError } from "$lib/api/client";
+  import { setupFirstAdmin } from "#lib/api/auth.ts";
+  import { ApiError } from "#lib/api/client.ts";
 
   let email = "";
   let displayName = "";

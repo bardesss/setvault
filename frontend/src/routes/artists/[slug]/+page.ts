@@ -1,6 +1,6 @@
 import { error } from "@sveltejs/kit";
 import type { PageLoad } from "./$types";
-import { getArtist, getEntitySets, type Artist, type EntitySet } from "$lib/api/catalog";
+import { getArtist, getEntitySets, type Artist, type EntitySet } from "#lib/api/catalog.ts";
 
 export const load: PageLoad = async ({ fetch, params }) => {
   void fetch; // universal load runs in the browser; api() uses window.fetch

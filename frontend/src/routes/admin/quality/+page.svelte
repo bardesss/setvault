@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, ApiError } from "$lib/api/client";
+  import { api, ApiError } from "#lib/api/client.ts";
   import {
     getSettings,
     updateSettings,
     type AdminSettings,
-  } from "$lib/api/settings";
+  } from "#lib/api/settings.ts";
 
   const TIER_LABELS: Record<string, string> = {
     lossless: "Lossless", high: "High", good: "Good", ok: "OK", low: "Low",

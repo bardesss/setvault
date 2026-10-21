@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import WaveSurfer from "wavesurfer.js";
-  import { listComments } from "$lib/api/comments";
-  import { player, seekTo } from "$lib/stores/audio";
+  import { listComments } from "#lib/api/comments.ts";
+  import { player, seekTo } from "#lib/stores/audio.ts";
 
   export let slug: string;
   export let url: string;

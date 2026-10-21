@@ -30,5 +30,8 @@
     "marked": "^18.1.1",
     "svelte-i18n": "^4.0.0",
     "tus-js-client": "^4.3.1"
+  },
+  "imports": {
+    "#lib/*": "./src/lib/*"
   }
 }

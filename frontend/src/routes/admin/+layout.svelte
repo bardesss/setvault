@@ -2,8 +2,8 @@
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/stores";
-  import { api, ApiError } from "$lib/api/client";
-  import { session } from "$lib/stores/session";
+  import { api, ApiError } from "#lib/api/client.ts";
+  import { session } from "#lib/stores/session.ts";
 
   $: if ($session && $session.role !== "admin") {
     void goto("/");

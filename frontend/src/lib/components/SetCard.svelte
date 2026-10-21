@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { SetSummary } from "$lib/api/sets";
+  import type { SetSummary } from "#lib/api/sets.ts";
   export let set: SetSummary;
 </script>
 

@@ -1,6 +1,6 @@
 import type { PageLoad } from "./$types";
-import { listEntities, listDuplicates, listMerged, type EntityRow, type MergedRow } from "$lib/api/catalog_admin";
-import type { EntityKind } from "$lib/api/catalog";
+import { listEntities, listDuplicates, listMerged, type EntityRow, type MergedRow } from "#lib/api/catalog_admin.ts";
+import type { EntityKind } from "#lib/api/catalog.ts";
 
 export const ssr = false;
 

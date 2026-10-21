@@ -1,8 +1,8 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { _ } from "svelte-i18n";
-  import NotificationBell from "$lib/components/NotificationBell.svelte";
-  import type { CurrentUser } from "$lib/api/auth";
+  import NotificationBell from "#lib/components/NotificationBell.svelte";
+  import type { CurrentUser } from "#lib/api/auth.ts";
 
   export let user: CurrentUser;
 

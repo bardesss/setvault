@@ -1,8 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import { _ } from "svelte-i18n";
-  import { deleteEntry, patchEntry, type TracklistEntry } from "$lib/api/tracklist";
-  import { upsertEntry, removeEntry } from "$lib/stores/tracklist";
+  import { deleteEntry, patchEntry, type TracklistEntry } from "#lib/api/tracklist.ts";
+  import { upsertEntry, removeEntry } from "#lib/stores/tracklist.ts";
 
   export let slug: string;
   export let entry: TracklistEntry;

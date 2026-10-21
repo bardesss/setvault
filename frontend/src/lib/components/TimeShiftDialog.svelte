@@ -1,8 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import { _ } from "svelte-i18n";
-  import { listTracklist, timeShift } from "$lib/api/tracklist";
-  import { setEntries, tracklist } from "$lib/stores/tracklist";
+  import { listTracklist, timeShift } from "#lib/api/tracklist.ts";
+  import { setEntries, tracklist } from "#lib/stores/tracklist.ts";
 
   export let slug: string;
 

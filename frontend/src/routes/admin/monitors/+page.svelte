@@ -1,13 +1,13 @@
 <script lang="ts">
   import { _ } from "svelte-i18n";
-  import AdminTable from "$lib/components/AdminTable.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
+  import AdminTable from "#lib/components/AdminTable.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
   import {
     createMonitor,
     deleteMonitor,
     setMonitorEnabled,
     type Monitor,
-  } from "$lib/api/monitors";
+  } from "#lib/api/monitors.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;

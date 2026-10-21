@@ -1,8 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import { _ } from "svelte-i18n";
-  import { ApiError } from "$lib/api/client";
-  import { submitUrl, canRetry, type RipJob } from "$lib/api/url_rip";
+  import { ApiError } from "#lib/api/client.ts";
+  import { submitUrl, canRetry, type RipJob } from "#lib/api/url_rip.ts";
 
   export let job: RipJob;
   $: title = (job.probed_metadata?.title as string) ?? job.source_url;

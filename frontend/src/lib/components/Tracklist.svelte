@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import { bulkResolve } from "$lib/api/enrichment";
-  import { createEntry, listTracklist, type TracklistEntry } from "$lib/api/tracklist";
-  import { player, seekTo } from "$lib/stores/audio";
-  import { tracklist, setEntries, upsertEntry, removeEntry } from "$lib/stores/tracklist";
+  import { bulkResolve } from "#lib/api/enrichment.ts";
+  import { createEntry, listTracklist, type TracklistEntry } from "#lib/api/tracklist.ts";
+  import { player, seekTo } from "#lib/stores/audio.ts";
+  import { tracklist, setEntries, upsertEntry, removeEntry } from "#lib/stores/tracklist.ts";
   import ResolveCandidatesPopover from "./ResolveCandidatesPopover.svelte";
   import TracklistEditDrawer from "./TracklistEditDrawer.svelte";
   import TracklistImportModal from "./TracklistImportModal.svelte";

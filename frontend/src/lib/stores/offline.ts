@@ -10,7 +10,7 @@
  *  - `setCap()` updates localStorage AND posts the new cap to the SW so
  *    eviction kicks in immediately for the next audio fetch.
  */
-import { browser } from "$app/environment";
+import { browser } from "$app/env";
 import { writable } from "svelte/store";
 
 export interface OfflineState {

@@ -1,6 +1,6 @@
 import { error } from "@sveltejs/kit";
 import type { PageLoad } from "./$types";
-import type { SetDetail } from "$lib/api/sets";
+import type { SetDetail } from "#lib/api/sets.ts";
 
 export const load: PageLoad = async ({ fetch, params }) => {
   const response = await fetch(`/api/sets/${params.slug}`);

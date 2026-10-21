@@ -1,10 +1,10 @@
 <script lang="ts">
   import { _ } from "svelte-i18n";
-  import EntitySetsGrid from "$lib/components/EntitySetsGrid.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import { patchArtist } from "$lib/api/catalog";
-  import { enrichArtist } from "$lib/api/catalog_admin";
-  import { ApiError } from "$lib/api/client";
+  import EntitySetsGrid from "#lib/components/EntitySetsGrid.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import { patchArtist } from "#lib/api/catalog.ts";
+  import { enrichArtist } from "#lib/api/catalog_admin.ts";
+  import { ApiError } from "#lib/api/client.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
-  import { logout } from "$lib/api/auth";
-  import type { CurrentUser } from "$lib/api/auth";
+  import { logout } from "#lib/api/auth.ts";
+  import type { CurrentUser } from "#lib/api/auth.ts";
 
   export let user: CurrentUser;
 

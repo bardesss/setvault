@@ -2,13 +2,13 @@
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
   import type { PageData } from "./$types";
-  import AdminTable from "$lib/components/AdminTable.svelte";
-  import StatusBlock from "$lib/components/StatusBlock.svelte";
+  import AdminTable from "#lib/components/AdminTable.svelte";
+  import StatusBlock from "#lib/components/StatusBlock.svelte";
   import {
     getSettings,
     updateSettings,
     type AdminSettings,
-  } from "$lib/api/settings";
+  } from "#lib/api/settings.ts";
   export let data: PageData;
 
   $: envEntries = Object.entries(data.info.env).sort(([a], [b]) =>

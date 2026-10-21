@@ -2,7 +2,7 @@
   import { page } from "$app/stores";
   import { invalidateAll, goto } from "$app/navigation";
   import { _ } from "svelte-i18n";
-  import { api, ApiError } from "$lib/api/client";
+  import { api, ApiError } from "#lib/api/client.ts";
   let username = "", display_name = "", password = "", error: string | null = null;
 
   async function accept() {

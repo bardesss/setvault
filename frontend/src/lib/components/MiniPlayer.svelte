@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { player, fullscreenOpen, toggle, formatTime } from "$lib/stores/audio";
+  import { player, fullscreenOpen, toggle, formatTime } from "#lib/stores/audio.ts";
 
   $: st = $player;
   $: pct = st.duration > 0 ? Math.min(100, (st.position / st.duration) * 100) : 0;

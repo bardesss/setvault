@@ -1,6 +1,6 @@
 <script lang="ts">
   import { _ } from "svelte-i18n";
-  import { api, ApiError } from "$lib/api/client";
+  import { api, ApiError } from "#lib/api/client.ts";
 
   export let slug: string;
   export let allowed: boolean;
