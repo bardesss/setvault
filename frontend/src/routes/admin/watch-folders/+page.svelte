@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, ApiError } from "$lib/api/client";
-  import AdminTable from "$lib/components/AdminTable.svelte";
-  import AdminForm from "$lib/components/AdminForm.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
+  import { api, ApiError } from "#lib/api/client.ts";
+  import AdminTable from "#lib/components/AdminTable.svelte";
+  import AdminForm from "#lib/components/AdminForm.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
 
   interface WatchFolder {
     id: string;

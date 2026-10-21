@@ -1,4 +1,4 @@
-import { listMonitors } from "$lib/api/monitors";
+import { listMonitors } from "#lib/api/monitors.ts";
 import type { PageLoad } from "./$types";
 
 export const load: PageLoad = async () => {

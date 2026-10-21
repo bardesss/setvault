@@ -1,4 +1,4 @@
-import { listDiscoveries } from "$lib/api/monitors";
+import { listDiscoveries } from "#lib/api/monitors.ts";
 import type { PageLoad } from "./$types";
 
 export const ssr = false;

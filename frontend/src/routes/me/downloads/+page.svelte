@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import RipJobRow from "$lib/components/RipJobRow.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
+  import RipJobRow from "#lib/components/RipJobRow.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
   import {
     listMyRipJobs,
     hasActiveRips,
@@ -11,7 +11,7 @@
     deleteRipJob,
     clearFinishedRipJobs,
     type RipJob,
-  } from "$lib/api/url_rip";
+  } from "#lib/api/url_rip.ts";
 
   let jobs: RipJob[] = [];
   let loaded = false;

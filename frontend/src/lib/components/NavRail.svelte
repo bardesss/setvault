@@ -1,12 +1,15 @@
 <script lang="ts">
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
+  import { toStore } from "svelte/store";
   import { goto } from "$app/navigation";
-  import { logout } from "$lib/api/auth";
-  import type { CurrentUser } from "$lib/api/auth";
+  import { logout } from "#lib/api/auth.ts";
+  import type { CurrentUser } from "#lib/api/auth.ts";
 
   export let user: CurrentUser;
 
-  $: pathname = $page.url.pathname;
+  // Legacy `$:` statements don't track rune state like `page`; a store does.
+  const pageUrl = toStore(() => page.url);
+  $: pathname = $pageUrl.pathname;
 
   function active(href: string): boolean {
     if (href === "/") return pathname === "/";

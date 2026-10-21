@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { uploadFile, type UploadProgress } from "$lib/api/uploads";
+  import { uploadFile, type UploadProgress } from "#lib/api/uploads.ts";
 
   let file: File | null = null;
   let progress: UploadProgress | null = null;

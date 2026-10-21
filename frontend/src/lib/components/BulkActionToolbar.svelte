@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, ApiError } from "$lib/api/client";
+  import { api, ApiError } from "#lib/api/client.ts";
 
   export let selectedIds: string[];
   export let onCleared: () => void;

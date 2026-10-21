@@ -1,19 +1,20 @@
 <script lang="ts">
-  import "$lib/styles/fonts.css";
-  import "$lib/styles/tokens.css";
-  import "$lib/styles/_breakpoints.css";
-  import "$lib/styles/base.css";
-  import "$lib/styles/components.css";
+  import "#lib/styles/fonts.css";
+  import "#lib/styles/tokens.css";
+  import "#lib/styles/_breakpoints.css";
+  import "#lib/styles/base.css";
+  import "#lib/styles/components.css";
   import { onMount } from "svelte";
-  import { browser } from "$app/environment";
-  import { page } from "$app/stores";
-  import { session } from "$lib/stores/session";
-  import { setupI18n } from "$lib/i18n";
-  import NavRail from "$lib/components/NavRail.svelte";
-  import TopBar from "$lib/components/TopBar.svelte";
-  import MiniPlayer from "$lib/components/MiniPlayer.svelte";
-  import FullScreenPlayer from "$lib/components/FullScreenPlayer.svelte";
-  import AudioHost from "$lib/components/AudioHost.svelte";
+  import { browser } from "$app/env";
+  import { page } from "$app/state";
+  import { toStore } from "svelte/store";
+  import { session } from "#lib/stores/session.ts";
+  import { setupI18n } from "#lib/i18n/index.ts";
+  import NavRail from "#lib/components/NavRail.svelte";
+  import TopBar from "#lib/components/TopBar.svelte";
+  import MiniPlayer from "#lib/components/MiniPlayer.svelte";
+  import FullScreenPlayer from "#lib/components/FullScreenPlayer.svelte";
+  import AudioHost from "#lib/components/AudioHost.svelte";
 
   setupI18n();
 
@@ -29,14 +30,17 @@
     }
   });
 
-  export let data: { user: import("$lib/api/auth").CurrentUser | null };
+  export let data: { user: import("#lib/api/auth.ts").CurrentUser | null };
   $: session.set(data.user);
 
+  // Legacy `$:` statements don't track rune state like `page`; a store does.
+  const pageUrl = toStore(() => page.url);
+
   $: user = data.user;
-  $: showShell = !!user && !$page.url.pathname.startsWith("/login")
-                  && !$page.url.pathname.startsWith("/invite/")
-                  && !$page.url.pathname.startsWith("/reset/")
-                  && !$page.url.pathname.startsWith("/embed/");
+  $: showShell = !!user && !$pageUrl.pathname.startsWith("/login")
+                  && !$pageUrl.pathname.startsWith("/invite/")
+                  && !$pageUrl.pathname.startsWith("/reset/")
+                  && !$pageUrl.pathname.startsWith("/embed/");
 </script>
 
 <AudioHost />

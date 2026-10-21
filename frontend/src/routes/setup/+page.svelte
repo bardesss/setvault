@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { goto, invalidateAll } from "$app/navigation";
+  import { goto, refreshAll } from "$app/navigation";
   import { _ } from "svelte-i18n";
-  import { setupFirstAdmin } from "$lib/api/auth";
-  import { ApiError } from "$lib/api/client";
+  import { setupFirstAdmin } from "#lib/api/auth.ts";
+  import { ApiError } from "#lib/api/client.ts";
 
   let email = "";
   let displayName = "";
@@ -18,7 +18,7 @@
     busy = true;
     try {
       await setupFirstAdmin(email.trim(), password, displayName || undefined);
-      await invalidateAll();
+      await refreshAll();
       await goto("/");
     } catch (e) {
       error = e instanceof ApiError ? e.detail : $_("setup.error_generic");

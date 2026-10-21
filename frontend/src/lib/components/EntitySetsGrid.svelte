@@ -1,6 +1,6 @@
 <!-- frontend/src/lib/components/EntitySetsGrid.svelte -->
 <script lang="ts">
-  import type { EntitySet } from "$lib/api/catalog";
+  import type { EntitySet } from "#lib/api/catalog.ts";
   export let sets: EntitySet[];
 </script>
 

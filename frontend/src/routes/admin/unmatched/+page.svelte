@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, ApiError } from "$lib/api/client";
-  import AdminTable from "$lib/components/AdminTable.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
+  import { api, ApiError } from "#lib/api/client.ts";
+  import AdminTable from "#lib/components/AdminTable.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
 
   interface UnmatchedFile {
     id: string;

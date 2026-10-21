@@ -1,16 +1,18 @@
-/// <reference types="@sveltejs/kit" />
-import { build, files, version } from "$service-worker";
-import { chooseStrategy } from "$lib/sw-strategy";
-
-const sw = self as unknown as ServiceWorkerGlobalScope;
+import { version } from "$app/env";
+import { assets, immutable } from "$app/manifest";
+import { self as sw } from "$app/service-worker";
+import { chooseStrategy } from "#lib/sw-strategy.ts";
 
 const CACHE_VERSION = `setvault-${version}`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const AUDIO_CACHE = `${CACHE_VERSION}-audio`;
 
-// build = SvelteKit chunks; files = everything under static/.
-const PRECACHE_URLS = [...build, ...files];
+// immutable = SvelteKit chunks; assets = everything under static/.
+// $app/manifest paths are relative to the base path; the app is served from
+// the root (see the "/service-worker.js" registration), so make them absolute
+// to match the URL pathnames chooseStrategy() compares against.
+const PRECACHE_URLS = [...immutable, ...assets].map(({ path }) => `/${path}`);
 
 sw.addEventListener("install", (event) => {
   event.waitUntil(

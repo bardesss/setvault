@@ -5,9 +5,9 @@
     upsertProvider,
     type ProviderConfig,
     type ProviderKind,
-  } from "$lib/api/providers";
-  import AdminTable from "$lib/components/AdminTable.svelte";
-  import AdminForm from "$lib/components/AdminForm.svelte";
+  } from "#lib/api/providers.ts";
+  import AdminTable from "#lib/components/AdminTable.svelte";
+  import AdminForm from "#lib/components/AdminForm.svelte";
   import type { PageData } from "./$types";
 
   export let data: PageData;

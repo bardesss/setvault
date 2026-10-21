@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, ApiError } from "$lib/api/client";
-  import AdminTable from "$lib/components/AdminTable.svelte";
-  import StatusBlock from "$lib/components/StatusBlock.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
+  import { api, ApiError } from "#lib/api/client.ts";
+  import AdminTable from "#lib/components/AdminTable.svelte";
+  import StatusBlock from "#lib/components/StatusBlock.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
 
   interface HealthPayload {
     version: {

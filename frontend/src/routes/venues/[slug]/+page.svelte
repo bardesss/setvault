@@ -1,10 +1,10 @@
 <!-- frontend/src/routes/venues/[slug]/+page.svelte -->
 <script lang="ts">
   import { _ } from "svelte-i18n";
-  import EntitySetsGrid from "$lib/components/EntitySetsGrid.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import { patchVenue } from "$lib/api/catalog";
-  import { ApiError } from "$lib/api/client";
+  import EntitySetsGrid from "#lib/components/EntitySetsGrid.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import { patchVenue } from "#lib/api/catalog.ts";
+  import { ApiError } from "#lib/api/client.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;

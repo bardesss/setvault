@@ -1,18 +1,18 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, ApiError } from "$lib/api/client";
-  import OfflineAudioCache from "$lib/components/OfflineAudioCache.svelte";
-  import TabStrip from "$lib/components/TabStrip.svelte";
-  import AdminForm from "$lib/components/AdminForm.svelte";
-  import StatusBlock from "$lib/components/StatusBlock.svelte";
+  import { api, ApiError } from "#lib/api/client.ts";
+  import OfflineAudioCache from "#lib/components/OfflineAudioCache.svelte";
+  import TabStrip from "#lib/components/TabStrip.svelte";
+  import AdminForm from "#lib/components/AdminForm.svelte";
+  import StatusBlock from "#lib/components/StatusBlock.svelte";
   import {
     createRssToken,
     listMyRssTokens,
     revokeRssToken,
     type RssToken,
     type RssTokenWithPlaintext,
-  } from "$lib/api/feeds";
-  import { session } from "$lib/stores/session";
+  } from "#lib/api/feeds.ts";
+  import { session } from "#lib/stores/session.ts";
   import { _ } from "svelte-i18n";
 
   let active = "profile";

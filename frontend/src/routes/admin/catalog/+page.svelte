@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { invalidateAll, goto } from "$app/navigation";
+  import { refreshAll, goto } from "$app/navigation";
   import { _ } from "svelte-i18n";
-  import AdminTable from "$lib/components/AdminTable.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import { mergeEntities, deleteEntity, unmergeEntity } from "$lib/api/catalog_admin";
-  import type { EntityKind } from "$lib/api/catalog";
+  import AdminTable from "#lib/components/AdminTable.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import { mergeEntities, deleteEntity, unmergeEntity } from "#lib/api/catalog_admin.ts";
+  import type { EntityKind } from "#lib/api/catalog.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;
@@ -26,7 +26,7 @@
       for (const loser of cluster.slice(1)) {
         await mergeEntities(data.kind, loser.id, survivor.id);
       }
-      await invalidateAll();
+      await refreshAll();
     } catch (e) {
       error = e instanceof Error ? e.message : "failed";
     } finally {
@@ -40,7 +40,7 @@
     error = null;
     try {
       await deleteEntity(data.kind, slug);
-      await invalidateAll();
+      await refreshAll();
     } catch (e) {
       error = e instanceof Error ? e.message : "failed";
     } finally {
@@ -54,7 +54,7 @@
     error = null;
     try {
       await unmergeEntity(data.kind, loserId);
-      await invalidateAll();
+      await refreshAll();
     } catch (e) {
       error = e instanceof Error ? e.message : "failed";
     } finally {

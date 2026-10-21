@@ -1,18 +1,18 @@
 <script lang="ts">
-  import { page } from "$app/stores";
-  import { invalidateAll, goto } from "$app/navigation";
+  import { page } from "$app/state";
+  import { refreshAll, goto } from "$app/navigation";
   import { _ } from "svelte-i18n";
-  import { api, ApiError } from "$lib/api/client";
+  import { api, ApiError } from "#lib/api/client.ts";
   let username = "", display_name = "", password = "", error: string | null = null;
 
   async function accept() {
     error = null;
     try {
-      await api(`/api/invites/${$page.params.token}/redeem`, {
+      await api(`/api/invites/${page.params.token}/redeem`, {
         method: "POST",
         body: JSON.stringify({ username, display_name, password }),
       });
-      await invalidateAll();
+      await refreshAll();
       await goto("/");
     } catch (e) {
       error = e instanceof ApiError ? e.detail : $_("auth.invite.unknown_error");

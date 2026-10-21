@@ -1,7 +1,7 @@
 <script lang="ts">
   import { _, locale } from "svelte-i18n";
-  import { patchSet, type SetDetail, type SetUpgradeHistoryItem } from "$lib/api/sets";
-  import { ApiError } from "$lib/api/client";
+  import { patchSet, type SetDetail, type SetUpgradeHistoryItem } from "#lib/api/sets.ts";
+  import { ApiError } from "#lib/api/client.ts";
 
   export let set: SetDetail;
 

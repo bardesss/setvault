@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import { createBookmark, deleteBookmark, listForSet, type Bookmark } from "$lib/api/bookmarks";
-  import { player, seekTo } from "$lib/stores/audio";
+  import { createBookmark, deleteBookmark, listForSet, type Bookmark } from "#lib/api/bookmarks.ts";
+  import { player, seekTo } from "#lib/stores/audio.ts";
 
   export let slug: string;
   export let flat = false;

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import { deleteComment, listComments, type Comment } from "$lib/api/comments";
-  import { seekTo } from "$lib/stores/audio";
-  import { session } from "$lib/stores/session";
+  import { deleteComment, listComments, type Comment } from "#lib/api/comments.ts";
+  import { seekTo } from "#lib/stores/audio.ts";
+  import { session } from "#lib/stores/session.ts";
   import CommentComposer from "./CommentComposer.svelte";
 
   export let slug: string;

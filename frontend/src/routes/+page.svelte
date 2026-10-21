@@ -1,9 +1,9 @@
 <script lang="ts">
-  import SectionHeader from "$lib/components/SectionHeader.svelte";
-  import KpiGrid from "$lib/components/KpiGrid.svelte";
-  import Kpi from "$lib/components/Kpi.svelte";
-  import ContinueCard from "$lib/components/ContinueCard.svelte";
-  import RecentCard from "$lib/components/RecentCard.svelte";
+  import SectionHeader from "#lib/components/SectionHeader.svelte";
+  import KpiGrid from "#lib/components/KpiGrid.svelte";
+  import Kpi from "#lib/components/Kpi.svelte";
+  import ContinueCard from "#lib/components/ContinueCard.svelte";
+  import RecentCard from "#lib/components/RecentCard.svelte";
   import type { PageData } from "./$types";
 
   export let data: PageData;

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import { _ } from "svelte-i18n";
-  import { acceptImport, importTracklist, type ImportJob } from "$lib/api/tracklist";
-  import { ApiError } from "$lib/api/client";
-  import { setEntries } from "$lib/stores/tracklist";
+  import { acceptImport, importTracklist, type ImportJob } from "#lib/api/tracklist.ts";
+  import { ApiError } from "#lib/api/client.ts";
+  import { setEntries } from "#lib/stores/tracklist.ts";
 
   export let slug: string;
 

@@ -6,7 +6,7 @@
     markRead,
     readAll,
     type InAppNotification,
-  } from "$lib/api/notifications";
+  } from "#lib/api/notifications.ts";
 
   let items: InAppNotification[] = [];
   let unread = 0;

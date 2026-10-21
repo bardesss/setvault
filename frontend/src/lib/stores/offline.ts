@@ -1,7 +1,7 @@
 /**
  * Offline audio cache state.
  *
- * The service worker (see `src/service-worker.ts`) does the actual caching
+ * The service worker (see `src/service-worker/index.ts`) does the actual caching
  * and quota enforcement. This store wraps the read side:
  *
  *  - The user-configured cap lives in localStorage so it survives reloads.
@@ -10,7 +10,7 @@
  *  - `setCap()` updates localStorage AND posts the new cap to the SW so
  *    eviction kicks in immediately for the next audio fetch.
  */
-import { browser } from "$app/environment";
+import { browser } from "$app/env";
 import { writable } from "svelte/store";
 
 export interface OfflineState {

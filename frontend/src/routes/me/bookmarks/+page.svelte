@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import FilterBar from "$lib/components/FilterBar.svelte";
-  import { listMyBookmarks, type Bookmark } from "$lib/api/bookmarks";
+  import FilterBar from "#lib/components/FilterBar.svelte";
+  import { listMyBookmarks, type Bookmark } from "#lib/api/bookmarks.ts";
 
   let items: Bookmark[] = [];
   let loaded = false;

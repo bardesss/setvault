@@ -1,10 +1,10 @@
 <script lang="ts">
-  import Player from "$lib/components/Player.svelte";
-  import Tracklist from "$lib/components/Tracklist.svelte";
-  import SidePanel from "$lib/components/SidePanel.svelte";
-  import SetQuality from "$lib/components/SetQuality.svelte";
-  import EmbedToggleAdmin from "$lib/components/EmbedToggleAdmin.svelte";
-  import { session } from "$lib/stores/session";
+  import Player from "#lib/components/Player.svelte";
+  import Tracklist from "#lib/components/Tracklist.svelte";
+  import SidePanel from "#lib/components/SidePanel.svelte";
+  import SetQuality from "#lib/components/SetQuality.svelte";
+  import EmbedToggleAdmin from "#lib/components/EmbedToggleAdmin.svelte";
+  import { session } from "#lib/stores/session.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;

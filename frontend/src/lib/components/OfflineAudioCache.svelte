@@ -6,7 +6,7 @@
     offline,
     refreshUsage,
     setCap,
-  } from "$lib/stores/offline";
+  } from "#lib/stores/offline.ts";
 
   interface Preset {
     label: string;

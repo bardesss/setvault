@@ -1,5 +1,5 @@
 import { error } from "@sveltejs/kit";
-import type { ProviderConfig } from "$lib/api/providers";
+import type { ProviderConfig } from "#lib/api/providers.ts";
 import type { PageLoad } from "./$types";
 
 export const load: PageLoad = async ({ fetch }) => {

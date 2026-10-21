@@ -1,8 +1,8 @@
 <script lang="ts">
   import { _ } from "svelte-i18n";
-  import AdminTable from "$lib/components/AdminTable.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import { dismissDiscovery, ripDiscovery, type Discovery } from "$lib/api/monitors";
+  import AdminTable from "#lib/components/AdminTable.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import { dismissDiscovery, ripDiscovery, type Discovery } from "#lib/api/monitors.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;

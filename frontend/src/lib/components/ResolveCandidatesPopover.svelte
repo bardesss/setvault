@@ -1,9 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import { _ } from "svelte-i18n";
-  import { acceptCandidate, idThis, resolveEntry, type ResolveCandidate } from "$lib/api/enrichment";
-  import type { TracklistEntry } from "$lib/api/tracklist";
-  import { upsertEntry } from "$lib/stores/tracklist";
+  import { acceptCandidate, idThis, resolveEntry, type ResolveCandidate } from "#lib/api/enrichment.ts";
+  import type { TracklistEntry } from "#lib/api/tracklist.ts";
+  import { upsertEntry } from "#lib/stores/tracklist.ts";
 
   export let slug: string;
   export let entry: TracklistEntry;

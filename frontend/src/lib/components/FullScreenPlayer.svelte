@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import Waveform from "$lib/components/Waveform.svelte";
-  import { listTracklist, type TracklistEntry } from "$lib/api/tracklist";
-  import { player, fullscreenOpen, toggle, seekBy, seekTo, prev, next, formatTime } from "$lib/stores/audio";
+  import Waveform from "#lib/components/Waveform.svelte";
+  import { listTracklist, type TracklistEntry } from "#lib/api/tracklist.ts";
+  import { player, fullscreenOpen, toggle, seekBy, seekTo, prev, next, formatTime } from "#lib/stores/audio.ts";
 
   $: st = $player;
   $: artists = st.set?.artists?.map((a) => a.name).join(", ") ?? "";

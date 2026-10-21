@@ -1,5 +1,5 @@
 import { error } from "@sveltejs/kit";
-import type { SourceState } from "$lib/api/ingest_sources";
+import type { SourceState } from "#lib/api/ingest_sources.ts";
 import type { PageLoad } from "./$types";
 
 export const load: PageLoad = async ({ fetch }) => {
