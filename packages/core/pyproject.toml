@@ -24,7 +24,7 @@ dependencies = [
   "markdown>=3.6",
   # Pinned exactly; bump via infra/scripts/update-yt-dlp.sh after a monthly
   # release-extractor check or when a user reports a URL-rip regression.
-  "yt-dlp==2026.3.17",
+  "yt-dlp==2026.8.19",
   "watchdog>=4.0",
 ]
 
