@@ -80,3 +80,27 @@ jobs:
       - name: Dump logs on failure
         if: failure()
         run: docker logs sv || true
+
+  bundled-recreate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image (amd64, load locally)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: setvault:ci
+
+      - name: Recreate the container on its volume (data, secrets, sessions survive; legacy paths repaired)
+        run: bash infra/docker/test/smoke_recreate.sh
+        env:
+          IMAGE: setvault:ci
+          BASE: http://localhost:1970
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker logs sv || true
