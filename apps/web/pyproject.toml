@@ -14,7 +14,7 @@ dependencies = [
   "pydantic-settings>=2.3",
   "email-validator>=2.1",
   "rq>=1.16",
-  "redis>=5.0",
+  "redis>=8.1.0",
   "feedgen>=1.0.0",
 ]
 
