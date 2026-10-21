@@ -332,3 +332,27 @@ async def test_damage_report_ignores_sets_on_a_mounted_legacy_root():
         await s.commit()
     async with session_factory()() as s:
         assert await damage_report(s, BUNDLED, mounts) == (0, [])
+
+
+async def test_repair_skips_unique_collisions_and_repairs_the_rest(capsys):
+    async with session_factory()() as s:
+        root = MediaRoot(name=f"r-{uuid.uuid4().hex[:6]}", host_path="/srv/media")
+        s.add(root)
+        await s.flush()
+        s.add_all([
+            WatchFolder(name="old", host_path="/srv/watch/x", target_media_root_id=root.id),
+            WatchFolder(name="new", host_path="/data/watch/x", target_media_root_id=root.id),
+            WatchFolder(name="other", host_path="/srv/watch/y", target_media_root_id=root.id),
+        ])
+        await s.commit()
+    async with session_factory()() as s:
+        counts = await repair(s, BUNDLED, mounts=[])
+        await s.commit()
+    assert counts["media_roots"] == 1
+    assert counts["watch_folders"] == 1
+    roots, wfs, *_ = await _values()
+    assert roots == ["/data/media"]
+    assert sorted(wfs) == ["/data/watch/x", "/data/watch/y", "/srv/watch/x"]
+    err = capsys.readouterr().err
+    assert "'/srv/watch/x'" in err
+    assert "already exists" in err

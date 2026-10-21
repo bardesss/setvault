@@ -41,6 +41,10 @@ _TARGETS: tuple[tuple[str, str], ...] = (
     ("live_sets", "source_url"),
 )
 
+# Targets whose column has a unique constraint. A row whose rewritten value is
+# already taken is skipped instead of failing the transaction.
+_UNIQUE: frozenset[tuple[str, str]] = frozenset({("watch_folders", "host_path")})
+
 _BATCH = 500
 
 MOUNTINFO = "/proc/self/mountinfo"
@@ -145,17 +149,38 @@ async def repair(
         for table, col in _TARGETS:
             # Table/column names come from the constant map above, never input.
             mount_sql, mount_params = _mount_filter(col, skip)
+            where = (
+                f"({col} = :legacy OR left({col}, :n1) = :legacy_slash){mount_sql}"
+            )
+            params: dict[str, object] = {
+                "eff": eff, "n": len(legacy) + 1, "n1": len(legacy) + 1,
+                "legacy": legacy, "legacy_slash": legacy + "/",
+                **mount_params,
+            }
+            if (table, col) in _UNIQUE:
+                # Skip (and log) rows whose new value is already taken, so one
+                # collision can't roll back the whole repair.
+                taken = (
+                    f"EXISTS (SELECT 1 FROM {table} o "  # noqa: S608
+                    f"WHERE o.{col} = :eff || substr({table}.{col}, :n))"
+                )
+                clashes = (await session.execute(
+                    text(f"SELECT {col} FROM {table} WHERE {where} AND {taken}"),  # noqa: S608
+                    params,
+                )).scalars().all()
+                for value in clashes:
+                    print(
+                        f"[setvault] legacy path repair: not repointing {table} "
+                        f"{value!r}: {rewrite_prefix(value, legacy, eff)!r} already exists",
+                        file=sys.stderr,
+                    )
+                where += f" AND NOT {taken}"
             res = await session.execute(
                 text(
                     f"UPDATE {table} SET {col} = :eff || substr({col}, :n) "  # noqa: S608
-                    f"WHERE ({col} = :legacy OR left({col}, :n1) = :legacy_slash)"
-                    f"{mount_sql}"
+                    f"WHERE {where}"
                 ),
-                {
-                    "eff": eff, "n": len(legacy) + 1, "n1": len(legacy) + 1,
-                    "legacy": legacy, "legacy_slash": legacy + "/",
-                    **mount_params,
-                },
+                params,
             )
             counts[table] = counts.get(table, 0) + (res.rowcount or 0)
     return counts
