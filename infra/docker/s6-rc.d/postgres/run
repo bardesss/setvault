@@ -25,8 +25,20 @@ fi
 # An unclean stop (docker rm -f, OOM, power loss) leaves postmaster.pid on the
 # volume. PIDs repeat across container starts, so its PID may now belong to
 # another service (e.g. redis) and postgres would refuse to start forever.
-# Remove it only when the recorded PID is not a live postgres process.
+# Remove it only in that PID-reuse case: the recorded PID is alive, is NOT a
+# postgres/postmaster, and no postgres/postmaster runs in this container at all.
+# A dead PID is left alone: postgres clears a stale file itself and checks its
+# shared-memory key for orphaned backends first.
 PIDFILE="${PGDATA}/postmaster.pid"
+any_postgres_running() {
+  local c
+  for c in /proc/[0-9]*/comm; do
+    case "$(cat "${c}" 2>/dev/null || true)" in
+      postgres|postmaster) return 0 ;;
+    esac
+  done
+  return 1
+}
 if [ -f "${PIDFILE}" ]; then
   oldpid="$(head -n 1 "${PIDFILE}" 2>/dev/null | tr -dc '0-9' || true)"
   comm=""
@@ -34,10 +46,12 @@ if [ -f "${PIDFILE}" ]; then
     comm="$(cat "/proc/${oldpid}/comm" 2>/dev/null || true)"
   fi
   case "${comm}" in
-    postgres|postmaster) ;;
+    ''|postgres|postmaster) ;;
     *)
-      echo "[setvault] removing stale postmaster.pid (PID ${oldpid:-?} is not a running postgres)" >&2
-      rm -f "${PIDFILE}"
+      if ! any_postgres_running; then
+        echo "[setvault] removing stale postmaster.pid (PID ${oldpid} is now ${comm}, no postgres running)" >&2
+        rm -f "${PIDFILE}"
+      fi
       ;;
   esac
 fi
