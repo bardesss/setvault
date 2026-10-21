@@ -49,6 +49,7 @@ async def disable_user(
     if target is None:
         raise HTTPException(status_code=404, detail="not found")
     target.disabled_at = datetime.now(UTC)
+    target.session_version += 1
     await audit_log(
         session,
         actor_user_id=admin.id,

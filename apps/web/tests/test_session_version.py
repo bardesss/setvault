@@ -127,3 +127,97 @@ async def test_legacy_cookie_still_works(client, seeded_admin):
     r = await client.get("/api/auth/me")
     assert r.status_code == 200, r.text
     assert r.json()["email"] == "admin@example.test"
+
+
+# --- Revocation triggers -------------------------------------------------
+
+_VICTIM_PW = "victim-password-123"
+
+
+async def _make_victim_cookie() -> tuple[uuid.UUID, str]:
+    """Create user U and return (id, a valid session cookie value for U)."""
+    from setvault_core.services.passwords import hash_password
+    from setvault_web.deps import get_signer
+
+    async with session_factory()() as s:
+        u = User(
+            email="victim@example.test", username="victim", display_name="Victim",
+            password_hash=hash_password(_VICTIM_PW), role="user",
+        )
+        s.add(u)
+        await s.commit()
+        uid = u.id
+    from setvault_web.config import get_settings
+
+    signer = get_signer(get_settings())
+    return uid, signer.issue(str(uid), 0)
+
+
+async def _status_with_cookie(cookie: str) -> int:
+    from httpx import ASGITransport, AsyncClient
+    from setvault_web.main import create_app
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()), base_url="https://test",
+    ) as ac:
+        ac.cookies.set("session", cookie)
+        return (await ac.get("/api/auth/me")).status_code
+
+
+async def test_disable_revokes_sessions(authed_admin_client):
+    uid, cookie = await _make_victim_cookie()
+    assert await _status_with_cookie(cookie) == 200
+    r = await authed_admin_client.post(f"/api/users/{uid}/disable")
+    assert r.status_code == 204, r.text
+    assert await _status_with_cookie(cookie) == 401
+
+
+async def test_reset_redeem_revokes_sessions(authed_admin_client, client):
+    uid, cookie = await _make_victim_cookie()
+    link = await authed_admin_client.post(
+        "/api/password-reset/admin-link", json={"email": "victim@example.test"},
+    )
+    token = link.json()["reset_link"].rsplit("/", 1)[-1]
+    # admin-link already revoked; re-issue a cookie at the current version.
+    async with session_factory()() as s:
+        ver = (await s.get(User, uid)).session_version
+    from setvault_web.config import get_settings
+    from setvault_web.deps import get_signer
+
+    cookie = get_signer(get_settings()).issue(str(uid), ver)
+    assert await _status_with_cookie(cookie) == 200
+    r = await client.post(
+        f"/api/password-reset/{token}/redeem", json={"password": "another-strong-pw-1"},
+    )
+    assert r.status_code == 204, r.text
+    assert await _status_with_cookie(cookie) == 401
+
+
+async def test_admin_link_revokes_sessions(authed_admin_client):
+    _uid, cookie = await _make_victim_cookie()
+    assert await _status_with_cookie(cookie) == 200
+    r = await authed_admin_client.post(
+        "/api/password-reset/admin-link", json={"email": "victim@example.test"},
+    )
+    assert r.status_code == 200, r.text
+    assert await _status_with_cookie(cookie) == 401
+
+
+async def test_own_password_change_signs_out_other_devices(client, seeded_admin):
+    a = await client.post("/api/auth/login",
+                          json={"email": "admin@example.test", "password": "hunter2hunter2"})
+    b = await client.post("/api/auth/login",
+                          json={"email": "admin@example.test", "password": "hunter2hunter2"})
+    cookie_a, cookie_b = a.cookies["session"], b.cookies["session"]
+    client.cookies.clear()
+    client.cookies.set("session", cookie_a)
+    client.headers["X-CSRF-Token"] = a.cookies["csrf_token"]
+    client.cookies.set("csrf_token", a.cookies["csrf_token"])
+    r = await client.post("/api/me/change-password", json={
+        "current_password": "hunter2hunter2", "new_password": "brand-new-password-9",
+    })
+    assert r.status_code == 204, r.text
+    new_cookie = r.cookies["session"]
+    assert await _status_with_cookie(cookie_b) == 401
+    assert await _status_with_cookie(cookie_a) == 401
+    assert await _status_with_cookie(new_cookie) == 200

@@ -69,6 +69,7 @@ async def create_or_promote_admin(
     if existing is not None:
         if existing.role == "admin":
             return existing, "exists"
+        # Role grants need no session revocation; any future demotion must bump session_version.
         existing.role = "admin"
         await session.commit()
         return existing, "promoted"

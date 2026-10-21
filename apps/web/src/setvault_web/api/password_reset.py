@@ -78,6 +78,7 @@ async def admin_link(
     token = EmailToken(user_id=user.id, email=user.email, kind="password_reset",
                        token_hash=digest, payload={}, expires_at=expires(1))
     session.add(token)
+    user.session_version += 1
     await session.commit()
     return AdminLinkOut(reset_link=f"{settings.base_url}/reset/{plaintext}",
                         expires_at=token.expires_at)
@@ -103,5 +104,6 @@ async def redeem(token: str, body: RedeemIn,
     if user is None:
         raise HTTPException(status_code=410, detail="user no longer exists")
     user.password_hash = hash_password(body.password)
+    user.session_version += 1
     row.used_at = datetime.now(UTC)
     await session.commit()

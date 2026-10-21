@@ -19,10 +19,12 @@ from setvault_core.schemas.feeds import (
 from setvault_core.services.api_tokens import mint_api_token, revoke_api_token
 from setvault_core.services.password_policy import MIN_PASSWORD_LENGTH
 from setvault_core.services.passwords import hash_password, verify_password
+from setvault_core.services.sessions import SessionSigner
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_web.deps import current_user, db_session
+from setvault_web.api.auth import _issue_session
+from setvault_web.deps import current_user, db_session, get_signer
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -61,13 +63,17 @@ class ChangePasswordIn(BaseModel):
 @router.post("/change-password", status_code=204)
 async def change_password(
     body: ChangePasswordIn,
+    response: Response,
     user: Annotated[User, Depends(current_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
+    signer: Annotated[SessionSigner, Depends(get_signer)],
 ):
     if not user.password_hash or not verify_password(body.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="current password incorrect")
     user.password_hash = hash_password(body.new_password)
+    user.session_version += 1
     await session.commit()
+    _issue_session(response, signer, user)
 
 
 @router.get("/continue-listening", response_model=list[ContinueItem])
