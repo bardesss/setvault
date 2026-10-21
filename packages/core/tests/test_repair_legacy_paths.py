@@ -356,3 +356,23 @@ async def test_repair_skips_unique_collisions_and_repairs_the_rest(capsys):
     err = capsys.readouterr().err
     assert "'/srv/watch/x'" in err
     assert "already exists" in err
+
+
+async def test_run_warning_names_effective_media_path_and_readme(tmp_path, capsys):
+    async with session_factory()() as s:
+        user = User(email=f"u-{uuid.uuid4().hex[:6]}@x.test",
+                    username=f"u{uuid.uuid4().hex[:6]}", display_name="u",
+                    password_hash=hash_password("aaaaaaaa"))
+        root = MediaRoot(name=f"r-{uuid.uuid4().hex[:6]}", host_path=tmp_path.as_posix())
+        s.add_all([user, root])
+        await s.flush()
+        s.add(LiveSet(slug=f"gone-{uuid.uuid4().hex[:6]}", title="t",
+                      media_root_id=root.id, audio_path="nope.flac", uploaded_by=user.id))
+        await s.commit()
+    env = {**BUNDLED, "SETVAULT_MEDIA_PATH": tmp_path.as_posix()}
+    await mod._run(env, mounts=[])
+    err = capsys.readouterr().err
+    assert "[setvault] WARNING: 1 set file(s) missing" in err
+    assert tmp_path.as_posix() in err
+    assert "/data/media" not in err
+    assert "README 'Upgrading'" in err

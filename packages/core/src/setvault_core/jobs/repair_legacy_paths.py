@@ -261,9 +261,11 @@ async def _run(env: Mapping[str, str], mounts: Iterable[str] | None = None) -> N
             print(f"[setvault] repaired legacy paths: {counts}")
         missing, slugs = await damage_report(s, env, mounts)
         if missing:
+            media = env.get("SETVAULT_MEDIA_PATH") or "the media path"
             print(
                 f"[setvault] WARNING: {missing} set file(s) missing under the media "
-                f"root (first: {', '.join(slugs)}). Mount your library at /data/media.",
+                f"root (first: {', '.join(slugs)}). Check that your library is at "
+                f"{media}; see the README 'Upgrading' section.",
                 file=sys.stderr,
             )
 
