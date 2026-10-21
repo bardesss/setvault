@@ -19,7 +19,7 @@ dependencies = [
   "httpx>=0.27",
   "beautifulsoup4>=4.12",
   "pytesseract>=0.3.10",
-  "pillow>=10.0",
+  "pillow>=13.0.0",
   "bleach>=6.1",
   "markdown>=3.6",
   # Pinned exactly; bump via infra/scripts/update-yt-dlp.sh after a monthly
