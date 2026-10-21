@@ -170,6 +170,14 @@ async def test_disable_revokes_sessions(authed_admin_client):
     r = await authed_admin_client.post(f"/api/users/{uid}/disable")
     assert r.status_code == 204, r.text
     assert await _status_with_cookie(cookie) == 401
+    # disabled_at alone already yields 401; prove the version bump separately
+    # by re-enabling the user directly and checking the old cookie stays dead.
+    async with session_factory()() as s:
+        row = await s.get(User, uid)
+        assert row.session_version == 1
+        row.disabled_at = None
+        await s.commit()
+    assert await _status_with_cookie(cookie) == 401
 
 
 async def test_reset_redeem_revokes_sessions(authed_admin_client, client):
