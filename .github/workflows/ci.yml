@@ -19,7 +19,7 @@ jobs:
         options: >-
           --health-cmd="redis-cli ping" --health-interval=5s --health-retries=10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install audio tools (ffmpeg, audiowaveform, chromaprint)
         run: |
           sudo add-apt-repository -y ppa:chris-needham/ppa
@@ -29,7 +29,7 @@ jobs:
           ffmpeg -version | head -1
           audiowaveform --version
           fpcalc -version
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync --all-extras --all-groups
       - run: uv run ruff check .
       - run: uv run alembic upgrade head
@@ -63,10 +63,10 @@ jobs:
       SETVAULT_DEV_SEED: "1"
       SETVAULT_ALLOW_INSECURE_COOKIE: "1"
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync --all-extras --all-groups
       - run: uv run alembic upgrade head
       - name: Start backend
@@ -92,5 +92,5 @@ jobs:
         working-directory: frontend
       - name: Upload backend log on failure
         if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with: { name: uvicorn-log, path: uvicorn.log, if-no-files-found: ignore }
