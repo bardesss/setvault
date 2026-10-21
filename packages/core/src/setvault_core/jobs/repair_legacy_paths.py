@@ -16,7 +16,7 @@ import os
 import sys
 from collections.abc import Mapping
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.db import init_engine, run_job, session_factory
@@ -29,15 +29,14 @@ LEGACY_PAIRS: tuple[tuple[str, str], ...] = (
     ("/srv/watch", "SETVAULT_WATCH_FOLDERS_PATH"),
 )
 
-# (table, column) targets per legacy prefix.
-_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
-    "/srv/media": (("media_roots", "host_path"),),
-    "/srv/watch": (
-        ("watch_folders", "host_path"),
-        ("unmatched_files", "file_path"),
-        ("live_sets", "source_url"),
-    ),
-}
+# Every legacy prefix is applied to every one of these (table, column) targets;
+# the strict prefix match keeps look-alikes safe.
+_TARGETS: tuple[tuple[str, str], ...] = (
+    ("media_roots", "host_path"),
+    ("watch_folders", "host_path"),
+    ("unmatched_files", "file_path"),
+    ("live_sets", "source_url"),
+)
 
 _BATCH = 500
 
@@ -77,7 +76,7 @@ async def repair(session: AsyncSession, env: Mapping[str, str]) -> dict[str, int
         eff = _effective(env, legacy, var)
         if eff is None:
             continue
-        for table, col in _TARGETS[legacy]:
+        for table, col in _TARGETS:
             # Table/column names come from the constant map above, never input.
             res = await session.execute(
                 text(
@@ -104,14 +103,19 @@ async def damage_report(
     disk. Returns (missing count, first 20 slugs)."""
     if not _bundled(env):
         return 0, []
-    eff = _effective(env, "/srv/media", "SETVAULT_MEDIA_PATH")
-    if eff is None:
+    effs = [
+        e for legacy, var in LEGACY_PAIRS
+        if (e := _effective(env, legacy, var)) is not None
+    ]
+    if not effs:
         return 0, []
+    cond = or_(*(
+        or_(MediaRoot.host_path == e, MediaRoot.host_path.startswith(e + "/", autoescape=True))
+        for e in effs
+    ))
     roots = {
         r.id: r.host_path
-        for r in (
-            await session.execute(select(MediaRoot).where(MediaRoot.host_path == eff))
-        ).scalars()
+        for r in (await session.execute(select(MediaRoot).where(cond))).scalars()
     }
     if not roots:
         return 0, []
@@ -146,7 +150,7 @@ async def _run(env: Mapping[str, str]) -> None:
             if any(counts.values()):
                 await audit_log(
                     s, actor_user_id=None, actor_kind="system",
-                    action="storage.legacy_paths_repaired",
+                    action="system.paths_repaired",
                     target_type="system", after=counts,
                 )
             await s.commit()

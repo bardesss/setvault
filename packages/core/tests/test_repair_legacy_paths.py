@@ -8,6 +8,7 @@ from setvault_core.jobs import repair_legacy_paths as mod
 from setvault_core.jobs.repair_legacy_paths import damage_report, repair, rewrite_prefix
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
+from setvault_core.models.system import AuditEvent
 from setvault_core.models.watch_folder import UnmatchedFile, WatchFolder
 from setvault_core.services.passwords import hash_password
 from sqlalchemy import delete, select
@@ -24,6 +25,7 @@ async def _engine_and_clean():
     init_engine(os.environ["TEST_DATABASE_URL"])
     async def _wipe():
         async with session_factory()() as s:
+            await s.execute(delete(AuditEvent).where(AuditEvent.action == "system.paths_repaired"))
             await s.execute(delete(UnmatchedFile))
             await s.execute(delete(WatchFolder))
             await s.commit()
@@ -155,3 +157,71 @@ async def test_main_is_nonfatal_on_error(monkeypatch):
     await asyncio.to_thread(mod.main)
     init_engine(os.environ["TEST_DATABASE_URL"])
     assert await _values() == before
+
+
+async def _audit_rows():
+    async with session_factory()() as s:
+        return (await s.execute(
+            select(AuditEvent).where(AuditEvent.action == "system.paths_repaired")
+        )).scalars().all()
+
+
+async def test_run_writes_one_audit_row_then_none_when_idempotent():
+    await _seed()
+    await mod._run(BUNDLED)
+    rows = await _audit_rows()
+    assert len(rows) == 1
+    assert rows[0].actor_user_id is None
+    await mod._run(BUNDLED)
+    assert len(await _audit_rows()) == 1
+
+
+async def test_every_pair_applies_to_every_target():
+    async with session_factory()() as s:
+        m = MediaRoot(name=f"m-{uuid.uuid4().hex[:6]}", host_path="/srv/media/lib")
+        w = MediaRoot(name=f"w-{uuid.uuid4().hex[:6]}", host_path="/srv/watch/lib")
+        s.add_all([m, w])
+        await s.flush()
+        wf = WatchFolder(name="w", host_path="/srv/media/in", target_media_root_id=m.id)
+        s.add(wf)
+        await s.flush()
+        s.add(UnmatchedFile(watch_folder_id=wf.id, file_path="/srv/media/in/a.mp3"))
+        await s.commit()
+    async with session_factory()() as s:
+        await repair(s, BUNDLED)
+        await s.commit()
+    roots, wfs, unm, _ = await _values()
+    assert sorted(roots) == ["/data/media/lib", "/data/watch/lib"]
+    assert wfs == ["/data/media/in"]
+    assert unm == ["/data/media/in/a.mp3"]
+
+
+async def test_sql_prefix_rule_proves_lookalikes_and_trailing_slash():
+    async with session_factory()() as s:
+        for i, p in enumerate(["/srv/media2", "/srv/mediabackup", "/srv/media/"]):
+            s.add(MediaRoot(name=f"r{i}-{uuid.uuid4().hex[:6]}", host_path=p))
+        await s.commit()
+    async with session_factory()() as s:
+        await repair(s, BUNDLED)
+        await s.commit()
+    roots, *_ = await _values()
+    assert sorted(roots) == ["/data/media/", "/srv/media2", "/srv/mediabackup"]
+
+
+async def test_damage_report_covers_subpath_roots(tmp_path):
+    sub = tmp_path / "x"
+    sub.mkdir()
+    async with session_factory()() as s:
+        user = User(email=f"u-{uuid.uuid4().hex[:6]}@x.test",
+                    username=f"u{uuid.uuid4().hex[:6]}", display_name="u",
+                    password_hash=hash_password("aaaaaaaa"))
+        root = MediaRoot(name=f"r-{uuid.uuid4().hex[:6]}", host_path=sub.as_posix())
+        s.add_all([user, root])
+        await s.flush()
+        slug = f"gone-{uuid.uuid4().hex[:6]}"
+        s.add(LiveSet(slug=slug, title="t", media_root_id=root.id,
+                      audio_path="nope.flac", uploaded_by=user.id))
+        await s.commit()
+    env = {**BUNDLED, "SETVAULT_MEDIA_PATH": tmp_path.as_posix()}
+    async with session_factory()() as s:
+        assert await damage_report(s, env) == (1, [slug])
