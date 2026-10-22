@@ -8,6 +8,7 @@
   export let slug: string;
   export let url: string;
   export let waveformUrl: string | null = null;
+  export let fallbackDuration: number | undefined = undefined;
 
   let container: HTMLDivElement;
   let ws: WaveSurfer | null = null;
@@ -61,7 +62,7 @@
     try {
       const res = await fetch(waveformUrl, { credentials: "same-origin" });
       if (!res.ok) return null;
-      return toPeaks(await res.json());
+      return toPeaks(await res.json(), fallbackDuration);
     } catch {
       return null;
     }

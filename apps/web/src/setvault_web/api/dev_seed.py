@@ -13,6 +13,7 @@ enable this in production: the response includes the seed admin's password.
 
 from __future__ import annotations
 
+import json
 import os
 import struct
 import tempfile
@@ -39,6 +40,7 @@ SEED_ADMIN_PASSWORD = "hunter2hunter2"  # noqa: S105 — dev-only fixture
 SEED_SLUG = "seeded-set"
 SEED_MEDIA_ROOT_NAME = "e2e-seed"
 SEED_STREAMING_REL = "test/silent.wav"
+SEED_WAVEFORM_REL = "test/seed.waveform.json"
 
 
 def _seed_root_path() -> Path:
@@ -59,6 +61,24 @@ def _ensure_silent_wav(root: Path) -> Path:
             w.setframerate(8000)
             w.writeframes(struct.pack("<" + "h" * 8000, *([0] * 8000)))
     return target
+
+
+def _ensure_waveform_json(root: Path) -> None:
+    """Write a valid audiowaveform v2 file (~1s, matches the silent WAV).
+
+    Only the main seeded set points at it; the extra sets have no
+    ``waveform_path`` so the decode-from-stream fallback stays covered.
+    """
+    target = root / SEED_WAVEFORM_REL
+    target.parent.mkdir(parents=True, exist_ok=True)
+    data = [v for i in range(100) for v in (-(20 + i % 50), 20 + i % 50)]
+    target.write_text(
+        json.dumps({
+            "version": 2, "channels": 1, "sample_rate": 8000,
+            "samples_per_pixel": 80, "bits": 8, "length": 100, "data": data,
+        }),
+        encoding="utf-8",
+    )
 
 
 SEED_TAG_SLUG = "e2e-house"
@@ -117,6 +137,7 @@ async def seed_e2e(session: Annotated[AsyncSession, Depends(db_session)]) -> See
     # 2. Ensure on-disk silent fixture + MediaRoot row
     root_path = _seed_root_path()
     _ensure_silent_wav(root_path)
+    _ensure_waveform_json(root_path)
     media_root = (
         await session.execute(
             select(MediaRoot).where(MediaRoot.name == SEED_MEDIA_ROOT_NAME)
@@ -148,6 +169,7 @@ async def seed_e2e(session: Annotated[AsyncSession, Depends(db_session)]) -> See
             media_root_id=media_root.id,
             audio_path="originals/seed/audio.wav",
             streaming_path=SEED_STREAMING_REL,
+            waveform_path=SEED_WAVEFORM_REL,
             duration_seconds=1,
             status="published",
             source_type="upload",
@@ -161,6 +183,7 @@ async def seed_e2e(session: Annotated[AsyncSession, Depends(db_session)]) -> See
         live.purge_after_at = None
         live.status = "published"
         live.streaming_path = SEED_STREAMING_REL
+        live.waveform_path = SEED_WAVEFORM_REL
         live.media_root_id = media_root.id
 
     # 4. Extra published sets (idempotent: created once, never rewritten)
