@@ -18,6 +18,24 @@ class SetArtistOut(BaseModel):
     role: str
 
 
+class VenueRefOut(BaseModel):
+    name: str
+    slug: str
+    kind: str | None = None
+
+
+class SetFacetTagOut(BaseModel):
+    slug: str
+    name: str
+    count: int
+
+
+class SetFacetsOut(BaseModel):
+    tags: list[SetFacetTagOut]
+    years: list[int]
+    venue_kinds: list[str]
+
+
 class SetSummaryOut(BaseModel):
     id: str
     slug: str
@@ -28,6 +46,8 @@ class SetSummaryOut(BaseModel):
     status: str
     artists: list[SetArtistOut]
     tags: list[str]
+    created_at: datetime
+    venue: VenueRefOut | None = None
 
 
 class SetQualityOut(BaseModel):

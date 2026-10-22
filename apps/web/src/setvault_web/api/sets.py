@@ -4,12 +4,20 @@ import mimetypes
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from setvault_core.models.catalog import LiveSet, LiveSetTag, MediaRoot, Tag
+from setvault_core.models.catalog import (
+    Artist,
+    LiveSet,
+    LiveSetArtist,
+    LiveSetTag,
+    MediaRoot,
+    Tag,
+    Venue,
+)
 from setvault_core.models.engagement import UserSetState
 from setvault_core.models.identity import User
 from setvault_core.models.upgrades import SetUpgradeEvent
@@ -17,11 +25,14 @@ from setvault_core.schemas.catalog import PartyOut, SeriesOut, VenueOut
 from setvault_core.schemas.sets import (
     SetArtistOut,
     SetDetailOut,
+    SetFacetsOut,
+    SetFacetTagOut,
     SetListOut,
     SetPatchIn,
     SetQualityOut,
     SetSummaryOut,
     SetUpgradeHistoryOut,
+    VenueRefOut,
 )
 from setvault_core.services.audio_quality import quality_label
 from setvault_core.services.notifications import event_labels, source_name
@@ -30,7 +41,7 @@ from setvault_core.services.set_merge import TRACKLIST_KEPT
 from setvault_core.services.sets import replace_artists, replace_tags
 from setvault_core.services.signed_urls import verify_stream_sig
 from setvault_core.services.system_config import get_config
-from sqlalchemy import func, select
+from sqlalchemy import exists, extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.config import Settings, get_settings
@@ -136,44 +147,134 @@ def _party_out(p) -> PartyOut:
     )
 
 
+def _published():
+    return (LiveSet.deleted_at.is_(None), LiveSet.status == "published")
+
+
+def _like_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @router.get("", response_model=SetListOut)
 async def list_sets(
     session: Annotated[AsyncSession, Depends(db_session)],
     _: Annotated[object, Depends(current_user)],
-    limit: int = 50,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    tag: Annotated[str | None, Query(max_length=80)] = None,
+    year: Annotated[int | None, Query(ge=1, le=9999)] = None,
+    venue_kind: Annotated[str | None, Query(max_length=32)] = None,
+    sort: Literal["recent", "date", "title", "duration"] = "date",
 ):
-    base = select(LiveSet).where(
-        LiveSet.deleted_at.is_(None), LiveSet.status == "published"
-    )
+    conds = list(_published())
+    if q:
+        pattern = f"%{_like_escape(q.strip())}%"
+        conds.append(or_(
+            LiveSet.title.ilike(pattern, escape="\\"),
+            exists().where(
+                LiveSetArtist.live_set_id == LiveSet.id,
+                LiveSetArtist.artist_id == Artist.id,
+                Artist.name.ilike(pattern, escape="\\"),
+            ),
+        ))
+    if tag:
+        conds.append(exists().where(
+            LiveSetTag.live_set_id == LiveSet.id,
+            LiveSetTag.tag_id == Tag.id,
+            Tag.slug == tag,
+        ))
+    if year is not None:
+        conds.append(extract("year", LiveSet.date) == year)
+    if venue_kind:
+        conds.append(exists().where(
+            Venue.id == LiveSet.venue_id, Venue.kind == venue_kind,
+        ))
     total = (
-        await session.execute(select(func.count()).select_from(base.subquery()))
+        await session.execute(select(func.count()).select_from(LiveSet).where(*conds))
     ).scalar_one()
+    if sort == "recent":
+        order = [LiveSet.created_at.desc(), LiveSet.id]
+    elif sort == "title":
+        order = [func.lower(LiveSet.title), LiveSet.id]
+    elif sort == "duration":
+        order = [LiveSet.duration_seconds.desc().nullslast(), LiveSet.id]
+    else:
+        order = [LiveSet.date.desc().nullslast(), LiveSet.created_at.desc(), LiveSet.id]
     rows = (
         await session.execute(
-            base.order_by(
-                LiveSet.date.desc().nullslast(), LiveSet.created_at.desc()
-            )
-            .limit(limit)
-            .offset(offset)
+            select(LiveSet).where(*conds).order_by(*order).limit(limit).offset(offset)
         )
     ).scalars().unique().all()
-    items = []
-    for r in rows:
-        items.append(
-            SetSummaryOut(
-                id=str(r.id),
-                slug=r.slug,
-                title=r.title,
-                date=r.date,
-                duration_seconds=r.duration_seconds,
-                set_type=r.set_type,
-                status=r.status,
-                artists=_artists_out(r),
-                tags=await _tag_names_for(session, r.id),
+    tags_by_set: dict[uuid.UUID, list[str]] = {}
+    if rows:
+        tag_rows = (
+            await session.execute(
+                select(LiveSetTag.live_set_id, Tag.name)
+                .join(Tag, Tag.id == LiveSetTag.tag_id)
+                .where(LiveSetTag.live_set_id.in_([r.id for r in rows]))
+                .order_by(Tag.name)
             )
+        ).all()
+        for sid, name in tag_rows:
+            tags_by_set.setdefault(sid, []).append(name)
+    items = [
+        SetSummaryOut(
+            id=str(r.id),
+            slug=r.slug,
+            title=r.title,
+            date=r.date,
+            duration_seconds=r.duration_seconds,
+            set_type=r.set_type,
+            status=r.status,
+            artists=_artists_out(r),
+            tags=tags_by_set.get(r.id, []),
+            created_at=r.created_at,
+            venue=(
+                VenueRefOut(name=r.venue.name, slug=r.venue.slug, kind=r.venue.kind)
+                if r.venue is not None else None
+            ),
         )
+        for r in rows
+    ]
     return SetListOut(items=items, total=int(total))
+
+
+# Registered before "/{slug}" so "facets" is not treated as a slug.
+@router.get("/facets", response_model=SetFacetsOut)
+async def facets(
+    session: Annotated[AsyncSession, Depends(db_session)],
+    _: Annotated[object, Depends(current_user)],
+):
+    pub = _published()
+    tag_rows = (
+        await session.execute(
+            select(Tag.slug, Tag.name, func.count(LiveSet.id))
+            .join(LiveSetTag, LiveSetTag.tag_id == Tag.id)
+            .join(LiveSet, LiveSet.id == LiveSetTag.live_set_id)
+            .where(*pub)
+            .group_by(Tag.id)
+            .order_by(func.count(LiveSet.id).desc(), Tag.name)
+        )
+    ).all()
+    year_col = extract("year", LiveSet.date)
+    years = (
+        await session.execute(
+            select(year_col).where(*pub, LiveSet.date.is_not(None))
+            .distinct().order_by(year_col.desc())
+        )
+    ).scalars().all()
+    kinds = (
+        await session.execute(
+            select(Venue.kind).join(LiveSet, LiveSet.venue_id == Venue.id)
+            .where(*pub).distinct().order_by(Venue.kind)
+        )
+    ).scalars().all()
+    return SetFacetsOut(
+        tags=[SetFacetTagOut(slug=s, name=n, count=int(c)) for s, n, c in tag_rows],
+        years=[int(y) for y in years],
+        venue_kinds=list(kinds),
+    )
 
 
 @router.get("/{slug}", response_model=SetDetailOut)
@@ -227,6 +328,7 @@ async def show_set(
         status=row.status,
         artists=_artists_out(row),
         tags=await _tag_names_for(session, row.id),
+        created_at=row.created_at,
         party=_party_out(row.party) if row.party else None,
         venue=_venue_out(row.venue) if row.venue else None,
         description=row.description,
