@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -14,7 +13,7 @@ from setvault_core.schemas.notifications import (
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_web.deps import current_user, db_session
+from setvault_web.deps import current_user, db_session, parse_uuid
 
 router = APIRouter(prefix="/api/me/notifications", tags=["notifications"])
 
@@ -61,7 +60,7 @@ async def mark_read(
     user: Annotated[User, Depends(current_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
-    n = await session.get(InAppNotification, uuid.UUID(notification_id))
+    n = await session.get(InAppNotification, parse_uuid(notification_id))
     if n is None or n.user_id != user.id:
         raise HTTPException(status_code=404)
     if n.read_at is None:

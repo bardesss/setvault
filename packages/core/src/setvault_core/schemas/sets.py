@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import date as _date
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 from setvault_core.schemas.catalog import PartyOut, VenueOut
 
@@ -96,5 +96,5 @@ class SetPatchIn(BaseModel):
     venue_id: str | None = None
     description: str | None = None
     artist_ids: list[str] | None = None
-    tag_names: list[str] | None = None
+    tag_names: list[Annotated[str, StringConstraints(max_length=80)]] | None = None
     upgrades_enabled: bool | None = None

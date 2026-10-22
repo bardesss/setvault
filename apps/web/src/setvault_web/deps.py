@@ -14,6 +14,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from setvault_web.config import Settings, get_settings
 
 
+def parse_uuid(
+    value: str, *, status_code: int = 404, detail: str = "not found",
+) -> uuid.UUID:
+    """Parse a client-supplied id; a malformed one is a clean 4xx, never a 500."""
+    try:
+        return uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
 def get_signer(settings: Annotated[Settings, Depends(get_settings)]) -> SessionSigner:
     return SessionSigner(settings.secret_key)
 

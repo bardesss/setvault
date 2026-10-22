@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.api.images import build_proxied_image_url
-from setvault_web.deps import db_session, require_can_monitor
+from setvault_web.deps import db_session, parse_uuid, require_can_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ async def update_monitor(
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
     m = await svc.set_enabled(
-        session, uuid.UUID(monitor_id), payload.enabled, owner_user_id=_owner_scope(user),
+        session, parse_uuid(monitor_id), payload.enabled, owner_user_id=_owner_scope(user),
     )
     if m is None:
         raise HTTPException(status_code=404)
@@ -104,7 +104,7 @@ async def delete_monitor(
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
     ok = await svc.delete_monitor(
-        session, uuid.UUID(monitor_id), owner_user_id=_owner_scope(user),
+        session, parse_uuid(monitor_id), owner_user_id=_owner_scope(user),
     )
     if not ok:
         raise HTTPException(status_code=404)
@@ -133,7 +133,7 @@ async def _owned_discovery_or_404(
 ) -> MonitorDiscovery:
     """Load a discovery, enforcing ownership for non-admins. 404 (not 403) when
     the row is missing or owned by another user, so callers can't probe ids."""
-    d = await session.get(MonitorDiscovery, uuid.UUID(discovery_id))
+    d = await session.get(MonitorDiscovery, parse_uuid(discovery_id))
     if d is None:
         raise HTTPException(status_code=404)
     scope = _owner_scope(user)

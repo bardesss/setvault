@@ -15,6 +15,7 @@ from setvault_core.models.catalog import (
     LiveSetArtist,
     LiveSetTag,
     MediaRoot,
+    Party,
     Tag,
     Venue,
 )
@@ -39,14 +40,20 @@ from setvault_core.services.favorites import is_favorite
 from setvault_core.services.notifications import event_labels, source_name
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
 from setvault_core.services.set_merge import TRACKLIST_KEPT
-from setvault_core.services.sets import replace_artists, replace_tags
+from setvault_core.services.sets import UnknownArtistError, replace_artists, replace_tags
 from setvault_core.services.signed_urls import verify_stream_sig
 from setvault_core.services.system_config import get_config
 from sqlalchemy import exists, extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.config import Settings, get_settings
-from setvault_web.deps import current_user, db_session, require_admin, resolve_session_user
+from setvault_web.deps import (
+    current_user,
+    db_session,
+    parse_uuid,
+    require_admin,
+    resolve_session_user,
+)
 
 router = APIRouter(prefix="/api/sets", tags=["sets"])
 
@@ -378,15 +385,24 @@ async def edit_set(
     if body.set_type is not None:
         live.set_type = body.set_type
     if body.party_id is not None:
-        live.party_id = uuid.UUID(body.party_id)
+        party_id = parse_uuid(body.party_id, status_code=422, detail="invalid party_id")
+        if await session.get(Party, party_id) is None:
+            raise HTTPException(status_code=422, detail="unknown party_id")
+        live.party_id = party_id
     if body.venue_id is not None:
-        live.venue_id = uuid.UUID(body.venue_id)
+        venue_id = parse_uuid(body.venue_id, status_code=422, detail="invalid venue_id")
+        if await session.get(Venue, venue_id) is None:
+            raise HTTPException(status_code=422, detail="unknown venue_id")
+        live.venue_id = venue_id
     if body.description is not None:
         live.description = body.description
     if body.upgrades_enabled is not None:
         live.upgrades_enabled = body.upgrades_enabled
     if body.artist_ids is not None:
-        await replace_artists(session, live, body.artist_ids)
+        try:
+            await replace_artists(session, live, body.artist_ids)
+        except UnknownArtistError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     if body.tag_names is not None:
         await replace_tags(session, live, body.tag_names)
     await session.commit()

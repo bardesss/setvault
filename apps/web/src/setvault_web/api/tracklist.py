@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import tempfile
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -36,11 +35,11 @@ from setvault_core.services.tracklist import (
     update_entry,
 )
 from setvault_core.services.tracklist_parse import parse_tracklist_text
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.config import Settings
-from setvault_web.deps import current_user, db_session
+from setvault_web.deps import current_user, db_session, parse_uuid
 from setvault_web.rate_limit import hit
 
 router = APIRouter(prefix="/api/sets", tags=["tracklist"])
@@ -127,7 +126,7 @@ async def patch_tracklist_entry(
     live = await _load_set(session, slug)
     entry = (await session.execute(
         select(TracklistEntry).where(
-            TracklistEntry.id == uuid.UUID(entry_id),
+            TracklistEntry.id == parse_uuid(entry_id),
             TracklistEntry.live_set_id == live.id,
         )
     )).scalar_one_or_none()
@@ -140,7 +139,10 @@ async def patch_tracklist_entry(
         end_seconds=body.end_seconds,
         raw_label=body.raw_label,
         edit_notes=body.edit_notes,
-        mashup_with=[uuid.UUID(x) for x in body.mashup_with] if body.mashup_with else None,
+        mashup_with=(
+            [parse_uuid(x, status_code=422, detail="invalid id") for x in body.mashup_with]
+            if body.mashup_with else None
+        ),
     )
     after = {"raw_label": entry.raw_label, "start_seconds": entry.start_seconds}
     await audit_log(
@@ -180,7 +182,7 @@ async def delete_tracklist_entry(
     live = await _load_set(session, slug)
     entry = (await session.execute(
         select(TracklistEntry).where(
-            TracklistEntry.id == uuid.UUID(entry_id),
+            TracklistEntry.id == parse_uuid(entry_id),
             TracklistEntry.live_set_id == live.id,
         )
     )).scalar_one_or_none()
@@ -345,19 +347,27 @@ async def accept_import(
     live = await _load_set(session, slug)
     job = (await session.execute(
         select(TracklistImportJob).where(
-            TracklistImportJob.id == uuid.UUID(job_id),
+            TracklistImportJob.id == parse_uuid(job_id),
             TracklistImportJob.live_set_id == live.id,
-        )
+        ).with_for_update()
     )).scalar_one_or_none()
-    if job is None or job.status != "succeeded":
+    if job is None or job.status not in ("succeeded", "accepted"):
         raise HTTPException(status_code=404, detail="import not ready")
+    if job.status == "accepted":
+        raise HTTPException(status_code=409, detail="import already accepted")
     parsed = (job.result or {}).get("parsed", [])
-    # Materialize accepted entries appended after current end
-    existing = await list_entries(session, live.id)
-    next_pos = len(existing)
-    for idx in body.accepted_indexes:
-        if idx < 0 or idx >= len(parsed):
-            continue
+    # Materialize accepted entries appended after the current last position
+    max_pos = (await session.execute(
+        select(func.max(TracklistEntry.position)).where(
+            TracklistEntry.live_set_id == live.id
+        )
+    )).scalar()
+    next_pos = 0 if max_pos is None else max_pos + 1
+    indexes = [
+        i for i in dict.fromkeys(body.accepted_indexes) if 0 <= i < len(parsed)
+    ]
+    job.status = "accepted"
+    for idx in indexes:
         p = parsed[idx]
         e = TracklistEntry(
             live_set_id=live.id,
@@ -372,7 +382,7 @@ async def accept_import(
         session, actor_user_id=user.id, actor_kind="user",
         action="tracklist.import.accepted",
         target_type="tracklist_import_job", target_id=str(job.id),
-        after={"accepted": body.accepted_indexes},
+        after={"accepted": indexes},
     )
     await session.commit()
     refreshed = await list_entries(session, live.id)

@@ -21,7 +21,7 @@ from setvault_core.models.base import Base, TimestampMixin, UuidPkMixin
 
 TracklistEntryStatus = Literal["raw", "resolved", "acoustid_confirmed"]
 TracklistImportKind = Literal["paste", "url_1001tl", "ocr"]
-TracklistImportStatus = Literal["queued", "running", "succeeded", "failed"]
+TracklistImportStatus = Literal["queued", "running", "succeeded", "failed", "accepted"]
 
 
 class Label(Base, UuidPkMixin, TimestampMixin):

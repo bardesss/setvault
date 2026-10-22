@@ -238,3 +238,57 @@ async def test_facets(authed_admin_client, library):
         {"slug": "techno", "name": "Techno", "count": 2},
         {"slug": "house", "name": "House", "count": 1},
     ]
+
+
+async def _mk_artist(client, name):
+    return (await client.post("/api/catalog/artists", json={"name": name})).json()["id"]
+
+
+async def test_replace_artists_dedupes_and_keeps_roles(authed_admin_client, seeded_live_set):
+    from setvault_core.models.catalog import LiveSetArtist
+
+    slug = seeded_live_set["slug"]
+    a = await _mk_artist(authed_admin_client, "Role A")
+    b = await _mk_artist(authed_admin_client, "Role B")
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={"artist_ids": [a]})
+    assert r.status_code == 200
+    async with session_factory()() as s:
+        row = (await s.execute(select(LiveSetArtist).where(
+            LiveSetArtist.artist_id == _uuid.UUID(a)))).scalar_one()
+        row.role = "guest"
+        await s.commit()
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={"artist_ids": [b, a, b, a]})
+    assert r.status_code == 200, r.text
+    assert [x["name"] for x in r.json()["artists"]] == ["Role B", "Role A"]
+    async with session_factory()() as s:
+        rows = (await s.execute(select(LiveSetArtist).where(
+            LiveSetArtist.live_set_id == _uuid.UUID(seeded_live_set["id"])))).scalars().all()
+        roles = {str(x.artist_id): x.role for x in rows}
+    assert roles[a] == "guest"
+    assert roles[b] == "main"
+
+
+async def test_replace_artists_rejects_merged_or_unknown(authed_admin_client, seeded_live_set):
+    slug = seeded_live_set["slug"]
+    a = await _mk_artist(authed_admin_client, "Survivor X")
+    b = await _mk_artist(authed_admin_client, "Merged X")
+    m = await authed_admin_client.post(
+        f"/api/catalog/artists/{b}/merge", json={"survivor_id": a})
+    assert m.status_code in (200, 204), m.text
+    for bad in (b, "00000000-0000-0000-0000-000000000001"):
+        r = await authed_admin_client.patch(f"/api/sets/{slug}", json={"artist_ids": [bad]})
+        assert r.status_code in (404, 422), r.text
+
+
+async def test_replace_tags_case_variants(authed_admin_client, seeded_live_set):
+    slug = seeded_live_set["slug"]
+    r = await authed_admin_client.patch(
+        f"/api/sets/{slug}", json={"tag_names": ["House", "house", " HOUSE ", "  "]})
+    assert r.status_code == 200, r.text
+    assert len(r.json()["tags"]) == 1
+
+
+async def test_tag_too_long_422(authed_admin_client, seeded_live_set):
+    slug = seeded_live_set["slug"]
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={"tag_names": ["x" * 81]})
+    assert r.status_code == 422

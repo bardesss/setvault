@@ -10,6 +10,7 @@ from setvault_core.models.api_token import ApiToken
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.engagement import ActivityEvent, UserSetState
 from setvault_core.models.identity import NotificationPreference, User
+from setvault_core.models.system import NotificationConnector
 from setvault_core.schemas.feeds import (
     RssTokenCreateIn,
     RssTokenOut,
@@ -25,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.api.auth import _issue_session
 from setvault_web.config import Settings, get_settings
-from setvault_web.deps import current_user, db_session, get_signer
+from setvault_web.deps import current_user, db_session, get_signer, parse_uuid
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -242,17 +243,25 @@ async def upsert_my_pref(
             )
         )
     ).scalar_one_or_none()
+    connector_uuid = (
+        parse_uuid(body.connector_id, status_code=422, detail="invalid id")
+        if body.connector_id else None
+    )
+    if connector_uuid is not None and await session.get(
+        NotificationConnector, connector_uuid
+    ) is None:
+        raise HTTPException(status_code=422, detail="unknown connector_id")
     if existing is None:
         existing = NotificationPreference(
             user_id=user.id,
             kind=kind,
             channel=body.channel,
-            connector_id=uuid.UUID(body.connector_id) if body.connector_id else None,
+            connector_id=connector_uuid,
         )
         session.add(existing)
     else:
         existing.channel = body.channel
-        existing.connector_id = uuid.UUID(body.connector_id) if body.connector_id else None
+        existing.connector_id = connector_uuid
     await session.commit()
     return NotificationPreferenceOut(
         kind=existing.kind,

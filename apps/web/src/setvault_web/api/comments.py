@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,7 +24,7 @@ from setvault_core.services.comments import (
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_web.deps import current_user, db_session
+from setvault_web.deps import current_user, db_session, parse_uuid
 
 router = APIRouter(tags=["comments"])
 
@@ -103,7 +102,10 @@ async def post_comment(
         c = await create_comment(
             session, live_set_id=live.id, user_id=user.id,
             body=body.body,
-            parent_id=uuid.UUID(body.parent_id) if body.parent_id else None,
+            parent_id=(
+                parse_uuid(body.parent_id, status_code=422, detail="invalid id")
+                if body.parent_id else None
+            ),
             position_seconds=body.position_seconds,
         )
     except CommentValidationError as exc:
@@ -122,7 +124,7 @@ async def patch_comment(
     user: Annotated[User, Depends(current_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
-    c = await session.get(Comment, uuid.UUID(comment_id))
+    c = await session.get(Comment, parse_uuid(comment_id))
     if c is None:
         raise HTTPException(status_code=404)
     is_admin = (user.role == "admin")
@@ -140,7 +142,7 @@ async def delete_comment(
     user: Annotated[User, Depends(current_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
-    c = await session.get(Comment, uuid.UUID(comment_id))
+    c = await session.get(Comment, parse_uuid(comment_id))
     if c is None:
         raise HTTPException(status_code=404)
     is_admin = (user.role == "admin")

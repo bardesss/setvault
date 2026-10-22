@@ -34,7 +34,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.config import get_settings
-from setvault_web.deps import current_user, db_session, require_admin
+from setvault_web.deps import current_user, db_session, parse_uuid, require_admin
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -220,8 +220,13 @@ async def create_party(
     session: Annotated[AsyncSession, Depends(db_session)],
     _: Annotated[object, Depends(current_user)],
 ):
-    venue_uuid = uuid.UUID(body.venue_id) if body.venue_id else None
-    series_uuid = uuid.UUID(body.series_id) if body.series_id else None
+    bad = {"status_code": 422, "detail": "invalid id"}
+    venue_uuid = parse_uuid(body.venue_id, **bad) if body.venue_id else None
+    series_uuid = parse_uuid(body.series_id, **bad) if body.series_id else None
+    if venue_uuid is not None and await session.get(Venue, venue_uuid) is None:
+        raise HTTPException(status_code=422, detail="unknown venue_id")
+    if series_uuid is not None and await session.get(Series, series_uuid) is None:
+        raise HTTPException(status_code=422, detail="unknown series_id")
     row = Party(
         name=body.name,
         slug=await unique_slug(session, Party, slugify(body.name), name=body.name),

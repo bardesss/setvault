@@ -78,9 +78,18 @@
 
   async function confirmAccept() {
     if (!job) return;
-    const { entries } = await acceptImport(slug, job.id, Array.from(accepted));
-    setEntries(entries);
-    dispatch("close");
+    error = null;
+    try {
+      const { entries } = await acceptImport(slug, job.id, Array.from(accepted));
+      setEntries(entries);
+      dispatch("close");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        error = $_("tracklist.import_already_accepted");
+      } else {
+        error = e instanceof Error ? e.message : "error";
+      }
+    }
   }
 
   function fmt(s: number): string {
@@ -141,6 +150,7 @@
         </li>
       {/each}
     </ul>
+    {#if error}<p class="error">{error}</p>{/if}
     <footer>
       <button on:click={() => (job = null)}>{$_("tracklist.back")}</button>
       <button class="primary" on:click={confirmAccept}>
