@@ -88,7 +88,6 @@
     "import_ocr_warning": "OCR uses Tesseract on the server. Quality depends on the image.",
     "import_disabled": "Admin has disabled this import source.",
     "import_choose_image": "Choose an image first.",
-    "import_already_accepted": "This import was already accepted.",
     "import_review": "Review {count} parsed entries:",
     "accept_selected": "Accept {count} selected",
     "parse": "Parse",

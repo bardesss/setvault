@@ -46,3 +46,13 @@ async def test_unknown_referenced_ids_never_500(authed_admin_client, seeded_live
     r = await authed_admin_client.post(
         "/api/catalog/parties", json={"name": "P", "venue_id": ghost})
     assert r.status_code in (404, 422), r.text
+
+
+@pytest.mark.asyncio
+async def test_party_patch_unknown_refs_422(authed_admin_client):
+    ghost = "00000000-0000-0000-0000-000000000001"
+    p = await authed_admin_client.post("/api/catalog/parties", json={"name": "PatchMe"})
+    slug = p.json()["slug"]
+    for body in ({"venue_id": ghost}, {"series_id": ghost}):
+        r = await authed_admin_client.patch(f"/api/catalog/parties/{slug}", json=body)
+        assert r.status_code == 422, r.text

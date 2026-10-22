@@ -382,6 +382,10 @@ async def edit_party(
         raise HTTPException(
             status_code=422, detail="invalid venue_id or series_id"
         ) from exc
+    for field, model in (("venue_id", Venue), ("series_id", Series)):
+        ref = patch.get(field)
+        if ref is not None and await session.get(model, ref) is None:
+            raise HTTPException(status_code=422, detail=f"unknown {field}")
     for field, value in patch.items():
         setattr(row, field, value)
     await audit_log(

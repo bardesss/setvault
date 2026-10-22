@@ -21,7 +21,7 @@ async def replace_artists(
         try:
             aid = uuid.UUID(raw)
         except (ValueError, AttributeError, TypeError) as exc:
-            raise UnknownArtistError(f"invalid artist id: {raw!r}") from exc
+            raise UnknownArtistError("invalid artist id") from exc
         if aid not in ids:
             ids.append(aid)
     if ids:
