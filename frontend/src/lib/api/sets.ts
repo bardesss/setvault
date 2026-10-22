@@ -61,6 +61,7 @@ export interface SetDetail extends Omit<SetSummary, "venue"> {
   /** The library-wide switch; while off, `upgrades_enabled` does nothing. */
   auto_upgrades_enabled: boolean;
   upgrade_history: SetUpgradeHistoryItem[];
+  is_favorite: boolean;
 }
 
 export interface SetState {

@@ -97,6 +97,7 @@
     "add_set": "Add set",
     "upload": "Upload",
     "search": "Search",
+    "favorites": "Favorites",
     "settings": "Settings",
     "admin": "Admin",
     "sign_out": "Sign out"
@@ -203,6 +204,15 @@
     "entire_set": "Whole set",
     "remove": "Remove bookmark",
     "empty": "No bookmarks yet."
+  },
+  "favorites": {
+    "add": "Favorite",
+    "remove": "Favorited",
+    "my_title": "My favorites",
+    "empty": "No favorites yet. Use the heart on a set to add one.",
+    "error": "Could not update favorite.",
+    "load_error": "Could not load favorites.",
+    "load_more": "Load more"
   },
   "downloads": {
     "title": "My downloads",
