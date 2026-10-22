@@ -693,7 +693,9 @@ async def test_backfill_with_cleanup_on_real_audio(lib, tmp_path, fake_queue, re
 
     await qb._run_quality_backfill(cleanup=True, phase="fill")
     while fake_queue:
-        _, kwargs = fake_queue.pop(0)
+        func, kwargs = fake_queue.pop(0)
+        if func == qb.SCAN_FUNC:  # the finished cleanup queues a duplicate scan
+            continue
         await qb._run_quality_backfill(**kwargs["kwargs"])
 
     older, newer = await _get(ids["a_mp3_128"]), await _get(ids["a_trim20"])
