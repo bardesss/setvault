@@ -17,6 +17,24 @@ export interface SetSummary {
   status: string;
   artists: SetArtist[];
   tags: string[];
+  created_at: string;
+  venue: { name: string; slug: string; kind: string | null } | null;
+}
+
+export interface SetFacets {
+  tags: { slug: string; name: string; count: number }[];
+  years: number[];
+  venue_kinds: string[];
+}
+
+export interface ListSetsParams {
+  limit?: number;
+  offset?: number;
+  q?: string;
+  tag?: string;
+  year?: string | number;
+  venue_kind?: string;
+  sort?: string;
 }
 
 export interface SetUpgradeHistoryItem {
@@ -30,12 +48,12 @@ export interface SetUpgradeHistoryItem {
   tracklist_kept?: boolean;
 }
 
-export interface SetDetail extends SetSummary {
+export interface SetDetail extends Omit<SetSummary, "venue"> {
   description: string | null;
   audio_stream_url: string;
   waveform_url: string | null;
   normalized_lufs: number | null;
-  venue: { id: string; name: string; slug: string } | null;
+  venue: { id: string; name: string; slug: string; kind?: string | null } | null;
   party: { id: string; name: string; slug: string } | null;
   embed_allowed: boolean;
   quality: { tier: string; label: string } | null;
@@ -51,8 +69,19 @@ export interface SetState {
   playback_rate?: number;
 }
 
-export const listSets = () =>
-  api<{ items: SetSummary[]; total: number }>("/api/sets");
+export function setsQuery(params: ListSetsParams = {}): string {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+  }
+  const s = qs.toString();
+  return s ? `?${s}` : "";
+}
+
+export const listSets = (params: ListSetsParams = {}) =>
+  api<{ items: SetSummary[]; total: number }>(`/api/sets${setsQuery(params)}`);
+
+export const getFacets = () => api<SetFacets>("/api/sets/facets");
 
 export const getSet = (slug: string) => api<SetDetail>(`/api/sets/${slug}`);
 

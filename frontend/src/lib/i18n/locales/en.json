@@ -73,6 +73,21 @@
     "single_user_auto_login": "Skip login (auto-sign-in as the only user)",
     "single_user_auto_login_warning": "Only for trusted local/VPN use: while on, anyone who can reach this instance is signed in as you, with no password. Disabled automatically once a second user is added."
   },
+  "library": {
+    "sort_recent": "Recently added",
+    "sort_date": "Set date",
+    "sort_title": "Title A→Z",
+    "sort_duration": "Longest first",
+    "showing": "Showing {shown} of {total}",
+    "load_more": "Load more",
+    "no_match": "No sets match.",
+    "filter_placeholder": "Filter sets…",
+    "filters": "Filters",
+    "tag": "Tag",
+    "venue_kind": "Venue kind",
+    "year": "Year",
+    "all": "All"
+  },
   "nav": {
     "home": "Home",
     "library": "Library",
