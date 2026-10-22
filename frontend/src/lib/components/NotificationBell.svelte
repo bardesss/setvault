@@ -157,7 +157,7 @@
   }
   .count {
     position: absolute; top: -2px; right: -4px;
-    background: var(--accent-error); color: var(--text-on-accent);
+    background: var(--accent-error); color: var(--bg-base);
     font-size: 10px; padding: 1px 4px; border-radius: 8px;
   }
   .panel {
