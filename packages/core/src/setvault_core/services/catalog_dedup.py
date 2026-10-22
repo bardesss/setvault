@@ -13,7 +13,8 @@ _KIND_MODEL = {"artist": Artist, "venue": Venue, "party": Party, "series": Serie
 
 
 def _is_latin(ch: str) -> bool:
-    return "LATIN" in unicodedata.name(ch, "")
+    # "" (a mark with no base letter yet) is not Latin: keep the mark.
+    return bool(ch) and "LATIN" in unicodedata.name(ch, "")
 
 
 def normalized_name(name: str) -> str:

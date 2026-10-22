@@ -83,3 +83,21 @@ def test_normalized_name_keeps_non_latin_marks():
     assert normalized_name("กา") != normalized_name("กี")
     assert normalized_name("Café") == normalized_name("Cafe")
     assert normalized_name("ガラ") == normalized_name("ガラ!")
+
+
+def test_normalized_name_leading_combining_mark():
+    key = normalized_name("́abc")
+    assert key != ""
+    assert normalized_name("́") != ""
+
+
+async def test_clusters_survive_leading_combining_mark(session):
+    s = session
+    s.add_all([
+        Artist(name="́abc", slug=f"a-{uuid.uuid4().hex[:6]}"),
+        Artist(name="DJ Y", slug=f"b-{uuid.uuid4().hex[:6]}"),
+        Artist(name="dj  y.", slug=f"c-{uuid.uuid4().hex[:6]}"),
+    ])
+    await s.commit()
+    clusters = await find_duplicate_clusters(s, kind="artist")
+    assert [sorted(a.name for a in c) for c in clusters] == [["DJ Y", "dj  y."]]
