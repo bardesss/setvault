@@ -220,11 +220,18 @@ async def test_wanted_excludes_duplicates_and_unfingerprinted(
         items = (await authed_admin_client.get("/api/admin/wanted")).json()["items"]
         return {i["id"] for i in items}
 
+    async def unfingerprinted() -> int:
+        body = (await authed_admin_client.get("/api/admin/wanted")).json()
+        return body["unfingerprinted_below_cutoff"]
+
     assert sid not in await wanted()  # no fingerprint
+    assert await unfingerprinted() == 1  # ...but counted, for the backfill hint
     await _fingerprint(sid, raw_version=MATCHER_VERSION - 1)
     assert sid not in await wanted()  # stale matcher version
+    assert await unfingerprinted() == 1
     await _fingerprint(sid)
     assert sid in await wanted()
+    assert await unfingerprinted() == 0
 
     async with session_factory()() as s:
         src = await s.get(LiveSet, uuid.UUID(sid))
@@ -237,6 +244,7 @@ async def test_wanted_excludes_duplicates_and_unfingerprinted(
         s.add(dup)
         await s.commit()
         dup_id = str(dup.id)
+    assert await unfingerprinted() == 0  # a kept duplicate is never wanted
     await _fingerprint(dup_id)
     assert dup_id not in await wanted()
 

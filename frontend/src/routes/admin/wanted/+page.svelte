@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { locale } from "svelte-i18n";
+  import { _, locale } from "svelte-i18n";
   import { api, ApiError } from "#lib/api/client.ts";
   import AdminTable from "#lib/components/AdminTable.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
@@ -17,6 +17,8 @@
   }
 
   let items: WantedItem[] = [];
+  // Below the cutoff but not searchable until the backfill fingerprints them.
+  let unfingerprinted = 0;
   let loading = true;
   let error: string | null = null;
   let busy: Record<string, boolean> = {};
@@ -26,8 +28,11 @@
     loading = true;
     error = null;
     try {
-      const r = await api<{ items: WantedItem[] }>("/api/admin/wanted?limit=100");
+      const r = await api<{ items: WantedItem[]; unfingerprinted_below_cutoff?: number }>(
+        "/api/admin/wanted?limit=100",
+      );
       items = r.items;
+      unfingerprinted = r.unfingerprinted_below_cutoff ?? 0;
     } catch (e) {
       error = e instanceof ApiError ? e.detail : "Could not load wanted sets.";
     } finally {
@@ -67,10 +72,19 @@
 
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
 
+  {#if !loading && unfingerprinted > 0}
+    <p class="admin-msg" role="status" data-testid="wanted-unfingerprinted">
+      {$_("admin.wanted.unfingerprinted", { values: { count: unfingerprinted } })}
+      <a href="/admin/quality">{$_("admin.wanted.run_backfill")}</a>
+    </p>
+  {/if}
+
   {#if loading}
     <p class="muted">Loading…</p>
   {:else if items.length === 0}
-    <EmptyState message="Every set meets the quality cutoff." />
+    <EmptyState
+      message={unfingerprinted > 0 ? $_("admin.wanted.empty_pending") : $_("admin.wanted.empty")}
+    />
   {:else}
     <AdminTable
       columns={[

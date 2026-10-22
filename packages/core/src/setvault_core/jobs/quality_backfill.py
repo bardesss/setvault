@@ -55,8 +55,8 @@ BATCH_SECONDS = 300
 BATCH_MAX_SETS = 50
 JOB_FUNC = "setvault_core.jobs.quality_backfill.run_quality_backfill"
 # The duplicate scan for the Quality tab runs in the worker (it compares
-# fingerprints, CPU-bound): an admin "Refresh" queues it, and the end of a
-# cleanup run refreshes it inline. Its result is cached in Redis for the GET.
+# fingerprints, CPU-bound): an admin "Refresh" queues it, and so does the end
+# of a cleanup run. Its result is cached in Redis for the GET.
 SCAN_FUNC = "setvault_core.jobs.quality_backfill.run_duplicate_scan"
 # The scan stops after this long and reports itself incomplete; the job
 # timeout leaves room for loading the fingerprint index on top.
@@ -65,6 +65,9 @@ DUPLICATE_SCAN_TIMEOUT = "30m"
 SCAN_CACHE_KEY = "setvault:quality-backfill:duplicate-scan"
 # Id of the latest queued scan, so repeated Refresh clicks don't stack scans.
 SCAN_JOB_KEY = "setvault:quality-backfill:duplicate-scan-job"
+# Short lock around "check in flight, then enqueue" (like START_LOCK_KEY).
+SCAN_LOCK_KEY = "setvault:quality-backfill:duplicate-scan-lock"
+SCAN_LOCK_SECONDS = 30
 # Redis key holding the id of the chain's latest slice (singleton check).
 CHAIN_KEY = "setvault:quality-backfill:chain"
 # Short lock around "check in flight, then enqueue" so two concurrent starts
@@ -189,21 +192,28 @@ async def refresh_duplicate_scan() -> dict:
 
 def enqueue_duplicate_scan():
     """Queue a duplicate scan on the default queue; while the last one is
-    still queued or running, return that job instead of stacking another."""
+    still queued or running, return that job instead of stacking another.
+    Returns None when a concurrent call holds the short enqueue lock (it is
+    queueing one right now)."""
     from rq import Queue
     from rq.job import Job
 
     redis = _redis()
-    job_id = redis.get(SCAN_JOB_KEY)
-    if job_id is not None:
-        job = Job.fetch_many([job_id.decode()], connection=redis)[0]
-        if job is not None and job.get_status(refresh=True) in _IN_FLIGHT:
-            return job
-    job = Queue("default", connection=redis).enqueue(
-        SCAN_FUNC, job_timeout=DUPLICATE_SCAN_TIMEOUT,
-    )
-    redis.set(SCAN_JOB_KEY, job.id)
-    return job
+    if not redis.set(SCAN_LOCK_KEY, "1", nx=True, ex=SCAN_LOCK_SECONDS):
+        return None
+    try:
+        job_id = redis.get(SCAN_JOB_KEY)
+        if job_id is not None:
+            job = Job.fetch_many([job_id.decode()], connection=redis)[0]
+            if job is not None and job.get_status(refresh=True) in _IN_FLIGHT:
+                return job
+        job = Queue("default", connection=redis).enqueue(
+            SCAN_FUNC, job_timeout=DUPLICATE_SCAN_TIMEOUT,
+        )
+        redis.set(SCAN_JOB_KEY, job.id)
+        return job
+    finally:
+        redis.delete(SCAN_LOCK_KEY)
 
 
 async def _run_duplicate_scan() -> dict:
@@ -419,7 +429,7 @@ async def _run_quality_backfill(
             return res
         logger.info("duplicate cleanup: finished %s", counts)
         await _send_summary(counts)
-        await _refresh_scan_after_cleanup()
+        _refresh_scan_after_cleanup()
         return res
 
     res = await run_backfill_batch(deadline=deadline, clock=clock)
@@ -444,13 +454,14 @@ async def _run_quality_backfill(
     return res
 
 
-async def _refresh_scan_after_cleanup() -> None:
-    """The cleanup changed which pairs remain: refresh the Quality tab's
-    cached scan. Best effort; the cleanup itself is done."""
+def _refresh_scan_after_cleanup() -> None:
+    """The cleanup changed which pairs remain: queue a fresh scan for the
+    Quality tab (its own job, so this slice ends now). Best effort; the
+    cleanup itself is done."""
     try:
-        await refresh_duplicate_scan()
+        enqueue_duplicate_scan()
     except Exception:
-        logger.exception("duplicate scan refresh after cleanup failed")
+        logger.exception("queueing the duplicate scan after cleanup failed")
 
 
 async def _send_summary(counts: dict) -> None:

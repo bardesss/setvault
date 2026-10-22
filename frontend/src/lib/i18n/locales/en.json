@@ -185,6 +185,12 @@
         "still_running": "The scan is still running. Check back later.",
         "failed": "Could not start the scan."
       }
+    },
+    "wanted": {
+      "unfingerprinted": "{count, plural, one {# set below the cutoff isn’t fingerprinted yet, so it can’t be searched.} other {# sets below the cutoff aren’t fingerprinted yet, so they can’t be searched.}}",
+      "run_backfill": "Run the backfill on the Quality tab",
+      "empty": "Every set meets the quality cutoff.",
+      "empty_pending": "No set can be searched yet."
     }
   },
   "sources": {

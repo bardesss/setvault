@@ -208,10 +208,12 @@ async def quality_backfill_scan(
 ):
     """Queue a fresh duplicate scan in the worker; the GET serves its result
     once it finishes. While one is queued or running, answers with that
-    job's id instead of queueing another."""
+    job's id instead of queueing another (``null`` when a concurrent request
+    is queueing one at this very moment)."""
     from setvault_core.jobs.quality_backfill import enqueue_duplicate_scan
 
-    return {"job_id": enqueue_duplicate_scan().id}
+    job = enqueue_duplicate_scan()
+    return {"job_id": job.id if job is not None else None}
 
 
 class QualityBackfillIn(BaseModel):

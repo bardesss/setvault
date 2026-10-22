@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { IntlMessageFormat } from "intl-messageformat";
+import en from "./i18n/locales/en.json";
 import { fmtLocalDateTime, searchRefusal, wantedResult } from "./wanted";
 
 const ev = (outcome: string, reason: string | null = null) => ({
@@ -71,5 +73,14 @@ describe("fmtLocalDateTime", () => {
 
   it("handles empty input", () => {
     expect(fmtLocalDateTime(null)).toBe("");
+  });
+});
+
+describe("wanted page backfill hint", () => {
+  it("counts the sets that still need a fingerprint", () => {
+    const fmt = (count: number) =>
+      new IntlMessageFormat(en.admin.wanted.unfingerprinted, "en").format({ count });
+    expect(fmt(1)).toBe("1 set below the cutoff isn’t fingerprinted yet, so it can’t be searched.");
+    expect(fmt(3)).toBe("3 sets below the cutoff aren’t fingerprinted yet, so they can’t be searched.");
   });
 });

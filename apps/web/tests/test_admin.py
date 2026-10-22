@@ -94,7 +94,7 @@ def _clear_scan_cache():
     from setvault_core.jobs import quality_backfill as qb
 
     redis = qb._redis()
-    redis.delete(qb.SCAN_CACHE_KEY, qb.SCAN_JOB_KEY)
+    redis.delete(qb.SCAN_CACHE_KEY, qb.SCAN_JOB_KEY, qb.SCAN_LOCK_KEY)
 
 
 async def test_quality_backfill_dry_run_counts(authed_admin_client, seeded_live_set):

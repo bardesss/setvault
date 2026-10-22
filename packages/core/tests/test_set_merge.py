@@ -553,15 +553,13 @@ async def test_cleanup_sends_one_admin_summary(lib, fake_queue):
     state = kwargs["kwargs"]
     assert state["phase"] == "cleanup" and state["cleanup"] is True
     # ...which merges and notifies once.
-    qb._redis().delete(qb.SCAN_CACHE_KEY)
+    qb._redis().delete(qb.SCAN_JOB_KEY, qb.SCAN_LOCK_KEY)
     res = await qb._run_quality_backfill(**state)
     assert res["done"] and res["merged"] == 1
-    assert len(fake_queue) == 1  # nothing more queued
-    # The finished cleanup refreshes the cached duplicate scan (Quality tab).
-    cached = qb.cached_duplicate_scan()
-    assert cached["scanned_at"] is not None
-    assert (cached["duplicate_pairs"], cached["duplicate_pairs_complete"]) == (0, True)
-    qb._redis().delete(qb.SCAN_CACHE_KEY)
+    # No more cleanup slices; only a fresh duplicate scan for the Quality tab.
+    assert len(fake_queue) == 2
+    assert fake_queue[1] == (qb.SCAN_FUNC, {"job_timeout": qb.DUPLICATE_SCAN_TIMEOUT})
+    qb._redis().delete(qb.SCAN_JOB_KEY)
 
     async with session_factory()() as s:
         rows = (await s.execute(select(InAppNotification).where(

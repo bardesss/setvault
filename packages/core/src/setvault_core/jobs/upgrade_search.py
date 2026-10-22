@@ -113,13 +113,7 @@ def normalize_schedule(value: str | None) -> Schedule:
     return DEFAULT_SCHEDULE
 
 
-def wanted_filter(profile: QualityProfile) -> ColumnElement[bool]:
-    """Sets an upgrade search is for: published, live, upgrades on, a
-    measured tier below the cutoff, and matchable (R28): a current-version
-    raw fingerprint (without one every genuine candidate would be rejected
-    as different audio) and not themselves a kept duplicate of another set.
-    Shared by the scheduler (``due_sets``) and the admin Wanted list, so the
-    list shows exactly what the schedule searches."""
+def _upgradeable_below_cutoff(profile: QualityProfile) -> ColumnElement[bool]:
     # cutoff_unmet() in SQL: a measured tier that isn't the cutoff or above.
     at_or_above = list(profile.order[: rank(profile, effective_cutoff(profile)) + 1])
     return and_(
@@ -129,12 +123,31 @@ def wanted_filter(profile: QualityProfile) -> ColumnElement[bool]:
         LiveSet.quality_tier.is_not(None),
         LiveSet.quality_tier.not_in(at_or_above),
         LiveSet.duplicate_of.is_(None),
-        exists().where(
-            SetFingerprint.live_set_id == LiveSet.id,
-            SetFingerprint.raw.is_not(None),
-            SetFingerprint.raw_version == MATCHER_VERSION,
-        ),
     )
+
+
+def _has_current_raw_fingerprint() -> ColumnElement[bool]:
+    return exists().where(
+        SetFingerprint.live_set_id == LiveSet.id,
+        SetFingerprint.raw.is_not(None),
+        SetFingerprint.raw_version == MATCHER_VERSION,
+    )
+
+
+def wanted_filter(profile: QualityProfile) -> ColumnElement[bool]:
+    """Sets an upgrade search is for: published, live, upgrades on, a
+    measured tier below the cutoff, and matchable (R28): a current-version
+    raw fingerprint (without one every genuine candidate would be rejected
+    as different audio) and not themselves a kept duplicate of another set.
+    Shared by the scheduler (``due_sets``) and the admin Wanted list, so the
+    list shows exactly what the schedule searches."""
+    return and_(_upgradeable_below_cutoff(profile), _has_current_raw_fingerprint())
+
+
+def unfingerprinted_wanted_filter(profile: QualityProfile) -> ColumnElement[bool]:
+    """Sets that would be wanted but lack a current raw fingerprint (the
+    backfill hasn't reached them): the Wanted page points the admin there."""
+    return and_(_upgradeable_below_cutoff(profile), ~_has_current_raw_fingerprint())
 
 
 async def due_sets(
