@@ -20,7 +20,7 @@ from typing import Literal
 
 from setvault_ingest_sources.base import Candidate, SourceError
 from setvault_ingest_sources.registry import get_source
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import ColumnElement, and_, exists, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,6 +64,8 @@ UPGRADE_SEARCH_JOB_TIMEOUT = 30 * 60
 SEARCH_NOW_JOB_TIMEOUT = 10 * 60
 
 _WINDOWS = {"daily": timedelta(hours=24), "weekly": timedelta(hours=168)}
+Schedule = Literal["daily", "weekly", "off"]
+DEFAULT_SCHEDULE: Schedule = "weekly"
 _RESULTS_PER_SOURCE = 10
 _DURATION_TOLERANCE = 0.10
 _DURATION_MIN_SLACK_SECONDS = 120
@@ -102,37 +104,55 @@ class AllSourcesFailedError(Exception):
     """Every enabled source errored: nothing was actually searched."""
 
 
-async def due_sets(
-    session: AsyncSession, *, now: datetime, schedule: str, limit: int,
-) -> list[LiveSet]:
-    """Published, live, upgradeable sets below the cutoff whose last search is
-    older than the schedule window. Never-searched first, then oldest.
+def normalize_schedule(value: str | None) -> Schedule:
+    """The stored upgrade search schedule as the scheduler runs it. An
+    unknown value (hand-edited, older build) is the column default, weekly,
+    so the settings page and the scheduler agree; "off" stays off."""
+    if value in ("daily", "weekly", "off"):
+        return value  # type: ignore[return-value]
+    return DEFAULT_SCHEDULE
 
-    Only sets an upgrade can be matched against (R28): a current-version raw
-    fingerprint (without one every genuine candidate would be rejected as
-    different audio) and not themselves a kept duplicate of another set."""
-    window = _WINDOWS.get(schedule)
+
+def wanted_filter(profile: QualityProfile) -> ColumnElement[bool]:
+    """Sets an upgrade search is for: published, live, upgrades on, a
+    measured tier below the cutoff, and matchable (R28): a current-version
+    raw fingerprint (without one every genuine candidate would be rejected
+    as different audio) and not themselves a kept duplicate of another set.
+    Shared by the scheduler (``due_sets``) and the admin Wanted list, so the
+    list shows exactly what the schedule searches."""
+    # cutoff_unmet() in SQL: a measured tier that isn't the cutoff or above.
+    at_or_above = list(profile.order[: rank(profile, effective_cutoff(profile)) + 1])
+    return and_(
+        LiveSet.status == "published",
+        LiveSet.deleted_at.is_(None),
+        LiveSet.upgrades_enabled.is_(True),
+        LiveSet.quality_tier.is_not(None),
+        LiveSet.quality_tier.not_in(at_or_above),
+        LiveSet.duplicate_of.is_(None),
+        exists().where(
+            SetFingerprint.live_set_id == LiveSet.id,
+            SetFingerprint.raw.is_not(None),
+            SetFingerprint.raw_version == MATCHER_VERSION,
+        ),
+    )
+
+
+async def due_sets(
+    session: AsyncSession, *, now: datetime, schedule: str | None, limit: int,
+) -> list[LiveSet]:
+    """Wanted sets (:func:`wanted_filter`) whose last search is older than
+    the schedule window (:func:`normalize_schedule`). Never-searched first,
+    then oldest."""
+    window = _WINDOWS.get(normalize_schedule(schedule))
     if window is None or limit <= 0:
         return []
     if not (await get_config(session)).auto_upgrades_enabled:
         return []
     profile = await get_profile(session)
-    # cutoff_unmet() in SQL: a measured tier that isn't the cutoff or above.
-    at_or_above = list(profile.order[: rank(profile, effective_cutoff(profile)) + 1])
     stmt = (
         select(LiveSet)
         .where(
-            LiveSet.status == "published",
-            LiveSet.deleted_at.is_(None),
-            LiveSet.upgrades_enabled.is_(True),
-            LiveSet.quality_tier.is_not(None),
-            LiveSet.quality_tier.not_in(at_or_above),
-            LiveSet.duplicate_of.is_(None),
-            exists().where(
-                SetFingerprint.live_set_id == LiveSet.id,
-                SetFingerprint.raw.is_not(None),
-                SetFingerprint.raw_version == MATCHER_VERSION,
-            ),
+            wanted_filter(profile),
             or_(
                 LiveSet.last_upgrade_search_at.is_(None),
                 LiveSet.last_upgrade_search_at < now - window,

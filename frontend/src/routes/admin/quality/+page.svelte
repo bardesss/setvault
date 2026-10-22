@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
+  import { _, locale } from "svelte-i18n";
   import { api, ApiError } from "#lib/api/client.ts";
   import {
     getSettings,
     updateSettings,
     type AdminSettings,
   } from "#lib/api/settings.ts";
+  import { fmtLocalDateTime } from "#lib/wanted.ts";
 
   const TIER_LABELS: Record<string, string> = {
     lossless: "Lossless", high: "High", good: "Good", ok: "OK", low: "Low",
@@ -21,8 +23,10 @@
   interface BackfillDryRun {
     to_fingerprint: number;
     to_measure: number;
-    duplicate_pairs: number;
-    duplicate_pairs_complete: boolean;
+    // The last duplicate scan (run in the worker); null until one has run.
+    duplicate_pairs: number | null;
+    duplicate_pairs_complete: boolean | null;
+    scanned_at: string | null;
     failed?: number;
   }
 
@@ -32,6 +36,12 @@
   let backfillMsg: string | null = null;
   let cleanup = false;
   let retryFailed = false;
+  let scanBusy = false;
+  let scanMsg: string | null = null;
+  let scanPoll: ReturnType<typeof setTimeout> | null = null;
+  // How long to keep checking for the queued scan's result.
+  const SCAN_POLL_MS = 3000;
+  const SCAN_POLL_TRIES = 40;
 
   function msg(e: unknown, fallback: string): string {
     return e instanceof ApiError ? e.detail : fallback;
@@ -53,6 +63,7 @@
   }
 
   function pairsText(b: BackfillDryRun): string {
+    if (b.duplicate_pairs === null) return $_("admin.quality.scan.never");
     const pairs = plural(b.duplicate_pairs, "duplicate pair", "duplicate pairs");
     return b.duplicate_pairs_complete
       ? `${pairs} found.`
@@ -70,6 +81,41 @@
     }
     await loadBackfill();
   });
+
+  onDestroy(() => {
+    if (scanPoll) clearTimeout(scanPoll);
+  });
+
+  /** Queue a fresh duplicate scan in the worker, then check back until its
+   * result replaces the cached one. */
+  async function refreshScan() {
+    scanBusy = true;
+    scanMsg = null;
+    const before = backfill?.scanned_at ?? null;
+    try {
+      await api("/api/admin/maintenance/quality-backfill/scan", { method: "POST" });
+    } catch (e) {
+      scanMsg = msg(e, $_("admin.quality.scan.failed"));
+      scanBusy = false;
+      return;
+    }
+    scanMsg = $_("admin.quality.scan.queued");
+    let tries = 0;
+    const check = async () => {
+      scanPoll = null;
+      await loadBackfill();
+      if ((backfill?.scanned_at ?? null) !== before) {
+        scanMsg = null;
+        scanBusy = false;
+      } else if (++tries < SCAN_POLL_TRIES) {
+        scanPoll = setTimeout(check, SCAN_POLL_MS);
+      } else {
+        scanMsg = $_("admin.quality.scan.still_running");
+        scanBusy = false;
+      }
+    };
+    scanPoll = setTimeout(check, SCAN_POLL_MS);
+  }
 
   function move(i: number, delta: number) {
     const j = i + delta;
@@ -222,6 +268,19 @@
         {/if}
         <p data-testid="backfill-pairs">{pairsText(backfill)}</p>
       {/if}
+      <div class="row">
+        {#if backfill?.scanned_at}
+          <span class="muted" data-testid="backfill-scanned-at">
+            {$_("admin.quality.scan.last_scanned", {
+              values: { when: fmtLocalDateTime(backfill.scanned_at, $locale) },
+            })}
+          </span>
+        {/if}
+        <button type="button" class="btn btn-sm" disabled={scanBusy} on:click={refreshScan}>
+          {scanBusy ? $_("admin.quality.scan.refreshing") : $_("admin.quality.scan.refresh")}
+        </button>
+        {#if scanMsg}<span class="muted" role="status">{scanMsg}</span>{/if}
+      </div>
       <label class="row">
         <input type="checkbox" bind:checked={cleanup} disabled={backfillBusy} />
         <span>Clean up duplicates</span>

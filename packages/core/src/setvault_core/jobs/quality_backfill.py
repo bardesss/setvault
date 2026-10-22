@@ -21,6 +21,7 @@ first) and the running counts from slice to slice in the job's kwargs.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -52,9 +53,18 @@ logger = logging.getLogger(__name__)
 QUALITY_BACKFILL_TIMEOUT = "1h"
 BATCH_SECONDS = 300
 BATCH_MAX_SETS = 50
-# Time budget for counting duplicate pairs in the admin dry run (a request).
-DRY_RUN_SECONDS = 20
 JOB_FUNC = "setvault_core.jobs.quality_backfill.run_quality_backfill"
+# The duplicate scan for the Quality tab runs in the worker (it compares
+# fingerprints, CPU-bound): an admin "Refresh" queues it, and the end of a
+# cleanup run refreshes it inline. Its result is cached in Redis for the GET.
+SCAN_FUNC = "setvault_core.jobs.quality_backfill.run_duplicate_scan"
+# The scan stops after this long and reports itself incomplete; the job
+# timeout leaves room for loading the fingerprint index on top.
+DUPLICATE_SCAN_SECONDS = 10 * 60
+DUPLICATE_SCAN_TIMEOUT = "30m"
+SCAN_CACHE_KEY = "setvault:quality-backfill:duplicate-scan"
+# Id of the latest queued scan, so repeated Refresh clicks don't stack scans.
+SCAN_JOB_KEY = "setvault:quality-backfill:duplicate-scan-job"
 # Redis key holding the id of the chain's latest slice (singleton check).
 CHAIN_KEY = "setvault:quality-backfill:chain"
 # Short lock around "check in flight, then enqueue" so two concurrent starts
@@ -141,15 +151,72 @@ async def clear_stale_failures(session: AsyncSession) -> int:
 
 
 async def duplicate_pair_counts(session: AsyncSession) -> dict:
-    """Dry run for the cleanup: same-audio pairs among published sets that
-    already have a fingerprint (sets the backfill still has to fingerprint
-    can't be counted yet). The scan compares fingerprints, so it is cut off
-    after DRY_RUN_SECONDS; ``duplicate_pairs_complete`` says whether it
-    finished. Changes nothing."""
+    """Same-audio pairs among published sets that already have a
+    fingerprint (sets the backfill still has to fingerprint can't be counted
+    yet). The scan compares fingerprints, so it is cut off after
+    DUPLICATE_SCAN_SECONDS; ``duplicate_pairs_complete`` says whether it
+    finished. Changes nothing. Worker only: CPU-bound."""
     pairs, complete = await scan_duplicate_pairs(
-        session, deadline=time.monotonic() + DRY_RUN_SECONDS,
+        session, deadline=time.monotonic() + DUPLICATE_SCAN_SECONDS,
     )
     return {"duplicate_pairs": len(pairs), "duplicate_pairs_complete": complete}
+
+
+def cached_duplicate_scan() -> dict:
+    """The last duplicate scan as cached by the worker:
+    ``{"duplicate_pairs", "duplicate_pairs_complete", "scanned_at"}``, all
+    None when no scan has run (or the cache is unreadable)."""
+    empty = {"duplicate_pairs": None, "duplicate_pairs_complete": None, "scanned_at": None}
+    try:
+        raw = _redis().get(SCAN_CACHE_KEY)
+        data = json.loads(raw) if raw else None
+    except Exception:
+        logger.warning("duplicate scan cache unreadable", exc_info=True)
+        return empty
+    if not isinstance(data, dict):
+        return empty
+    return {k: data.get(k) for k in empty}
+
+
+async def refresh_duplicate_scan() -> dict:
+    """Scan for duplicate pairs and cache the result (worker side)."""
+    async with session_factory()() as s:
+        counts = await duplicate_pair_counts(s)
+    result = {**counts, "scanned_at": datetime.now(UTC).isoformat()}
+    _redis().set(SCAN_CACHE_KEY, json.dumps(result))
+    return result
+
+
+def enqueue_duplicate_scan():
+    """Queue a duplicate scan on the default queue; while the last one is
+    still queued or running, return that job instead of stacking another."""
+    from rq import Queue
+    from rq.job import Job
+
+    redis = _redis()
+    job_id = redis.get(SCAN_JOB_KEY)
+    if job_id is not None:
+        job = Job.fetch_many([job_id.decode()], connection=redis)[0]
+        if job is not None and job.get_status(refresh=True) in _IN_FLIGHT:
+            return job
+    job = Queue("default", connection=redis).enqueue(
+        SCAN_FUNC, job_timeout=DUPLICATE_SCAN_TIMEOUT,
+    )
+    redis.set(SCAN_JOB_KEY, job.id)
+    return job
+
+
+async def _run_duplicate_scan() -> dict:
+    if "DATABASE_URL" in os.environ:
+        init_engine(os.environ["DATABASE_URL"])
+    result = await refresh_duplicate_scan()
+    logger.info("duplicate scan: %s", result)
+    return result
+
+
+def run_duplicate_scan() -> dict:
+    """RQ entrypoint."""
+    return run_job(_run_duplicate_scan())
 
 
 async def run_backfill_batch(
@@ -352,6 +419,7 @@ async def _run_quality_backfill(
             return res
         logger.info("duplicate cleanup: finished %s", counts)
         await _send_summary(counts)
+        await _refresh_scan_after_cleanup()
         return res
 
     res = await run_backfill_batch(deadline=deadline, clock=clock)
@@ -374,6 +442,15 @@ async def _run_quality_backfill(
     else:
         logger.info("quality backfill: finished %s", res)
     return res
+
+
+async def _refresh_scan_after_cleanup() -> None:
+    """The cleanup changed which pairs remain: refresh the Quality tab's
+    cached scan. Best effort; the cleanup itself is done."""
+    try:
+        await refresh_duplicate_scan()
+    except Exception:
+        logger.exception("duplicate scan refresh after cleanup failed")
 
 
 async def _send_summary(counts: dict) -> None:

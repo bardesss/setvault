@@ -35,6 +35,7 @@ async def test_wanted_lists_only_cutoff_unmet_with_upgrades_on(
     await _set_quality(
         sid, quality_tier="ok", audio_codec="mp3", audio_bitrate_kbps=128,
     )
+    await _fingerprint(sid)
     async with session_factory()() as s:
         s.add(SetUpgradeEvent(
             live_set_id=uuid.UUID(sid), trigger="scheduled", outcome="rejected",
@@ -117,6 +118,8 @@ async def test_wanted_lists_never_searched_first(authed_admin_client, seeded_liv
         s.add(other)
         await s.commit()
         other_id = str(other.id)
+    await _fingerprint(first)
+    await _fingerprint(other_id)
 
     items = (await authed_admin_client.get("/api/admin/wanted")).json()["items"]
     ids = [i["id"] for i in items]
@@ -131,6 +134,7 @@ async def test_wanted_label_names_the_rip_platform(authed_admin_client, seeded_l
         sid, quality_tier="ok", audio_codec="mp3", audio_bitrate_kbps=128,
         source_type="url_rip", source_url="https://www.youtube.com/watch?v=abcdefghijk",
     )
+    await _fingerprint(sid)
     items = (await authed_admin_client.get("/api/admin/wanted")).json()["items"]
     (item,) = [i for i in items if i["id"] == sid]
     assert item["quality_label"] == "MP3 128 kbps (YouTube)"
@@ -144,6 +148,7 @@ async def test_wanted_newest_event_is_deterministic_on_ties(
 
     sid = uuid.UUID(seeded_live_set["id"])
     await _set_quality(str(sid), quality_tier="ok")
+    await _fingerprint(str(sid))
     at = datetime.now(UTC)
     ids = sorted([uuid.uuid4(), uuid.uuid4()])
     async with session_factory()() as s:
@@ -200,3 +205,62 @@ async def test_search_now_refuses_sets_not_fingerprinted_yet(
     await _fingerprint(seeded_live_set["id"])
     assert (await authed_admin_client.post(url)).status_code == 202
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_wanted_excludes_duplicates_and_unfingerprinted(
+    authed_admin_client, seeded_live_set,
+):
+    """Wanted lists exactly what the scheduler searches (due_sets): a set
+    without a current raw fingerprint, or a kept duplicate, is not wanted."""
+    sid = seeded_live_set["id"]
+    await _set_quality(sid, quality_tier="ok")
+
+    async def wanted() -> set[str]:
+        items = (await authed_admin_client.get("/api/admin/wanted")).json()["items"]
+        return {i["id"] for i in items}
+
+    assert sid not in await wanted()  # no fingerprint
+    await _fingerprint(sid, raw_version=MATCHER_VERSION - 1)
+    assert sid not in await wanted()  # stale matcher version
+    await _fingerprint(sid)
+    assert sid in await wanted()
+
+    async with session_factory()() as s:
+        src = await s.get(LiveSet, uuid.UUID(sid))
+        dup = LiveSet(
+            slug=f"dup-{uuid.uuid4().hex[:6]}", title="kept duplicate",
+            media_root_id=src.media_root_id, audio_path="originals/d/a.mp3",
+            status="published", source_type="upload", quality_tier="ok",
+            uploaded_by=src.uploaded_by, duplicate_of=src.id,
+        )
+        s.add(dup)
+        await s.commit()
+        dup_id = str(dup.id)
+    await _fingerprint(dup_id)
+    assert dup_id not in await wanted()
+
+
+@pytest.mark.asyncio
+async def test_search_now_duplicate_409(authed_admin_client, seeded_live_set, monkeypatch):
+    calls: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "setvault_web.api.wanted.enqueue_search_upgrade_now",
+        lambda set_id: calls.append(set_id) or True,
+    )
+    sid = seeded_live_set["id"]
+    async with session_factory()() as s:
+        src = await s.get(LiveSet, uuid.UUID(sid))
+        dup = LiveSet(
+            slug=f"dup-{uuid.uuid4().hex[:6]}", title="kept duplicate",
+            media_root_id=src.media_root_id, audio_path="originals/d/b.mp3",
+            status="published", source_type="upload", quality_tier="low",
+            uploaded_by=src.uploaded_by, duplicate_of=src.id,
+        )
+        s.add(dup)
+        await s.commit()
+        dup_id, dup_slug = str(dup.id), dup.slug
+    await _fingerprint(dup_id)
+    r = await authed_admin_client.post(f"/api/admin/wanted/{dup_slug}/search")
+    assert (r.status_code, r.json()["detail"]) == (409, "set is a duplicate of another set")
+    assert calls == []

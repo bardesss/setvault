@@ -4,10 +4,11 @@ import logging
 import os
 import re
 import shutil
-from typing import Annotated, get_args
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
+from setvault_core.jobs.upgrade_search import normalize_schedule
 from setvault_core.models.api_token import ApiToken
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.enrichment import ProviderConfig
@@ -90,9 +91,6 @@ async def system_info(
     }
 
 
-_SCHEDULES = get_args(SettingsOut.model_fields["upgrade_search_schedule"].annotation)
-
-
 def _settings_out(config) -> SettingsOut:
     return SettingsOut(
         audit_retention_days=config.audit_retention_days,
@@ -102,13 +100,9 @@ def _settings_out(config) -> SettingsOut:
         quality_tiers_order=list(config.quality_tiers_order),
         quality_cutoff=config.quality_cutoff,
         auto_upgrades_enabled=config.auto_upgrades_enabled,
-        # An unknown stored value (hand-edited / older build) falls back to
-        # the default instead of failing response validation with a 500.
-        upgrade_search_schedule=(
-            config.upgrade_search_schedule
-            if config.upgrade_search_schedule in _SCHEDULES
-            else "weekly"
-        ),
+        # An unknown stored value (hand-edited / older build) reads as the
+        # default, which is also what the scheduler runs (due_sets).
+        upgrade_search_schedule=normalize_schedule(config.upgrade_search_schedule),
     )
 
 
@@ -200,17 +194,24 @@ async def quality_backfill_candidates(
     _: Annotated[object, Depends(require_admin)],
 ):
     """Dry run: how many sets still need a fingerprint and a quality reading,
-    and how many duplicate pairs the cleanup would look at (published sets
-    that are the same audio). Changes nothing."""
-    from setvault_core.jobs.quality_backfill import (
-        backfill_candidates,
-        duplicate_pair_counts,
-    )
+    plus the last duplicate scan (same-audio pairs among published sets) as
+    the worker cached it; ``null`` figures when it never ran. The scan itself
+    is CPU-bound and runs in the worker (POST ``.../scan``). Changes nothing."""
+    from setvault_core.jobs.quality_backfill import backfill_candidates, cached_duplicate_scan
 
-    return {
-        **await backfill_candidates(session),
-        **await duplicate_pair_counts(session),
-    }
+    return {**await backfill_candidates(session), **cached_duplicate_scan()}
+
+
+@router.post("/maintenance/quality-backfill/scan", status_code=202)
+async def quality_backfill_scan(
+    _: Annotated[object, Depends(require_admin)],
+):
+    """Queue a fresh duplicate scan in the worker; the GET serves its result
+    once it finishes. While one is queued or running, answers with that
+    job's id instead of queueing another."""
+    from setvault_core.jobs.quality_backfill import enqueue_duplicate_scan
+
+    return {"job_id": enqueue_duplicate_scan().id}
 
 
 class QualityBackfillIn(BaseModel):

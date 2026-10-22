@@ -20,6 +20,19 @@ describe("wantedResult", () => {
     expect(wantedResult(null, null)).toBe("None yet");
   });
 
+  it("wantedResult ignores events older than last search (60 s slack)", () => {
+    const at = "2026-10-18T10:00:00+00:00"; // the event's time
+    const old = ev("rejected", "different audio");
+    // A later search that found nothing writes no event: the old one is stale.
+    expect(wantedResult(old, "2026-10-19T10:00:00+00:00")).toBe("No better copy found");
+    expect(wantedResult(old, "2026-10-18T10:01:01+00:00")).toBe("No better copy found");
+    // The search that wrote the event stamps the set a little later.
+    expect(wantedResult(old, "2026-10-18T10:01:00+00:00")).toBe("Rejected: different audio");
+    expect(wantedResult(old, at)).toBe("Rejected: different audio");
+    expect(wantedResult(old, "2026-10-18T09:00:00+00:00")).toBe("Rejected: different audio");
+    expect(wantedResult(ev("upgraded"), null)).toBe("Upgraded");
+  });
+
   it("never shows a raw enum", () => {
     expect(wantedResult(ev("rejected", "something new"), null)).toBe("Rejected: something new");
     expect(wantedResult(ev("rejected"), null)).toBe("Rejected");

@@ -574,6 +574,44 @@ async def test_swap_repoints_duplicates_and_unmatched_files_to_target(
             await s.commit()
 
 
+@pytest.mark.parametrize(("offset", "expected"), [(10.0, 20.0), (0.5, 30.0)])
+async def test_swap_shifts_target_duplicates_offsets(
+    tmp_path: Path, webhooks, offset: float, expected: float,
+):
+    """A duplicate already held against the target was measured against its
+    old audio: it moves by -offset into the new audio (under the same
+    MIN_SHIFT_SECONDS guard). The arrival's own duplicates were measured
+    against the new audio already and keep their offset."""
+    ids = await _seed(tmp_path, offset=offset)
+    tid, aid = ids["target"], ids["arrival"]
+    async with session_factory()() as s:
+        target = await s.get(LiveSet, tid)
+        dups = [
+            LiveSet(slug=f"dup-{uuid.uuid4().hex[:6]}", title="dup",
+                    media_root_id=target.media_root_id, audio_path=f"originals/x/{n}.mp3",
+                    uploaded_by=ids["user"], status="draft", duplicate_of=of,
+                    match_offset_seconds=off)
+            for n, of, off in (("t", tid, 30.0), ("a", aid, 30.0), ("n", tid, None))
+        ]
+        s.add_all(dups)
+        await s.commit()
+        dup_t, dup_a, dup_n = (d.id for d in dups)
+    try:
+        async with session_factory()() as s:
+            await _apply(s, ids)
+        async with session_factory()() as s:
+            assert (await s.get(LiveSet, dup_t)).match_offset_seconds == pytest.approx(expected)
+            moved = await s.get(LiveSet, dup_a)
+            assert moved.duplicate_of == tid
+            assert moved.match_offset_seconds == pytest.approx(30.0)
+            assert (await s.get(LiveSet, dup_n)).match_offset_seconds is None
+    finally:
+        async with session_factory()() as s:
+            for d in (dup_t, dup_a, dup_n):
+                await s.delete(await s.get(LiveSet, d))
+            await s.commit()
+
+
 async def test_draft_target_upgrade_fires_no_webhook(tmp_path: Path, webhooks):
     ids = await _seed(tmp_path)
     async with session_factory()() as s:

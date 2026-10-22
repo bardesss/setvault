@@ -14,9 +14,27 @@ const REASONS: Record<string, string> = {
   "target unavailable": "Skipped: set unavailable",
 };
 
+// The search that writes an event stamps the set's last search a moment
+// later; an event older than that by more than this belongs to an earlier
+// search.
+const EVENT_SLACK_MS = 60_000;
+
+/** Whether `ev` came from the set's latest search. A search that finds
+ * nothing writes no event, only bumps the last-search time, so an older
+ * event is stale. */
+function isCurrent(ev: WantedEvent, lastSearchedAt: string | null): boolean {
+  if (!lastSearchedAt) return true;
+  const at = new Date(ev.created_at).getTime();
+  const searched = new Date(lastSearchedAt).getTime();
+  if (Number.isNaN(at) || Number.isNaN(searched)) return true;
+  return at >= searched - EVENT_SLACK_MS;
+}
+
 /** What the last upgrade attempt on a set came to. With no attempt on
- * record, a set that has been searched simply had no better copy. */
+ * record since the latest search, a set that has been searched simply had
+ * no better copy. */
 export function wantedResult(ev: WantedEvent | null, lastSearchedAt: string | null): string {
+  if (ev && !isCurrent(ev, lastSearchedAt)) ev = null;
   if (!ev) return lastSearchedAt ? "No better copy found" : "None yet";
   if (ev.outcome === "upgraded") return "Upgraded";
   if (ev.outcome === "merged") return "Merged";
@@ -33,6 +51,7 @@ const SEARCH_REFUSED: Record<string, string> = {
   "quality not measured yet": "Quality not measured yet — run the backfill on the Quality tab",
   "upgrades are off for this set": "Upgrades are off for this set",
   "set already meets the quality cutoff": "Already meets the quality cutoff",
+  "set is a duplicate of another set": "A duplicate of another set — search its original instead",
 };
 
 /** Why Search now was refused (a 409), as that row's status. */
