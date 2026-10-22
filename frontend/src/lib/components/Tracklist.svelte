@@ -4,6 +4,7 @@
   import { bulkResolve } from "#lib/api/enrichment.ts";
   import { createEntry, listTracklist, type TracklistEntry } from "#lib/api/tracklist.ts";
   import { player, seekTo } from "#lib/stores/audio.ts";
+  import { shouldIgnoreShortcut } from "#lib/keyboard.ts";
   import { tracklist, setEntries, upsertEntry, removeEntry } from "#lib/stores/tracklist.ts";
   import ResolveCandidatesPopover from "./ResolveCandidatesPopover.svelte";
   import TracklistEditDrawer from "./TracklistEditDrawer.svelte";
@@ -77,28 +78,11 @@
     });
   }
 
-  function cycle(direction: 1 | -1) {
-    const entries = $tracklist.entries;
-    if (!entries.length) return;
-    const current = indexAtPlayhead();
-    const target =
-      entries[Math.max(0, Math.min(entries.length - 1, current + direction))];
-    if (target) seekTo(target.start_seconds);
-  }
-
   function handleKeydown(ev: KeyboardEvent) {
-    if (
-      ev.target instanceof HTMLInputElement ||
-      ev.target instanceof HTMLTextAreaElement
-    )
-      return;
+    if (shouldIgnoreShortcut(ev, ev.key)) return;
     if (ev.key === "m" || ev.key === "M") {
       ev.preventDefault();
       addAtPlayhead();
-    } else if (ev.key === "[") {
-      cycle(-1);
-    } else if (ev.key === "]") {
-      cycle(1);
     }
   }
 
