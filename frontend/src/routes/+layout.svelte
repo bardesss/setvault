@@ -8,6 +8,7 @@
   import { browser } from "$app/env";
   import { page } from "$app/state";
   import { toStore } from "svelte/store";
+  import { postStoredCap } from "#lib/stores/offline.ts";
   import { session } from "#lib/stores/session.ts";
   import { setupI18n } from "#lib/i18n/index.ts";
   import NavRail from "#lib/components/NavRail.svelte";
@@ -18,16 +19,25 @@
 
   setupI18n();
 
-  onMount(async () => {
-    if (browser && "serviceWorker" in navigator) {
+  onMount(() => {
+    if (!browser || !("serviceWorker" in navigator)) return;
+    // The SW persists the cap itself; re-post the stored one so a freshly
+    // activated worker (or a first install) is in sync with the user setting.
+    const syncCap = () => void postStoredCap();
+    navigator.serviceWorker.addEventListener("controllerchange", syncCap);
+    void (async () => {
       try {
         await navigator.serviceWorker.register("/service-worker.js", {
           type: "module",
         });
+        await navigator.serviceWorker.ready;
+        syncCap();
       } catch {
         // best-effort; offline mode just doesn't activate
       }
-    }
+    })();
+    return () =>
+      navigator.serviceWorker.removeEventListener("controllerchange", syncCap);
   });
 
   export let data: { user: import("#lib/api/auth.ts").CurrentUser | null };

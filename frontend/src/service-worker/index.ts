@@ -2,11 +2,17 @@ import { version } from "$app/env";
 import { assets, immutable } from "$app/manifest";
 import { self as sw } from "$app/service-worker";
 import { chooseStrategy } from "#lib/sw-strategy.ts";
+import {
+  AUDIO_CACHE,
+  META_CACHE,
+  cachesToDelete,
+  loadCap,
+  saveCap,
+} from "#lib/sw-cache.ts";
 
 const CACHE_VERSION = `setvault-${version}`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
-const AUDIO_CACHE = `${CACHE_VERSION}-audio`;
 
 // immutable = SvelteKit chunks; assets = everything under static/.
 // $app/manifest paths are relative to the base path; the app is served from
@@ -29,9 +35,7 @@ sw.addEventListener("activate", (event) => {
     (async () => {
       const keys = await caches.keys();
       await Promise.all(
-        keys
-          .filter((k) => !k.startsWith(CACHE_VERSION))
-          .map((k) => caches.delete(k)),
+        cachesToDelete(keys, CACHE_VERSION).map((k) => caches.delete(k)),
       );
       await sw.clients.claim();
     })(),
@@ -113,18 +117,20 @@ function isCacheable(response: Response): boolean {
 }
 
 // Audio-cap state. Main thread sends `{type: "set-cap", bytes}` via
-// postMessage; default keeps us under 1 GB until the user opens settings.
-let _audioCapBytes = 1024 * 1024 * 1024;
+// postMessage. The cap is persisted in the meta cache (a SW can be killed and
+// restarted at any time) and read lazily; default is 1 GB.
 
 sw.addEventListener("message", (event) => {
   const data = event.data as { type?: string; bytes?: number } | null;
   if (data?.type === "set-cap" && typeof data.bytes === "number") {
-    _audioCapBytes = data.bytes;
     // Enforce immediately so the admin's new cap kicks in without waiting
     // for the next audio fetch. Posts back when done so callers can await
     // via `MessageChannel`.
     const port = event.ports?.[0];
-    const work = enforceAudioCap().then(() => {
+    const work = (async () => {
+      await saveCap(await caches.open(META_CACHE), data.bytes as number);
+      await enforceAudioCap();
+    })().then(() => {
       if (port) port.postMessage({ type: "cap-enforced" });
     });
     event.waitUntil?.(work);
@@ -132,6 +138,7 @@ sw.addEventListener("message", (event) => {
 });
 
 async function enforceAudioCap(): Promise<void> {
+  const cap = await loadCap(await caches.open(META_CACHE));
   const cache = await caches.open(AUDIO_CACHE);
   const keys = await cache.keys();
   let total = 0;
@@ -144,7 +151,7 @@ async function enforceAudioCap(): Promise<void> {
     total += blob.size;
   }
   // Cache iteration order is roughly insertion-order; evict oldest first.
-  while (total > _audioCapBytes && sized.length > 0) {
+  while (total > cap && sized.length > 0) {
     const oldest = sized.shift()!;
     await cache.delete(oldest.req);
     total -= oldest.size;

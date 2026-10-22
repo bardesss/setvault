@@ -38,6 +38,9 @@ test("audio cache evicts oldest entry when over cap", async ({
     return names.find((n) => n.endsWith("-audio")) ?? null;
   });
   expect(audioCacheName, "audio cache should be created by the SW").not.toBeNull();
+  expect(audioCacheName, "audio cache is unversioned so deploys keep it").toBe(
+    "setvault-audio",
+  );
 
   // Prime the cache with three fake stream entries in known insertion order.
   await page.evaluate(async (name) => {
@@ -89,6 +92,13 @@ test("audio cache evicts oldest entry when over cap", async ({
   expect(after, "fake-a (oldest fake) should be evicted").not.toContain(
     "/api/sets/fake-a/stream",
   );
+
+  // The cap is persisted inside the SW so a restart does not forget it.
+  const persisted = await page.evaluate(async () => {
+    const meta = await caches.open("setvault-meta");
+    return (await meta.match("/__setvault/cap"))?.text() ?? null;
+  });
+  expect(persisted).toBe("1500");
 
   // Cleanup so the next test doesn't see the lowered cap or fake entries.
   await context.clearCookies();
