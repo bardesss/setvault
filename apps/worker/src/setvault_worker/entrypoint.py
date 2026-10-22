@@ -1,6 +1,7 @@
 """Worker entrypoint.
 
-Boots an RQ worker on the `default` and `low` queues (in that priority order:
+Boots an RQ worker (``RecordingWorker``, which records every run for
+Admin -> Jobs) on the `default` and `low` queues (in that priority order:
 upgrade searches and upgrade rips go on `low`, so they never hold up uploads)
 and registers the periodic jobs (e.g. MediaRoot health-checks) with
 rq-scheduler.
@@ -17,10 +18,12 @@ import os
 from datetime import UTC, datetime
 
 from redis import Redis
-from rq import Queue, Worker
+from rq import Queue
 from rq_scheduler import Scheduler
 from setvault_core.db import init_engine
 from setvault_core.jobs.upgrade_search import UPGRADE_QUEUE, UPGRADE_SEARCH_JOB_TIMEOUT
+
+from setvault_worker.recording import RecordingWorker
 
 _HOURLY = 60 * 60
 _DAILY = 24 * 60 * 60
@@ -71,11 +74,15 @@ def _bootstrap_scheduler(redis: Redis) -> None:
 
 
 def main() -> None:
-    init_engine(os.environ["DATABASE_URL"])
+    database_url = os.environ["DATABASE_URL"]
+    init_engine(database_url)
     redis = Redis.from_url(os.environ["REDIS_URL"])
     _bootstrap_scheduler(redis)
     queues = [Queue(name, connection=redis) for name in _QUEUE_ORDER]
-    Worker(queues, connection=redis).work(with_scheduler=True)
+    # Records each run in the jobs table (Admin -> Jobs).
+    RecordingWorker(queues, connection=redis, database_url=database_url).work(
+        with_scheduler=True
+    )
 
 
 if __name__ == "__main__":

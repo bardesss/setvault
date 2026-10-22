@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, String, func, text
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,7 +28,13 @@ class NotificationConnector(Base, UuidPkMixin, TimestampMixin):
 
 class Job(Base):
     __tablename__ = "jobs"
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # rq job id
+    """One row per RQ run (written by the worker's RecordingWorker). RQ ids
+    repeat across runs, so ``id`` is a per-run UUID and ``rq_id`` the RQ id."""
+    id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, default=lambda: str(uuid.uuid4()),
+        server_default=text("gen_random_uuid()::text"),
+    )
+    rq_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     kind: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued", index=True)
     progress_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -65,13 +65,13 @@ def test_worker_serves_default_before_low(monkeypatch):
     seen = {}
 
     class FakeWorker:
-        def __init__(self, queues, connection):
+        def __init__(self, queues, connection, **kwargs):
             seen["queues"] = [q.name for q in queues]
 
         def work(self, **kw):
             seen["work"] = kw
 
-    monkeypatch.setattr(entrypoint, "Worker", FakeWorker)
+    monkeypatch.setattr(entrypoint, "RecordingWorker", FakeWorker)
     monkeypatch.setattr(entrypoint, "init_engine", lambda url: None)
     monkeypatch.setattr(entrypoint, "_bootstrap_scheduler", lambda redis: None)
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://x/y")

@@ -155,6 +155,24 @@
       "test": "Test",
       "add_or_update": "Add / update provider",
       "save": "Save"
+    },
+    "jobs": {
+      "title": "Jobs",
+      "empty": "No jobs recorded yet.",
+      "col_kind": "Kind",
+      "col_status": "Status",
+      "col_started": "Started",
+      "col_finished": "Finished",
+      "col_duration": "Duration",
+      "rq_id": "RQ job id",
+      "message": "Message",
+      "result": "Result",
+      "status": {
+        "queued": "queued",
+        "started": "running",
+        "finished": "finished",
+        "failed": "failed"
+      }
     }
   },
   "sources": {

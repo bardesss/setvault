@@ -12,6 +12,42 @@ async def test_jobs_listing_is_admin_only(client, seeded_admin):
     assert response.status_code in (401, 403)
 
 
+async def test_jobs_api_returns_rq_id_and_started_at(authed_admin_client):
+    from datetime import UTC, datetime, timedelta
+
+    from setvault_core.db import session_factory
+    from setvault_core.models.system import Job
+    from sqlalchemy import delete
+
+    started = datetime.now(UTC) - timedelta(seconds=5)
+    async with session_factory()() as s:
+        await s.execute(delete(Job).where(Job.rq_id == "api-test-rq"))
+        for status in ("finished", "failed"):
+            s.add(Job(rq_id="api-test-rq", kind="pipeline.run_pipeline", status=status,
+                      message="ValueError: boom" if status == "failed" else None,
+                      result={"ok": True} if status == "finished" else {},
+                      started_at=started, finished_at=started + timedelta(seconds=2)))
+        await s.commit()
+    try:
+        r = await authed_admin_client.get("/api/admin/jobs")
+        assert r.status_code == 200, r.text
+        rows = [j for j in r.json()["items"] if j["rq_id"] == "api-test-rq"]
+        assert len(rows) == 2
+        assert rows[0]["id"] != rows[1]["id"]
+        by_status = {j["status"]: j for j in rows}
+        assert by_status["failed"]["message"] == "ValueError: boom"
+        assert by_status["finished"]["result"] == {"ok": True}
+        for j in rows:
+            assert j["kind"] == "pipeline.run_pipeline"
+            assert datetime.fromisoformat(j["started_at"]) == started
+            assert j["finished_at"] is not None
+            assert j["created_at"] is not None
+    finally:
+        async with session_factory()() as s:
+            await s.execute(delete(Job).where(Job.rq_id == "api-test-rq"))
+            await s.commit()
+
+
 async def test_users_listing_includes_admin(authed_admin_client):
     response = await authed_admin_client.get("/api/users")
     assert response.status_code == 200

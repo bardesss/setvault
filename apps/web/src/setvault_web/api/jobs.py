@@ -26,11 +26,14 @@ async def list_jobs(
         "items": [
             {
                 "id": j.id,
+                "rq_id": j.rq_id,
                 "kind": j.kind,
                 "status": j.status,
                 "progress_pct": j.progress_pct,
                 "message": j.message,
+                "result": j.result,
                 "created_at": j.created_at.isoformat(),
+                "started_at": j.started_at.isoformat() if j.started_at else None,
                 "finished_at": j.finished_at.isoformat() if j.finished_at else None,
             }
             for j in rows
