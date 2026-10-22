@@ -24,7 +24,8 @@
         { "type": "toml", "path": "apps/web/pyproject.toml",       "jsonpath": "$.project.version" },
         { "type": "toml", "path": "apps/worker/pyproject.toml",    "jsonpath": "$.project.version" },
         { "type": "toml", "path": "packages/core/pyproject.toml",  "jsonpath": "$.project.version" },
-        { "type": "toml", "path": "packages/providers/pyproject.toml", "jsonpath": "$.project.version" }
+        { "type": "toml", "path": "packages/providers/pyproject.toml", "jsonpath": "$.project.version" },
+        { "type": "toml", "path": "packages/ingest_sources/pyproject.toml", "jsonpath": "$.project.version" }
       ]
     }
   }
