@@ -44,3 +44,34 @@ async def test_find_duplicate_clusters_groups_collisions(session):
     assert ["DJ X", "dj  x."] in keys
     # singletons are not returned
     assert all(len(c) >= 2 for c in clusters)
+
+
+def test_normalized_name_non_latin():
+    assert normalized_name("Кино") != ""
+    assert normalized_name("坂本龍一") != ""
+    assert normalized_name("Кино") != normalized_name("坂本龍一")
+    assert normalized_name("КИНО") == normalized_name("кино")
+    assert normalized_name("Straße") == normalized_name("STRASSE")  # casefold
+
+
+async def test_non_latin_names_not_clustered_together(session):
+    s = session
+    s.add_all([
+        Artist(name="Кино", slug=f"a-{uuid.uuid4().hex[:6]}"),
+        Artist(name="坂本龍一", slug=f"b-{uuid.uuid4().hex[:6]}"),
+        Artist(name="🔥", slug=f"c-{uuid.uuid4().hex[:6]}"),
+        Artist(name="💧", slug=f"d-{uuid.uuid4().hex[:6]}"),
+    ])
+    await s.commit()
+    assert await find_duplicate_clusters(s, kind="artist") == []
+
+
+async def test_non_latin_case_variants_do_cluster(session):
+    s = session
+    s.add_all([
+        Artist(name="Кино", slug=f"a-{uuid.uuid4().hex[:6]}"),
+        Artist(name="КИНО!", slug=f"b-{uuid.uuid4().hex[:6]}"),
+    ])
+    await s.commit()
+    clusters = await find_duplicate_clusters(s, kind="artist")
+    assert [sorted(a.name for a in c) for c in clusters] == [sorted(["Кино", "КИНО!"])]

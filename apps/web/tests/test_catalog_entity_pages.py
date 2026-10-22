@@ -122,3 +122,21 @@ async def test_edit_artist_null_aliases_ok(authed_admin_client, an_artist):
     assert r.status_code == 200  # must not 500
     body = r.json()
     assert body["aliases"] == original_aliases  # aliases unchanged — null treated as no-op
+
+
+@pytest.mark.asyncio
+async def test_party_patch_with_date_200(authed_admin_client, a_party_with_venue):
+    from setvault_core.models.system import AuditEvent
+    from sqlalchemy import select
+
+    r = await authed_admin_client.patch(
+        f"/api/catalog/parties/{a_party_with_venue['party_slug']}",
+        json={"date": "2026-01-02"},
+    )
+    assert r.status_code == 200
+    assert r.json()["date"] == "2026-01-02"
+    async with session_factory()() as s:
+        ev = (await s.execute(
+            select(AuditEvent).where(AuditEvent.action == "party.edited")
+        )).scalars().one()
+    assert ev.after["date"] == "2026-01-02"

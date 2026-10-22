@@ -15,12 +15,15 @@ _KIND_MODEL = {"artist": Artist, "venue": Venue, "party": Party, "series": Serie
 
 def normalized_name(name: str) -> str:
     """Fold case, strip accents/punctuation, collapse whitespace — a coarse key
-    that catches the common auto-ingest near-duplicates ('DJ X' / 'dj  x.')."""
+    that catches the common auto-ingest near-duplicates ('DJ X' / 'dj  x.').
+
+    Unicode-aware: letters/digits of any script survive ('Кино', '坂本龍一'), so
+    non-Latin names keep a meaningful key. Names with no word characters at
+    all (e.g. emoji only) normalise to "" and are never clustered."""
     decomposed = unicodedata.normalize("NFKD", name)
-    ascii_only = "".join(c for c in decomposed if not unicodedata.combining(c))
-    lowered = ascii_only.lower()
-    alnum = re.sub(r"[^a-z0-9]+", " ", lowered)
-    return " ".join(alnum.split())
+    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+    words = re.sub(r"[\W_]+", " ", stripped.casefold())
+    return " ".join(words.split())
 
 
 async def find_duplicate_clusters(session: AsyncSession, kind: EntityKind) -> list[list]:
@@ -30,5 +33,7 @@ async def find_duplicate_clusters(session: AsyncSession, kind: EntityKind) -> li
     )).scalars().all()
     groups: dict[str, list] = defaultdict(list)
     for row in rows:
-        groups[normalized_name(row.name)].append(row)
+        key = normalized_name(row.name)
+        if key:  # an empty key says nothing about identity
+            groups[key].append(row)
     return [members for members in groups.values() if len(members) >= 2]

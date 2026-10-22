@@ -180,22 +180,33 @@ async def accept_candidate(
     providers: list[Provider],
 ) -> Track:
     from setvault_core.models.catalog import Artist
-    from setvault_core.services.catalog import slugify
+    from setvault_core.services.catalog import slugify, unique_slug
     artist = None
     if artist_name:
+        # Live artists only (never attach to a merged-away tombstone); several
+        # same-name rows are exactly what dedup finds, so take the oldest.
         artist = (await session.execute(
-            select(Artist).where(Artist.name == artist_name)
-        )).scalar_one_or_none()
+            select(Artist)
+            .where(Artist.name == artist_name, Artist.merged_into_id.is_(None))
+            .order_by(Artist.created_at, Artist.id)
+            .limit(1)
+        )).scalars().first()
         if artist is None:
-            artist = Artist(name=artist_name, slug=slugify(artist_name))
+            artist = Artist(
+                name=artist_name,
+                slug=await unique_slug(session, Artist, slugify(artist_name), name=artist_name),
+            )
             session.add(artist)
             await session.flush()
+    # Duplicate (title, artist) tracks can exist; reuse the oldest.
     track = (await session.execute(
         select(Track).where(
             Track.title == title,
             Track.primary_artist_id == (artist.id if artist else None),
         )
-    )).scalar_one_or_none()
+        .order_by(Track.created_at, Track.id)
+        .limit(1)
+    )).scalars().first()
     if track is None:
         track = Track(
             title=title,

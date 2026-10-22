@@ -14,9 +14,10 @@ from setvault_core.models.catalog import (
     Venue,
 )
 from setvault_core.models.identity import User
-from setvault_core.models.tracklist import Track
+from setvault_core.models.tracklist import Release, ReleaseTrack, Track, TracklistEntry
 from setvault_core.services.catalog_merge import merge_entities, unmerge_entity
 from setvault_core.services.passwords import hash_password
+from sqlalchemy import select
 
 
 @pytest.fixture(autouse=True)
@@ -245,3 +246,82 @@ async def test_unmerge_recreates_dropped_join(session):
         LiveSetArtist.__table__.select().where(LiveSetArtist.live_set_id == ls_id)
     )).all()
     assert {r.artist_id for r in rows} == {sid, lid}
+
+
+async def test_artist_merge_merges_duplicate_tracks(session):
+    s = session
+    root_id, uid = await _scaffold(s)
+    survivor = Artist(name="M", slug=f"m-{uuid.uuid4().hex[:6]}")
+    loser = Artist(name="M dup", slug=f"md-{uuid.uuid4().hex[:6]}")
+    s.add_all([survivor, loser])
+    await s.flush()
+    keep = Track(title="Song", primary_artist_id=survivor.id)
+    keep_mix = Track(title="Song", mix_name="Dub", primary_artist_id=survivor.id)
+    dup = Track(title="Song", primary_artist_id=loser.id, bpm=128.0, external_ids={"x": "1"})
+    dup_mix = Track(title="Song", mix_name="Dub", primary_artist_id=loser.id)
+    other = Track(title="Other", mix_name="Extended", primary_artist_id=loser.id)
+    s.add_all([keep, keep_mix, dup, dup_mix, other])
+    await s.flush()
+    ls = LiveSet(slug=f"s-{uuid.uuid4().hex[:8]}", title="t", media_root_id=root_id,
+                 audio_path="a/b.flac", status="published", source_type="upload", uploaded_by=uid)
+    s.add(ls)
+    await s.flush()
+    e1 = TracklistEntry(live_set_id=ls.id, position=0, start_seconds=0, raw_label="a",
+                        track_id=dup.id, created_by=uid)
+    e2 = TracklistEntry(live_set_id=ls.id, position=1, start_seconds=60, raw_label="b",
+                        track_id=other.id, mashup_with=[dup.id], created_by=uid)
+    e3 = TracklistEntry(live_set_id=ls.id, position=2, start_seconds=120, raw_label="c",
+                        track_id=dup_mix.id, created_by=uid)
+    both = Release(title="Both")      # holds keep AND dup -> PK collision on repoint
+    only_dup = Release(title="Dup")   # holds dup only -> simple repoint
+    s.add_all([e1, e2, e3, both, only_dup])
+    await s.flush()
+    s.add_all([
+        ReleaseTrack(release_id=both.id, track_id=keep.id, position=1),
+        ReleaseTrack(release_id=both.id, track_id=dup.id, position=2),
+        ReleaseTrack(release_id=only_dup.id, track_id=dup.id, position=3),
+    ])
+    await s.commit()
+    sid, lid = survivor.id, loser.id
+    keep_id, keep_mix_id, dup_id, dup_mix_id, other_id = (
+        keep.id, keep_mix.id, dup.id, dup_mix.id, other.id)
+    e1_id, e2_id, e3_id, both_id, only_id = e1.id, e2.id, e3.id, both.id, only_dup.id
+
+    await merge_entities(s, kind="artist", survivor_id=sid, loser_id=lid, actor_id=uid)
+    await s.commit()
+    s.expire_all()
+
+    tracks = (await s.execute(select(Track).where(Track.primary_artist_id == sid))).scalars().all()
+    keys = [(t.title, t.mix_name) for t in tracks]
+    assert sorted(keys, key=str) == sorted(
+        [("Song", None), ("Song", "Dub"), ("Other", "Extended")], key=str)
+    assert {t.id for t in tracks} == {keep_id, keep_mix_id, other_id}
+    assert await s.get(Track, dup_id) is None
+    assert await s.get(Track, dup_mix_id) is None
+    assert (await s.get(TracklistEntry, e1_id)).track_id == keep_id
+    assert (await s.get(TracklistEntry, e2_id)).mashup_with == [keep_id]
+    assert (await s.get(TracklistEntry, e3_id)).track_id == keep_mix_id
+    rts = {(r.release_id, r.track_id, r.position) for r in (await s.execute(
+        select(ReleaseTrack).where(ReleaseTrack.release_id.in_([both_id, only_id]))
+    )).scalars().all()}
+    assert rts == {(both_id, keep_id, 1), (only_id, keep_id, 3)}
+
+    await unmerge_entity(s, kind="artist", loser_id=lid, actor_id=uid)
+    await s.commit()
+    s.expire_all()
+
+    restored = await s.get(Track, dup_id)
+    assert restored is not None
+    assert restored.primary_artist_id == lid
+    assert restored.title == "Song" and restored.mix_name is None
+    assert restored.bpm == 128.0 and restored.external_ids == {"x": "1"}
+    assert (await s.get(Track, dup_mix_id)).primary_artist_id == lid
+    assert (await s.get(Track, other_id)).primary_artist_id == lid
+    assert (await s.get(Track, keep_id)).primary_artist_id == sid
+    assert (await s.get(TracklistEntry, e1_id)).track_id == dup_id
+    assert (await s.get(TracklistEntry, e2_id)).mashup_with == [dup_id]
+    assert (await s.get(TracklistEntry, e3_id)).track_id == dup_mix_id
+    rts = {(r.release_id, r.track_id, r.position) for r in (await s.execute(
+        select(ReleaseTrack).where(ReleaseTrack.release_id.in_([both_id, only_id]))
+    )).scalars().all()}
+    assert rts == {(both_id, keep_id, 1), (both_id, dup_id, 2), (only_id, dup_id, 3)}
