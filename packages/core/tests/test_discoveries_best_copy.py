@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from setvault_core.models.identity import User
@@ -30,6 +31,7 @@ async def test_monitor_auto_ingests_only_best_copy_per_group(session, monkeypatc
 
     async def fake_ingest(s, *, monitor, candidate):
         ripped.append(candidate.external_id)
+        return SimpleNamespace(id=None), False
 
     async def noop(*a, **k):
         return None

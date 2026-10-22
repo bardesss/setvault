@@ -6,15 +6,13 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from redis import Redis
-from rq import Queue
-from setvault_core.jobs.url_rip_job import RIP_JOB_TIMEOUT
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.identity import User
 from setvault_core.models.url_rip import RipJob
 from setvault_core.schemas.url_rip import RipJobOut, RipJobsListOut, RipSubmitIn
 from setvault_core.services import url_rip as _service
 from setvault_core.services.audit import log as audit_log
+from setvault_core.services.rip_enqueue import enqueue_rip
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,10 +47,6 @@ async def _enforce_rip_rate_limit(user_id: uuid.UUID) -> None:
 
 def _redis_url() -> str:
     return os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-
-
-def _queue() -> Queue:
-    return Queue("default", connection=Redis.from_url(_redis_url()))
 
 
 def _to_out(job: RipJob, *, live_set_slug: str | None = None) -> RipJobOut:
@@ -100,26 +94,7 @@ async def submit_url_rip(
         target_type="rip_job", target_id=str(job.id),
         after={"url": body.url, "platform": job.source_platform},
     )
-    # Commit BEFORE enqueueing: an idle worker can pick the job up within
-    # milliseconds, and a RipJob row it can't see yet is dropped as
-    # "not found", leaving the job stuck in "queued".
-    await session.commit()
-
-    try:
-        _queue().enqueue(
-            "setvault_core.jobs.url_rip_job.run_rip_job",
-            rip_job_id=str(job.id),
-            job_timeout=RIP_JOB_TIMEOUT,
-        )
-    except Exception:
-        # If Redis is down we still keep the RipJob row so the user sees the
-        # failure and can retry. Mark it failed inline with a generic message;
-        # the raw exception (Redis URL, internal hostnames, stack frames) only
-        # goes to server logs, never back to the client.
-        logger.exception("url-rip enqueue failed for job %s", job.id)
-        job.status = "failed"
-        job.error_text = "failed to enqueue worker"
-        await session.commit()
+    await enqueue_rip(session, job, redis_url=_redis_url())
 
     return _to_out(job)
 

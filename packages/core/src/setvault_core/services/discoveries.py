@@ -8,7 +8,6 @@ one `discovery` InAppNotification summarizing the poll.
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from datetime import UTC, datetime
 
@@ -18,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.models.engagement_3c import InAppNotification
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
+from setvault_core.models.url_rip import RipJob
 from setvault_core.services.monitor_match import score_confidence
 from setvault_core.services.quality_profile import QualityProfile, get_profile, rank
 from setvault_core.services.soundboard_hint import (
@@ -38,13 +38,11 @@ async def _existing_keys(session: AsyncSession, monitor_id: uuid.UUID) -> set[tu
 
 async def _ingest_candidate(
     session: AsyncSession, *, monitor: Monitor, candidate: Candidate,
-) -> uuid.UUID | None:
-    """Submit the candidate's webpage_url through the existing url-rip pipeline
-    and enqueue the rip job. Returns the RipJob id, or None on failure."""
-    from redis import Redis
-    from rq import Queue
-
-    from setvault_core.jobs.url_rip_job import RIP_JOB_TIMEOUT
+) -> tuple[RipJob, bool] | None:
+    """Submit the candidate's webpage_url through the url-rip pipeline WITHOUT
+    enqueueing: the poll has not committed yet, so a worker could not see the
+    RipJob. Returns ``(job, is_new)`` (``is_new`` False for an already-running
+    duplicate, which must not be enqueued again), or None if the submit failed."""
     from setvault_core.services.url_rip import DuplicateRipError, submit_rip
 
     try:
@@ -53,18 +51,13 @@ async def _ingest_candidate(
             trigger="monitor",
         )
     except DuplicateRipError as e:
-        return e.existing.id
+        return e.existing, False
     except Exception:
         logger.exception(
             "monitor %s: auto-ingest failed for %s", monitor.id, candidate.webpage_url,
         )
         return None
-    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
-    Queue("default", connection=redis).enqueue(
-        "setvault_core.jobs.url_rip_job.run_rip_job", rip_job_id=str(job.id),
-        job_timeout=RIP_JOB_TIMEOUT,
-    )
-    return job.id
+    return job, True
 
 
 async def _notify_owner(
@@ -133,6 +126,7 @@ async def process_candidates(
     summary = {"auto_ingested": 0, "pending_review": 0, "skipped_duplicate": 0}
     seen = await _existing_keys(session, monitor.id)
     auto_budget = monitor.per_poll_cap
+    new_jobs: list[RipJob] = []
 
     fresh: list[tuple[Candidate, str]] = []
     for c in candidates:
@@ -151,13 +145,20 @@ async def process_candidates(
     for i, (c, confidence) in enumerate(fresh):
         do_auto = confidence == "high" and i in best and auto_budget > 0
         url_rip_id = None
+        status = "pending_review"
         if do_auto:
-            url_rip_id = await _ingest_candidate(session, monitor=monitor, candidate=c)
-            auto_budget -= 1
-            status = "auto_ingested"
+            ingested = await _ingest_candidate(session, monitor=monitor, candidate=c)
+            if ingested is not None:
+                job, is_new = ingested
+                url_rip_id = job.id
+                if is_new:
+                    new_jobs.append(job)
+                auto_budget -= 1
+                status = "auto_ingested"
+        if status == "auto_ingested":
             summary["auto_ingested"] += 1
         else:
-            status = "pending_review"
+            # Includes a failed submit: reviewable, no budget spent.
             summary["pending_review"] += 1
 
         session.add(MonitorDiscovery(
@@ -172,4 +173,6 @@ async def process_candidates(
         await _notify_owner(
             session, user_id=monitor.owner_user_id, monitor=monitor, summary=summary
         )
+    # Handed to poll_monitor, which commits and then enqueues them.
+    summary["rip_jobs"] = new_jobs
     return summary

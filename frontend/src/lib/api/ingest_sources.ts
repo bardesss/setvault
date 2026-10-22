@@ -50,11 +50,10 @@ export const setSourceEnabled = (kind: string, enabled: boolean) =>
 
 export const setSourceRateLimit = (
   kind: string,
-  enabled: boolean,
   rate_limit_max: number,
   rate_limit_window_seconds: number,
 ) =>
   api<SourceState>(`/api/admin/ingest-sources/${encodeURIComponent(kind)}`, {
     method: "PUT",
-    body: JSON.stringify({ enabled, rate_limit_max, rate_limit_window_seconds }),
+    body: JSON.stringify({ rate_limit_max, rate_limit_window_seconds }),
   });

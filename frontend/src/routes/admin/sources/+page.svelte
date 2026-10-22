@@ -50,7 +50,6 @@
       const d = draft[s.kind];
       const updated = await setSourceRateLimit(
         s.kind,
-        s.enabled,
         d.max,
         d.window,
       );

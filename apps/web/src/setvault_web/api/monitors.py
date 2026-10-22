@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from redis import Redis
-from rq import Queue
 from setvault_core.models.identity import User
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
-from setvault_core.models.url_rip import RipJob
 from setvault_core.schemas.monitors import (
     DiscoveriesListOut,
     DiscoveryOut,
@@ -21,6 +17,7 @@ from setvault_core.schemas.monitors import (
     MonitorUpdate,
 )
 from setvault_core.services import monitors as svc
+from setvault_core.services.rip_enqueue import enqueue_rip
 from setvault_core.services.url_rip import DuplicateRipError, submit_rip
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,22 +34,6 @@ def _owner_scope(user: User) -> uuid.UUID | None:
     """Owner filter for a request: ``None`` for admins (see/act on all), else
     the user's own id so non-admins are confined to their own monitors."""
     return None if user.role == "admin" else user.id
-
-
-def _enqueue_rip(job: RipJob) -> None:
-    """Enqueue the url-rip job for a discovery the user accepted. A Redis outage
-    does not fail the request: like api/url_rip.py, the RipJob is marked failed
-    so it shows up in Downloads and can be retried, instead of sitting at
-    "queued" forever."""
-    try:
-        redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
-        Queue("default", connection=redis).enqueue(
-            "setvault_core.jobs.url_rip_job.run_rip_job", rip_job_id=str(job.id),
-        )
-    except Exception:
-        logger.exception("failed to enqueue rip job %s from discovery", job.id)
-        job.status = "failed"
-        job.error_text = "failed to enqueue worker"
 
 
 def _monitor_out(m: Monitor) -> MonitorOut:
@@ -188,15 +169,23 @@ async def rip_discovery(
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
     d = await _owned_discovery_or_404(session, user, discovery_id)
-    if d.status == "pending_review":
-        try:
-            job = await submit_rip(
-                session, user_id=user.id, url=d.webpage_url, trigger="monitor",
-            )
-            d.url_rip_id = job.id
-            _enqueue_rip(job)
-        except DuplicateRipError as exc:
-            d.url_rip_id = exc.existing.id
+    if d.status != "pending_review":
+        return
+    try:
+        job = await submit_rip(
+            session, user_id=user.id, url=d.webpage_url, trigger="monitor",
+        )
+    except DuplicateRipError as exc:
+        d.url_rip_id = exc.existing.id
+        d.status = "ingested"
+        d.decided_at = datetime.now(UTC)
+        await session.commit()
+        return
+    d.url_rip_id = job.id
+    # enqueue_rip commits the RipJob and the discovery's link before enqueueing.
+    # If the enqueue fails the job is left failed (visible in Downloads) and the
+    # discovery stays pending_review so it can be accepted again.
+    if await enqueue_rip(session, job):
         d.status = "ingested"
         d.decided_at = datetime.now(UTC)
         await session.commit()
