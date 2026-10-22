@@ -103,7 +103,7 @@
 </script>
 
 <div class="wave-wrap">
-  <div class="wave" bind:this={container} aria-label="audio waveform"></div>
+  <div class="wave" bind:this={container} data-ready={ready ? "true" : "false"} aria-label="audio waveform"></div>
   {#if duration > 0 && loopStart !== null && loopEnd !== null}
     <div class="loop-band" data-test="loop-band"
       style="left: {(loopStart / duration) * 100}%; width: {((loopEnd - loopStart) / duration) * 100}%"

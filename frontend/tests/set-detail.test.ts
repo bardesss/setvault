@@ -26,7 +26,8 @@ test("waveform is drawn from precomputed peaks without fetching the stream", asy
   await page.goto("/sets/seeded-set");
   await peaksReq;
   await expect(page.locator("[data-test=wavesurfer-canvas] canvas").first()).toBeVisible();
-  // ready fired (cursor is driven by setTime after ready): the engine can still seek via click
+  // tagCanvas runs before `ready`, so a visible canvas alone proves nothing
+  await expect(page.locator(".wave[data-ready=true]")).toBeVisible();
   await page.locator("[data-test=wavesurfer-canvas] canvas").first().click();
   expect(streams).toEqual([]);
 });
@@ -37,4 +38,5 @@ test("waveform falls back to decoding the stream when peaks are invalid", async 
     route.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
   await page.goto("/sets/seeded-set");
   await expect(page.locator("[data-test=wavesurfer-canvas] canvas").first()).toBeVisible();
+  await expect(page.locator(".wave[data-ready=true]")).toBeVisible();
 });
