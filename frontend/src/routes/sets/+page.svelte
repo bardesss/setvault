@@ -35,7 +35,7 @@
     if (value) params.set(key, value);
     else params.delete(key);
     const qs = params.toString();
-    goto(qs ? `?${qs}` : "?", { replaceState: true, reset: false });
+    goto(qs ? `?${qs}` : "?", { replace: true, reset: false });
   }
 
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -95,6 +95,12 @@
       selected = next;
     }
     lastClickedIndex = index;
+  }
+
+  // A new result set (filter, sort, refresh) invalidates the selection.
+  $: if (data) {
+    selected = new Set();
+    lastClickedIndex = null;
   }
 
   function toggleAll() {

@@ -29,35 +29,55 @@ test("library lists seeded set and filters by query", async ({ page, request }) 
 
 test("library loads more than the first page", async ({ page, request }) => {
   await loginAs(page, request);
-  const total = (await (await page.request.get("/api/sets?limit=1")).json()).total as number;
-  test.skip(total < 2, "needs at least two published sets");
+  const { total } = (await (await page.request.get("/api/sets?limit=1")).json()) as {
+    total: number;
+  };
+  expect(total).toBeGreaterThanOrEqual(4);
   // ?limit= shrinks the page size so we do not need 50+ seeded sets.
   await page.goto("/sets?limit=1");
   const count = page.getByTestId("library-count");
-  await expect(count).toHaveText(new RegExp(`Showing 1 of ${total}`));
+  await expect(count).toHaveText(`Showing 1 of ${total}`);
   await page.getByRole("button", { name: /load more/i }).click();
-  await expect(count).toHaveText(new RegExp(`Showing 2 of ${total}`));
+  await expect(count).toHaveText(`Showing 2 of ${total}`);
 });
 
 test("filter sidebar narrows the list", async ({ page, request }) => {
   await loginAs(page, request);
+  const { total } = (await (await page.request.get("/api/sets?limit=1")).json()) as {
+    total: number;
+  };
   const facets = await (await page.request.get("/api/sets/facets")).json();
-  test.skip(facets.tags.length === 0, "needs a tagged set");
-  const tag = facets.tags[0] as { slug: string; count: number };
+  const tag = (facets.tags as { slug: string; count: number }[]).find(
+    (t) => t.slug === "e2e-house",
+  )!;
+  expect(tag.count).toBeLessThan(total);
   await page.goto("/sets");
-  await page.getByLabel("Tag").selectOption(tag.slug);
-  await expect(page).toHaveURL(new RegExp(`tag=${tag.slug}`));
+  await expect(page.getByTestId("library-count")).toHaveText(`Showing ${total} of ${total}`);
+  await page.getByLabel("Tag").selectOption("e2e-house");
+  await expect(page).toHaveURL(/tag=e2e-house/);
   await expect(page.getByTestId("library-count")).toHaveText(
-    new RegExp(`Showing ${tag.count} of ${tag.count}`),
+    `Showing ${tag.count} of ${tag.count}`,
   );
 });
 
 test("home recently added uses created order", async ({ page, request }) => {
   await loginAs(page, request);
-  const recent = await (await page.request.get("/api/sets?limit=12&sort=recent")).json();
-  test.skip(recent.items.length === 0, "needs a published set");
-  const first = recent.items[0] as { title: string; slug: string };
+  // Seeded dates run alpha > bravo > charlie, created_at the other way round.
+  const recent = (await (await page.request.get("/api/sets?limit=12&sort=recent")).json())
+    .items as { slug: string }[];
+  const ours = recent.map((s) => s.slug).filter((s) => s.startsWith("e2e-"));
+  expect(ours).toEqual(["e2e-charlie", "e2e-bravo", "e2e-alpha"]);
   await page.goto("/");
-  const cards = page.locator('a.recent-card');
-  await expect(cards.first()).toHaveAttribute("href", `/sets/${first.slug}`);
+  await expect(page.locator("a.recent-card").first()).toBeVisible();
+  const hrefs = await page
+    .locator("a.recent-card")
+    .evaluateAll((els) => els.map((e) => e.getAttribute("href")));
+  expect(hrefs[0]).toBe(`/sets/${recent[0].slug}`);
+  expect(hrefs.filter((h) => h?.startsWith("/sets/e2e-"))).toEqual([
+    "/sets/e2e-charlie",
+    "/sets/e2e-bravo",
+    "/sets/e2e-alpha",
+  ]);
+  // Venue shows on the card for the set that has one.
+  await expect(page.locator("a.recent-card", { hasText: "Alpha Night" })).toContainText("E2E Club");
 });

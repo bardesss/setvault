@@ -16,7 +16,7 @@
     if (value && value !== "") params.set(key, value);
     else params.delete(key);
     const qs = params.toString();
-    goto(qs ? `?${qs}` : "?", { replaceState: true, reset: false });
+    goto(qs ? `?${qs}` : "?", { replace: true, reset: false });
   }
 
   function onSelect(key: string, event: Event) {
