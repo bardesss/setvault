@@ -14,7 +14,7 @@ from setvault_core.models.catalog import (
     Venue,
 )
 from setvault_core.models.identity import User
-from setvault_core.models.tracklist import Release, ReleaseTrack, Track, TracklistEntry
+from setvault_core.models.tracklist import Label, Release, ReleaseTrack, Track, TracklistEntry
 from setvault_core.services.catalog_merge import merge_entities, unmerge_entity
 from setvault_core.services.passwords import hash_password
 from sqlalchemy import select
@@ -325,3 +325,76 @@ async def test_artist_merge_merges_duplicate_tracks(session):
         select(ReleaseTrack).where(ReleaseTrack.release_id.in_([both_id, only_id]))
     )).scalars().all()}
     assert rts == {(both_id, keep_id, 1), (both_id, dup_id, 2), (only_id, dup_id, 3)}
+
+
+async def _two_artists_and_set(s):
+    root_id, uid = await _scaffold(s)
+    survivor = Artist(name="S", slug=f"s-{uuid.uuid4().hex[:6]}")
+    loser = Artist(name="S dup", slug=f"sd-{uuid.uuid4().hex[:6]}")
+    s.add_all([survivor, loser])
+    await s.flush()
+    ls = LiveSet(slug=f"s-{uuid.uuid4().hex[:8]}", title="t", media_root_id=root_id,
+                 audio_path="a/b.flac", status="published", source_type="upload", uploaded_by=uid)
+    s.add(ls)
+    await s.flush()
+    return survivor, loser, ls, uid
+
+
+async def test_unmerge_restores_mashup_with_several_folded_tracks(session):
+    s = session
+    survivor, loser, ls, uid = await _two_artists_and_set(s)
+    ka = Track(title="A", primary_artist_id=survivor.id)
+    kb = Track(title="B", primary_artist_id=survivor.id)
+    da = Track(title="A", primary_artist_id=loser.id)
+    db = Track(title="B", primary_artist_id=loser.id)
+    s.add_all([ka, kb, da, db])
+    await s.flush()
+    e = TracklistEntry(live_set_id=ls.id, position=0, start_seconds=0, raw_label="m",
+                       mashup_with=[da.id, db.id], created_by=uid)
+    s.add(e)
+    await s.commit()
+    sid, lid, e_id = survivor.id, loser.id, e.id
+    ka_id, kb_id, da_id, db_id = ka.id, kb.id, da.id, db.id
+
+    await merge_entities(s, kind="artist", survivor_id=sid, loser_id=lid, actor_id=uid)
+    await s.commit()
+    s.expire_all()
+    assert (await s.get(TracklistEntry, e_id)).mashup_with == [ka_id, kb_id]
+
+    await unmerge_entity(s, kind="artist", loser_id=lid, actor_id=uid)
+    await s.commit()
+    s.expire_all()
+    assert (await s.get(TracklistEntry, e_id)).mashup_with == [da_id, db_id]
+
+
+async def test_unmerge_tolerates_deleted_label_and_release(session):
+    s = session
+    survivor, loser, _ls, uid = await _two_artists_and_set(s)
+    label = Label(name="L", slug=f"l-{uuid.uuid4().hex[:6]}")
+    rel = Release(title="R")
+    s.add_all([label, rel])
+    await s.flush()
+    keep = Track(title="X", primary_artist_id=survivor.id)
+    dup = Track(title="X", primary_artist_id=loser.id, label_id=label.id, release_id=rel.id)
+    s.add_all([keep, dup])
+    await s.flush()
+    s.add_all([ReleaseTrack(release_id=rel.id, track_id=keep.id, position=0),
+               ReleaseTrack(release_id=rel.id, track_id=dup.id, position=1)])
+    await s.commit()
+    sid, lid, dup_id = survivor.id, loser.id, dup.id
+
+    await merge_entities(s, kind="artist", survivor_id=sid, loser_id=lid, actor_id=uid)
+    await s.commit()
+    await s.delete(await s.get(Release, rel.id))
+    await s.delete(await s.get(Label, label.id))
+    await s.commit()
+
+    await unmerge_entity(s, kind="artist", loser_id=lid, actor_id=uid)
+    await s.commit()
+    s.expire_all()
+    restored = await s.get(Track, dup_id)
+    assert restored.primary_artist_id == lid
+    assert restored.label_id is None and restored.release_id is None
+    assert (await s.execute(
+        select(ReleaseTrack).where(ReleaseTrack.track_id == dup_id)
+    )).scalars().all() == []

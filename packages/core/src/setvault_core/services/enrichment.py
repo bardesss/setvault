@@ -7,7 +7,7 @@ from typing import Any
 
 import structlog
 from setvault_providers.base import Capability, Provider, ProviderResult, TrackRef
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.models.enrichment import ProviderResponse
@@ -168,6 +168,61 @@ async def resolve_entry(
     return candidates
 
 
+_MAX_MERGE_HOPS = 16
+
+
+async def _resolve_live_artist(session: AsyncSession, name: str):
+    """The live (non-merged) artist ``name`` refers to, or None.
+
+    Never attaches to a merged-away tombstone and never re-creates a merged
+    duplicate: an exact live name match wins (oldest first, since dedup can
+    leave same-name rows); else a same-name tombstone is followed along
+    ``merged_into_id`` to its live survivor (bounded, cycle-safe); else a live
+    artist listing ``name`` among its aliases (casefold) is used."""
+    from setvault_core.models.catalog import Artist
+
+    live = (await session.execute(
+        select(Artist)
+        .where(Artist.name == name, Artist.merged_into_id.is_(None))
+        .order_by(Artist.created_at, Artist.id)
+        .limit(1)
+    )).scalars().first()
+    if live is not None:
+        return live
+
+    tombs = (await session.execute(
+        select(Artist)
+        .where(Artist.name == name, Artist.merged_into_id.is_not(None))
+        .order_by(Artist.created_at, Artist.id)
+    )).scalars().all()
+    for tomb in tombs:
+        current, seen = tomb, {tomb.id}
+        for _ in range(_MAX_MERGE_HOPS):
+            nxt_id = current.merged_into_id
+            if nxt_id is None or nxt_id in seen:
+                break
+            seen.add(nxt_id)
+            current = await session.get(Artist, nxt_id)
+            if current is None:
+                break
+            if current.merged_into_id is None:
+                return current
+
+    # Alias match: ILIKE prefilter in SQL, exact casefold check in Python.
+    folded = name.casefold()
+    escaped = name.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+    candidates = (await session.execute(
+        select(Artist)
+        .where(Artist.merged_into_id.is_(None),
+               func.array_to_string(Artist.aliases, "\x1f").ilike(f"%{escaped}%"))
+        .order_by(Artist.created_at, Artist.id)
+    )).scalars().all()
+    for cand in candidates:
+        if any(a.casefold() == folded for a in (cand.aliases or [])):
+            return cand
+    return None
+
+
 async def accept_candidate(
     session: AsyncSession,
     entry: TracklistEntry,
@@ -183,14 +238,7 @@ async def accept_candidate(
     from setvault_core.services.catalog import slugify, unique_slug
     artist = None
     if artist_name:
-        # Live artists only (never attach to a merged-away tombstone); several
-        # same-name rows are exactly what dedup finds, so take the oldest.
-        artist = (await session.execute(
-            select(Artist)
-            .where(Artist.name == artist_name, Artist.merged_into_id.is_(None))
-            .order_by(Artist.created_at, Artist.id)
-            .limit(1)
-        )).scalars().first()
+        artist = await _resolve_live_artist(session, artist_name)
         if artist is None:
             artist = Artist(
                 name=artist_name,

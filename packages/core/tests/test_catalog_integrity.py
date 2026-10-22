@@ -76,12 +76,69 @@ async def test_enrichment_lookup_skips_tombstone(session_with_set):
         s, entry, title="Haunted", artist_name=name, external_ids={},
         confirmed_via_acoustid=False, field_priority={}, providers=[],
     )
-    assert track.primary_artist_id not in (None, tomb.id)
+    # never attached to the tombstone, never a re-created duplicate: the survivor
+    assert track.primary_artist_id == survivor.id
+    assert (await s.execute(
+        select(Artist).where(Artist.name == name, Artist.merged_into_id.is_(None))
+    )).scalars().first() is None
+
+
+async def test_enrichment_lookup_follows_merge_chain(session_with_set):
+    s, _ls_id, entry_ids = session_with_set
+    tag = uuid.uuid4().hex[:6]
+    final = Artist(name=f"Final {tag}", slug=f"final-{tag}")
+    s.add(final)
+    await s.flush()
+    middle = Artist(name=f"Middle {tag}", slug=f"middle-{tag}", merged_into_id=final.id)
+    s.add(middle)
+    await s.flush()
+    first = Artist(name=f"First {tag}", slug=f"first-{tag}", merged_into_id=middle.id)
+    s.add(first)
+    await s.commit()
+
+    entry = await s.get(TracklistEntry, uuid.UUID(entry_ids[0]))
+    track = await accept_candidate(
+        s, entry, title="Chain", artist_name=f"First {tag}", external_ids={},
+        confirmed_via_acoustid=False, field_priority={}, providers=[],
+    )
+    assert track.primary_artist_id == final.id
+
+
+async def test_enrichment_lookup_merge_cycle_guard(session_with_set):
+    s, _ls_id, entry_ids = session_with_set
+    tag = uuid.uuid4().hex[:6]
+    a = Artist(name=f"Loop {tag}", slug=f"loop-{tag}")
+    b = Artist(name=f"Loop B {tag}", slug=f"loop-b-{tag}")
+    s.add_all([a, b])
+    await s.flush()
+    a.merged_into_id = b.id
+    b.merged_into_id = a.id  # corrupt: a merge cycle with no live survivor
+    await s.commit()
+
+    entry = await s.get(TracklistEntry, uuid.UUID(entry_ids[0]))
+    track = await accept_candidate(
+        s, entry, title="Round", artist_name=f"Loop {tag}", external_ids={},
+        confirmed_via_acoustid=False, field_priority={}, providers=[],
+    )
     live = await s.get(Artist, track.primary_artist_id)
-    assert live.merged_into_id is None
-    assert live.name == name
-    # the tombstone keeps its slug, so the new row gets a suffixed one
-    assert live.slug == f"{tomb.slug}-2"
+    assert live.id not in (a.id, b.id)
+    assert live.merged_into_id is None and live.name == f"Loop {tag}"
+    assert live.slug == f"loop-{tag}-2"
+
+
+async def test_enrichment_lookup_matches_alias_casefold(session_with_set):
+    s, _ls_id, entry_ids = session_with_set
+    tag = uuid.uuid4().hex[:6]
+    known = Artist(name=f"Known {tag}", slug=f"known-{tag}", aliases=[f"Alt_Name% {tag}"])
+    s.add(known)
+    await s.commit()
+
+    entry = await s.get(TracklistEntry, uuid.UUID(entry_ids[0]))
+    track = await accept_candidate(
+        s, entry, title="Aka", artist_name=f"ALT_NAME% {tag}", external_ids={},
+        confirmed_via_acoustid=False, field_priority={}, providers=[],
+    )
+    assert track.primary_artist_id == known.id
 
 
 async def test_unique_slug_suffixes_and_counts_tombstones(session):

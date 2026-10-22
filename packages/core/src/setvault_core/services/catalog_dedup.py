@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import unicodedata
 from collections import defaultdict
 
@@ -13,17 +12,30 @@ from setvault_core.services.catalog import EntityKind
 _KIND_MODEL = {"artist": Artist, "venue": Venue, "party": Party, "series": Series}
 
 
+def _is_latin(ch: str) -> bool:
+    return "LATIN" in unicodedata.name(ch, "")
+
+
 def normalized_name(name: str) -> str:
     """Fold case, strip accents/punctuation, collapse whitespace — a coarse key
     that catches the common auto-ingest near-duplicates ('DJ X' / 'dj  x.').
 
-    Unicode-aware: letters/digits of any script survive ('Кино', '坂本龍一'), so
-    non-Latin names keep a meaningful key. Names with no word characters at
-    all (e.g. emoji only) normalise to "" and are never clustered."""
-    decomposed = unicodedata.normalize("NFKD", name)
-    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
-    words = re.sub(r"[\W_]+", " ", stripped.casefold())
-    return " ".join(words.split())
+    Unicode-aware: letters, digits and combining marks of any script survive
+    ('Кино', '坂本龍一', 'किनो'). Accents are stripped only from Latin letters
+    ('Café' == 'Cafe'); in other scripts marks are meaningful ('ガ' != 'カ').
+    Names with nothing word-like (e.g. emoji only) normalise to "" and are
+    never clustered."""
+    decomposed = unicodedata.normalize("NFKD", name.casefold())
+    out: list[str] = []
+    base = ""
+    for ch in decomposed:
+        if unicodedata.category(ch).startswith("M"):
+            if not _is_latin(base):
+                out.append(ch)
+            continue
+        base = ch
+        out.append(ch if ch.isalnum() else " ")
+    return " ".join(unicodedata.normalize("NFC", "".join(out)).split())
 
 
 async def find_duplicate_clusters(session: AsyncSession, kind: EntityKind) -> list[list]:

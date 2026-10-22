@@ -15,7 +15,13 @@ from setvault_core.models.catalog import (
     Series,
     Venue,
 )
-from setvault_core.models.tracklist import ReleaseTrack, Track, TracklistEntry
+from setvault_core.models.tracklist import (
+    Label,
+    Release,
+    ReleaseTrack,
+    Track,
+    TracklistEntry,
+)
 from setvault_core.services.audit import log as audit_log
 from setvault_core.services.catalog import EntityKind
 
@@ -248,7 +254,9 @@ async def unmerge_entity(
         elif table_col == "parties.series_id":
             await session.execute(update(Party).where(Party.id.in_([uuid.UUID(i) for i in ids]))
                                   .values(series_id=loser_id))
-    for folded in manifest.get("merged_tracks", []):
+    # Reverse order: each fold recorded the mashup arrays as it found them,
+    # after earlier folds had already rewritten them.
+    for folded in reversed(manifest.get("merged_tracks", [])):
         await _restore_track(session, folded)
     # recreate join rows that were dropped on PK collision
     for ls_id, _aid in manifest.get("deleted_join", []):
@@ -277,6 +285,13 @@ async def _restore_track(session, folded: dict) -> None:
         elif v is not None and col in _TRACK_DT_COLS:
             v = datetime.fromisoformat(v)
         values[col] = v
+    # The label/release may have been deleted since the merge: drop the link
+    # rather than fail the whole unmerge on a dangling FK.
+    if values.get("label_id") is not None and await session.get(Label, values["label_id"]) is None:
+        values["label_id"] = None
+    if (values.get("release_id") is not None
+            and await session.get(Release, values["release_id"]) is None):
+        values["release_id"] = None
     track_id, into = values["id"], uuid.UUID(folded["into"])
     await session.execute(insert(Track).values(**values))
     entries = [uuid.UUID(i) for i in folded.get("entries", [])]
@@ -299,5 +314,8 @@ async def _restore_track(session, folded: dict) -> None:
             .values(track_id=track_id)
         )
     for release_id, position in folded.get("release_tracks_deleted", []):
+        rid = uuid.UUID(release_id)
+        if await session.get(Release, rid) is None:
+            continue  # release deleted since the merge
         await session.execute(insert(ReleaseTrack).values(
-            release_id=uuid.UUID(release_id), track_id=track_id, position=position))
+            release_id=rid, track_id=track_id, position=position))

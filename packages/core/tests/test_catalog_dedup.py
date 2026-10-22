@@ -75,3 +75,11 @@ async def test_non_latin_case_variants_do_cluster(session):
     await s.commit()
     clusters = await find_duplicate_clusters(s, kind="artist")
     assert [sorted(a.name for a in c) for c in clusters] == [sorted(["Кино", "КИНО!"])]
+
+
+def test_normalized_name_keeps_non_latin_marks():
+    assert normalized_name("किनो") != normalized_name("कीना")
+    assert normalized_name("ガラ") != normalized_name("カラ")
+    assert normalized_name("กา") != normalized_name("กี")
+    assert normalized_name("Café") == normalized_name("Cafe")
+    assert normalized_name("ガラ") == normalized_name("ガラ!")
