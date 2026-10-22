@@ -80,6 +80,7 @@ class SetDetailOut(SetSummaryOut):
     # (the page says so).
     auto_upgrades_enabled: bool = True
     upgrade_history: list[SetUpgradeHistoryOut] = []
+    is_favorite: bool = False
 
 
 class SetListOut(BaseModel):

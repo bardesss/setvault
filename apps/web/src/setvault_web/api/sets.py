@@ -35,6 +35,7 @@ from setvault_core.schemas.sets import (
     VenueRefOut,
 )
 from setvault_core.services.audio_quality import quality_label
+from setvault_core.services.favorites import is_favorite
 from setvault_core.services.notifications import event_labels, source_name
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
 from setvault_core.services.set_merge import TRACKLIST_KEPT
@@ -147,6 +148,45 @@ def _party_out(p) -> PartyOut:
     )
 
 
+async def tags_by_set(
+    session: AsyncSession, set_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, list[str]]:
+    """Tag names for many sets in one grouped query (no N+1)."""
+    out: dict[uuid.UUID, list[str]] = {}
+    if not set_ids:
+        return out
+    tag_rows = (
+        await session.execute(
+            select(LiveSetTag.live_set_id, Tag.name)
+            .join(Tag, Tag.id == LiveSetTag.tag_id)
+            .where(LiveSetTag.live_set_id.in_(set_ids))
+            .order_by(Tag.name)
+        )
+    ).all()
+    for sid, name in tag_rows:
+        out.setdefault(sid, []).append(name)
+    return out
+
+
+def summary_out(r: LiveSet, tags: list[str]) -> SetSummaryOut:
+    return SetSummaryOut(
+        id=str(r.id),
+        slug=r.slug,
+        title=r.title,
+        date=r.date,
+        duration_seconds=r.duration_seconds,
+        set_type=r.set_type,
+        status=r.status,
+        artists=_artists_out(r),
+        tags=tags,
+        created_at=r.created_at,
+        venue=(
+            VenueRefOut(name=r.venue.name, slug=r.venue.slug, kind=r.venue.kind)
+            if r.venue is not None else None
+        ),
+    )
+
+
 def _published():
     return (LiveSet.deleted_at.is_(None), LiveSet.status == "published")
 
@@ -206,37 +246,8 @@ async def list_sets(
             select(LiveSet).where(*conds).order_by(*order).limit(limit).offset(offset)
         )
     ).scalars().unique().all()
-    tags_by_set: dict[uuid.UUID, list[str]] = {}
-    if rows:
-        tag_rows = (
-            await session.execute(
-                select(LiveSetTag.live_set_id, Tag.name)
-                .join(Tag, Tag.id == LiveSetTag.tag_id)
-                .where(LiveSetTag.live_set_id.in_([r.id for r in rows]))
-                .order_by(Tag.name)
-            )
-        ).all()
-        for sid, name in tag_rows:
-            tags_by_set.setdefault(sid, []).append(name)
-    items = [
-        SetSummaryOut(
-            id=str(r.id),
-            slug=r.slug,
-            title=r.title,
-            date=r.date,
-            duration_seconds=r.duration_seconds,
-            set_type=r.set_type,
-            status=r.status,
-            artists=_artists_out(r),
-            tags=tags_by_set.get(r.id, []),
-            created_at=r.created_at,
-            venue=(
-                VenueRefOut(name=r.venue.name, slug=r.venue.slug, kind=r.venue.kind)
-                if r.venue is not None else None
-            ),
-        )
-        for r in rows
-    ]
+    tags = await tags_by_set(session, [r.id for r in rows])
+    items = [summary_out(r, tags.get(r.id, [])) for r in rows]
     return SetListOut(items=items, total=int(total))
 
 
@@ -281,7 +292,7 @@ async def facets(
 async def show_set(
     slug: str,
     session: Annotated[AsyncSession, Depends(db_session)],
-    _: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
 ):
     row = (
         await session.execute(
@@ -340,6 +351,7 @@ async def show_set(
         upgrades_enabled=row.upgrades_enabled,
         auto_upgrades_enabled=bool((await get_config(session)).auto_upgrades_enabled),
         upgrade_history=history,
+        is_favorite=await is_favorite(session, user.id, row.id),
     )
 
 
@@ -348,7 +360,7 @@ async def edit_set(
     slug: str,
     body: SetPatchIn,
     session: Annotated[AsyncSession, Depends(db_session)],
-    _: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
 ):
     live = (
         await session.execute(
@@ -378,7 +390,7 @@ async def edit_set(
     if body.tag_names is not None:
         await replace_tags(session, live, body.tag_names)
     await session.commit()
-    return await show_set(slug, session, None)  # type: ignore[arg-type]
+    return await show_set(slug, session, user)
 
 
 class EmbedToggleIn(BaseModel):

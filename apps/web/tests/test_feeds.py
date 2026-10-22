@@ -75,3 +75,26 @@ async def test_feed_updates_last_used_at(authed_admin_client, seeded_admin):
             select(ApiToken).where(ApiToken.id == token_id)
         )).scalar_one()
         assert refreshed.last_used_at is not None
+
+
+@pytest.mark.asyncio
+async def test_favorites_feed_lists_favorited_set(
+    authed_admin_client, seeded_admin, seeded_live_set,
+):
+    from setvault_core.db import session_factory
+    from setvault_core.services.api_tokens import mint_api_token
+
+    async with session_factory()() as s:
+        _, plaintext = await mint_api_token(
+            s, user_id=seeded_admin.id, name="fav feed", scopes=["rss"],
+        )
+        await s.commit()
+
+    url = f"/api/feed/favorites/{plaintext}.xml"
+    before = ET.fromstring((await authed_admin_client.get(url)).content)
+    assert before.findall(".//item") == []
+
+    r = await authed_admin_client.put(f"/api/sets/{seeded_live_set['slug']}/favorite")
+    assert r.status_code == 204
+    after = ET.fromstring((await authed_admin_client.get(url)).content)
+    assert [it.findtext("title") for it in after.findall(".//item")] == ["seeded set"]

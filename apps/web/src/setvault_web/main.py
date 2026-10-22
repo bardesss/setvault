@@ -19,6 +19,7 @@ from setvault_web.api import dev_seed as dev_seed_api
 from setvault_web.api import duplicates as duplicates_api
 from setvault_web.api import embed as embed_api
 from setvault_web.api import enrichment as enrichment_api
+from setvault_web.api import favorites as favorites_api
 from setvault_web.api import feeds as feeds_api
 from setvault_web.api import images as images_api
 from setvault_web.api import ingest_sources as ingest_sources_api
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
     app.include_router(me_api.router)
     app.include_router(comments_api.router)
     app.include_router(bookmarks_api.router)
+    app.include_router(favorites_api.router)
     app.include_router(notes_api.router)
     app.include_router(notifications_api.router)
     app.include_router(url_rip_api.router)
