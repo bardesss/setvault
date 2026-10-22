@@ -986,7 +986,7 @@
   box-shadow: var(--accent-glow);
 }
 .auth-card .auth-error {
-  color: var(--text-warn, #ff8a65);
+  color: var(--accent-warning);
   font-family: var(--font-mono);
   font-size: var(--ts-sm);
 }

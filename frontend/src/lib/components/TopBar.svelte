@@ -99,7 +99,7 @@
     font-weight: 600;
     white-space: nowrap;
   }
-  .add-set:hover { background: var(--accent); color: var(--surface-0); }
+  .add-set:hover { background: var(--accent); color: var(--text-on-accent); }
   @media (max-width: 600px) {
     .add-set { padding: 0; width: 32px; justify-content: center; }
     .add-set-label { display: none; }

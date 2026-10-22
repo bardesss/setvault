@@ -152,5 +152,5 @@
     color: inherit;
     font: inherit;
   }
-  .error { color: #c33; font-size: var(--ts-sm); margin: 0; }
+  .error { color: var(--accent-error); font-size: var(--ts-sm); margin: 0; }
 </style>

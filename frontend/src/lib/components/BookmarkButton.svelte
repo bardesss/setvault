@@ -102,7 +102,7 @@
     padding: var(--sp-2) var(--sp-3);
     border: 1px solid var(--border-default);
     border-radius: var(--r-sm);
-    background: var(--surface-1);
+    background: var(--bg-surface);
     cursor: pointer;
     color: var(--text-default);
     font: inherit;

@@ -101,7 +101,7 @@
     box-sizing: border-box;
     padding: var(--sp-2);
     font: inherit;
-    background: var(--surface-0);
+    background: var(--bg-input);
     border: 1px solid var(--border-default);
     border-radius: var(--r-sm);
     color: var(--text-default);
@@ -113,7 +113,7 @@
     padding: var(--sp-1) var(--sp-3);
     border: 1px solid var(--border-default);
     border-radius: var(--r-sm);
-    background: var(--surface-1);
+    background: var(--bg-surface);
     color: var(--text-default);
     cursor: pointer;
     font: inherit;

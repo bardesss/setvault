@@ -53,5 +53,5 @@
   .entity-edit { display: grid; gap: var(--sp-3); max-width: 480px; }
   .entity-edit label { display: grid; gap: var(--sp-1); }
   .actions { display: flex; gap: var(--sp-2); }
-  .error { color: #c33; font-size: var(--ts-sm); }
+  .error { color: var(--accent-error); font-size: var(--ts-sm); }
 </style>

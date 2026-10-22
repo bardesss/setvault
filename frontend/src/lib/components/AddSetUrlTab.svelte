@@ -127,7 +127,7 @@
     justify-self: start;
   }
   .primary:disabled { opacity: 0.5; cursor: not-allowed; }
-  .error { color: #c33; font-size: var(--ts-sm); }
+  .error { color: var(--accent-error); font-size: var(--ts-sm); }
   ul {
     list-style: none;
     padding: 0;
