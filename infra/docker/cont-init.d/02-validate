@@ -5,6 +5,12 @@
 
 set -e
 
+# 01-defaults already printed the real FATAL; don't bury it under a banner
+# about variables it never got to export.
+if [ -e /run/setvault-defaults-failed ]; then
+  exit 1
+fi
+
 missing=()
 # SECRET_KEY is always set by 01-defaults (generated if absent), so it is no
 # longer listed here — but the strength gate below still applies.

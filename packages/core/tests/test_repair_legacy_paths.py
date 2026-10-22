@@ -376,3 +376,28 @@ async def test_run_warning_names_effective_media_path_and_readme(tmp_path, capsy
     assert tmp_path.as_posix() in err
     assert "/data/media" not in err
     assert "README 'Upgrading'" in err
+
+
+async def test_unmatched_of_collision_skipped_folder_not_repointed():
+    async with session_factory()() as s:
+        root = MediaRoot(name=f"r-{uuid.uuid4().hex[:6]}", host_path="/data/media")
+        s.add(root)
+        await s.flush()
+        old = WatchFolder(name="old", host_path="/srv/watch/x", target_media_root_id=root.id)
+        new = WatchFolder(name="new", host_path="/data/watch/x", target_media_root_id=root.id)
+        moved = WatchFolder(name="moved", host_path="/srv/watch/y", target_media_root_id=root.id)
+        s.add_all([old, new, moved])
+        await s.flush()
+        s.add_all([
+            UnmatchedFile(watch_folder_id=old.id, file_path="/srv/watch/x/a.mp3"),
+            UnmatchedFile(watch_folder_id=moved.id, file_path="/srv/watch/y/b.mp3"),
+        ])
+        await s.commit()
+    async with session_factory()() as s:
+        counts = await repair(s, BUNDLED, mounts=[])
+        await s.commit()
+    assert counts["watch_folders"] == 1
+    assert counts["unmatched_files"] == 1
+    _, wfs, unm, _ = await _values()
+    assert sorted(wfs) == ["/data/watch/x", "/data/watch/y", "/srv/watch/x"]
+    assert sorted(unm) == ["/data/watch/y/b.mp3", "/srv/watch/x/a.mp3"]
