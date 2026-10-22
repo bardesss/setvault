@@ -20,7 +20,7 @@ from setvault_core.services.api_tokens import mint_api_token, revoke_api_token
 from setvault_core.services.password_policy import MIN_PASSWORD_LENGTH
 from setvault_core.services.passwords import hash_password, verify_password
 from setvault_core.services.sessions import SessionSigner
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.api.auth import _issue_session
@@ -87,7 +87,16 @@ async def continue_listening(
         .where(
             UserSetState.user_id == user.id,
             UserSetState.completed.is_(False),
+            # A few seconds in is "opened", not "listened": skip it.
+            UserSetState.position_seconds > 5,
+            LiveSet.status == "published",
             LiveSet.deleted_at.is_(None),
+            # Within the last 3 % counts as finished when the length is known.
+            or_(
+                LiveSet.duration_seconds.is_(None),
+                LiveSet.duration_seconds <= 0,
+                UserSetState.position_seconds < LiveSet.duration_seconds * 0.97,
+            ),
         )
         .order_by(UserSetState.updated_at.desc())
         .limit(8)

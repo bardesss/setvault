@@ -57,6 +57,12 @@ let el: HTMLAudioElement | null = null;
 let tracklist: TracklistEntry[] = [];
 let saveTimer: ReturnType<typeof setInterval> | null = null;
 let initialized = false;
+// Save guard (#15): nothing is written while the resume position is being
+// restored, nor for a set that hasn't actually played since it was loaded, so
+// merely opening a set never creates or overwrites its saved state.
+let restoring = false;
+let played = false;
+let loadToken = 0;
 
 /** The persistent media element — Waveform binds to it via wavesurfer `media`. */
 export function getElement(): HTMLAudioElement | null {
@@ -69,7 +75,7 @@ function patch(p: Partial<PlayerState>): void {
 
 async function saveState(): Promise<void> {
   const st = get(player);
-  if (!el || !st.set) return;
+  if (!el || !st.set || restoring || !played) return;
   const total = st.set.duration_seconds ?? st.duration ?? 0;
   const completed = total > 0 ? st.position >= total * 0.97 : false;
   try {
@@ -80,6 +86,18 @@ async function saveState(): Promise<void> {
     });
   } catch { /* best-effort */ }
 }
+
+function startSaving(): void {
+  if (saveTimer) return;
+  saveTimer = setInterval(() => void saveState(), 5000);
+}
+
+function stopSaving(): void {
+  if (saveTimer) clearInterval(saveTimer);
+  saveTimer = null;
+}
+
+function onPageHide(): void { void saveState(); }
 
 export function init(): void {
   if (!browser || initialized) return;
@@ -101,12 +119,24 @@ export function init(): void {
     patch({ position: el.currentTime });
   });
   el.addEventListener("durationchange", () => patch({ duration: el?.duration ?? 0 }));
-  el.addEventListener("play", () => patch({ playing: true }));
-  el.addEventListener("pause", () => patch({ playing: false }));
+  el.addEventListener("play", () => {
+    patch({ playing: true });
+    if (!restoring) played = true;
+    startSaving();
+  });
+  el.addEventListener("pause", () => {
+    patch({ playing: false });
+    stopSaving();
+    void saveState();
+  });
   el.addEventListener("waiting", () => patch({ buffering: true }));
   el.addEventListener("playing", () => patch({ buffering: false }));
-  el.addEventListener("ended", () => { patch({ playing: false }); void saveState(); });
-  saveTimer = setInterval(() => void saveState(), 5000);
+  el.addEventListener("ended", () => {
+    patch({ playing: false });
+    stopSaving();
+    void saveState();
+  });
+  if (typeof window !== "undefined") window.addEventListener("pagehide", onPageHide);
 }
 
 function setMediaSession(set: SetDetail): void {
@@ -136,20 +166,40 @@ export async function load(set: SetDetail): Promise<void> {
   if (!initialized) init();
   const cur = get(player);
   if (cur.set?.slug === set.slug) return;
-  if (cur.set) await saveState(); // flush outgoing
+  if (cur.set) await saveState(); // flush outgoing (only if it played)
   if (!el) return;
+  const token = ++loadToken;
+  restoring = true;
+  played = false;
+  stopSaving();
   el.src = set.audio_stream_url;
   patch({ set, position: 0, duration: 0, loopStart: null, loopEnd: null });
   setMediaSession(set);
   tracklist = [];
   try {
-    tracklist = (await listTracklist(set.slug)).slice().sort((a, b) => a.start_seconds - b.start_seconds);
-  } catch { /* prev/next falls back */ }
-  try {
-    const remote = await getSetState(set.slug);
-    if (remote.position_seconds > 0) el.currentTime = remote.position_seconds;
-    if (remote.playback_rate) setRate(remote.playback_rate);
-  } catch { /* no prior state */ }
+    try {
+      const entries = await listTracklist(set.slug);
+      if (token === loadToken) tracklist = entries.slice().sort((a, b) => a.start_seconds - b.start_seconds);
+    } catch { /* prev/next falls back */ }
+    try {
+      const remote = await getSetState(set.slug);
+      if (token !== loadToken || !el) return;
+      if (remote.position_seconds > 0) {
+        el.currentTime = remote.position_seconds;
+        patch({ position: remote.position_seconds });
+      }
+      if (remote.playback_rate) setRate(remote.playback_rate);
+    } catch { /* no prior state */ }
+  } finally {
+    if (token === loadToken) {
+      restoring = false;
+      // Playback started while restoring (autoplay, an early click): it counts.
+      if (el && !el.paused) {
+        played = true;
+        startSaving();
+      }
+    }
+  }
 }
 
 export async function play(): Promise<void> { try { await el?.play(); } catch { /* autoplay block */ } }
@@ -194,8 +244,11 @@ export function next(): void {
 export function prev(): void { seekTo(pickPrev(tracklist, get(player).position)); }
 
 export function dispose(): void {
-  if (saveTimer) clearInterval(saveTimer);
-  saveTimer = null;
+  stopSaving();
+  if (typeof window !== "undefined") window.removeEventListener("pagehide", onPageHide);
+  restoring = false;
+  played = false;
+  loadToken++;
   el?.pause();
   el?.remove();
   el = null;
