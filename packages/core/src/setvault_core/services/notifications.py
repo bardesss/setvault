@@ -49,6 +49,10 @@ def _redis_url() -> str:
     return os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 
+def _base_url() -> str:
+    return os.environ.get("BASE_URL", "").rstrip("/")
+
+
 async def _preference_for(
     session: AsyncSession, user_id: uuid.UUID, kind: str,
 ) -> NotificationPreference | None:
@@ -99,7 +103,7 @@ async def _deliver_email(
         body = (
             f"\"{set_title}\" now has a better copy:\n\n"
             f"  {payload.get('from_label', '')} -> {payload.get('to_label', '')}\n\n"
-            f"Open the set: /sets/{set_slug}\n"
+            f"Open the set: {_base_url()}/sets/{set_slug}\n"
         )
         try:
             await enqueue_email(
@@ -112,7 +116,7 @@ async def _deliver_email(
         f"@{author} {('mentioned you' if kind == 'mention' else 'replied to your comment')} "
         f"on \"{set_title}\":\n\n"
         f"  {excerpt}\n\n"
-        f"Open the set: /sets/{set_slug}\n"
+        f"Open the set: {_base_url()}/sets/{set_slug}\n"
     )
     try:
         await enqueue_email(

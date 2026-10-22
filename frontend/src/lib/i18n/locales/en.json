@@ -301,6 +301,8 @@
     "create": "Create RSS token",
     "name_label": "Token name (for your reference)",
     "copy": "Copy",
+    "copied": "Copied",
+    "copy_failed": "Copy failed. Select the URL and copy it manually.",
     "revoke": "Revoke",
     "shown_once": "These URLs are shown once. Copy and save them now."
   },

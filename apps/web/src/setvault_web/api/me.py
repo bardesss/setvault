@@ -24,6 +24,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.api.auth import _issue_session
+from setvault_web.config import Settings, get_settings
 from setvault_web.deps import current_user, db_session, get_signer
 
 router = APIRouter(prefix="/api/me", tags=["me"])
@@ -263,12 +264,17 @@ async def upsert_my_pref(
 # --- RSS tokens ---------------------------------------------------------------
 
 
-def _rss_urls(plaintext: str) -> tuple[str, str, str]:
-    """Return (favorites, recent, everything) feed URLs for a plaintext token."""
+def _rss_urls(base_url: str, plaintext: str) -> tuple[str, str, str]:
+    """Return (favorites, recent, everything) feed URLs for a plaintext token.
+
+    ``base_url`` is the configured BASE_URL; when empty the URLs stay relative
+    and the frontend prefixes its own origin.
+    """
+    base = base_url.rstrip("/")
     return (
-        f"/api/feed/favorites/{plaintext}.xml",
-        f"/api/feed/recent/{plaintext}.xml",
-        f"/api/feed/everything/{plaintext}.xml",
+        f"{base}/api/feed/favorites/{plaintext}.xml",
+        f"{base}/api/feed/recent/{plaintext}.xml",
+        f"{base}/api/feed/everything/{plaintext}.xml",
     )
 
 
@@ -308,12 +314,13 @@ async def create_my_rss_token(
     body: RssTokenCreateIn,
     user: Annotated[User, Depends(current_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ):
     row, plaintext = await mint_api_token(
         session, user_id=user.id, name=body.name, scopes=["rss"],
     )
     await session.commit()
-    fav, recent, everything = _rss_urls(plaintext)
+    fav, recent, everything = _rss_urls(settings.base_url, plaintext)
     return RssTokenWithPlaintextOut(
         id=str(row.id), name=row.name,
         favorites_url=fav, recent_url=recent, everything_url=everything,

@@ -136,3 +136,27 @@ async def test_continue_listening_skips_nearly_done(
     response = await authed_admin_client.get("/api/me/continue-listening")
     assert response.status_code == 200
     assert response.json() == []
+
+
+async def _mint_rss(client) -> dict:
+    response = await client.post("/api/me/rss-tokens", json={"name": "t"})
+    assert response.status_code == 201
+    return response.json()
+
+
+async def test_rss_token_urls_are_absolute(authed_admin_client, monkeypatch):
+    from setvault_web.config import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("BASE_URL", "http://sv.test:1970/")
+    try:
+        body = await _mint_rss(authed_admin_client)
+        for key in ("favorites_url", "recent_url", "everything_url"):
+            assert body[key].startswith("http://sv.test:1970/api/feed/")
+        monkeypatch.setenv("BASE_URL", "")
+        get_settings.cache_clear()
+        body = await _mint_rss(authed_admin_client)
+        for key in ("favorites_url", "recent_url", "everything_url"):
+            assert body[key].startswith("/api/feed/")
+    finally:
+        get_settings.cache_clear()
