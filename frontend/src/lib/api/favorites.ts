@@ -18,5 +18,5 @@ export const unfavorite = (slug: string) =>
 
 export const listMyFavorites = ({ limit = 50, offset = 0 }: ListFavoritesParams = {}) =>
   api<{ items: FavoriteItem[]; total: number }>(
-    `/api/me/favorites?limit=${limit}&offset=${offset}`,
+    `/api/me/favorites?${new URLSearchParams({ limit: String(limit), offset: String(offset) })}`,
   );
