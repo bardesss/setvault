@@ -48,10 +48,14 @@ describe("isTypingTarget", () => {
     expect(isTypingTarget(ev(el("select")))).toBe(true);
     expect(isTypingTarget(ev(el("div", {}, true)))).toBe(true);
   });
-  it("is false for body, button, slider", () => {
+  it("is true for role textbox, combobox, slider, listbox", () => {
+    for (const role of ["textbox", "combobox", "slider", "listbox"]) {
+      expect(isTypingTarget(ev(el("div", { role })))).toBe(true);
+    }
+  });
+  it("is false for body and button", () => {
     expect(isTypingTarget(ev(el("body")))).toBe(false);
     expect(isTypingTarget(ev(el("button")))).toBe(false);
-    expect(isTypingTarget(ev(el("div", { role: "slider" })))).toBe(false);
   });
   it("is false when there is no element target", () => {
     expect(isTypingTarget(ev(null))).toBe(false);
@@ -64,6 +68,7 @@ describe("isActivationTarget", () => {
     expect(isActivationTarget(ev(el("a", { href: "/x" })))).toBe(true);
     expect(isActivationTarget(ev(el("summary")))).toBe(true);
     expect(isActivationTarget(ev(el("div", { role: "button" })))).toBe(true);
+    expect(isActivationTarget(ev(el("div", { role: "radio" })))).toBe(true);
   });
   it("is false for body and inputs", () => {
     expect(isActivationTarget(ev(el("body")))).toBe(false);

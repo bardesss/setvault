@@ -23,7 +23,7 @@ for (const startPlaying of [false, true]) {
     } else {
       await page.waitForTimeout(500);
       // never started: the mini-player is absent or, if mounted, not playing
-      expect(await mini.getAttribute("data-state").catch(() => null)).not.toBe("playing");
+      if ((await mini.count()) > 0) await expect(mini).not.toHaveAttribute("data-state", "playing");
     }
   });
 }

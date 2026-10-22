@@ -8,7 +8,8 @@ type Tgt = {
 };
 
 function target(e: KeyboardEvent): Tgt | null {
-  const t = e.target as Tgt | null;
+  const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+  const t = (path[0] ?? e.target) as Tgt | null;
   return t && typeof t.tagName === "string" ? t : null;
 }
 
@@ -25,7 +26,8 @@ export function isTypingTarget(e: KeyboardEvent): boolean {
   const t = target(e);
   if (!t) return false;
   const tag = t.tagName!.toUpperCase();
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable === true;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable === true) return true;
+  return ["textbox", "combobox", "slider", "listbox"].includes(role(t));
 }
 
 /** Focus is on a control that Space/Enter activates natively. */
@@ -34,7 +36,7 @@ export function isActivationTarget(e: KeyboardEvent): boolean {
   if (!t) return false;
   const tag = t.tagName!.toUpperCase();
   if (tag === "BUTTON" || tag === "SUMMARY" || tag === "A") return true;
-  return ["button", "link", "menuitem", "checkbox", "switch", "tab", "option"].includes(role(t));
+  return ["button", "link", "menuitem", "checkbox", "switch", "tab", "radio", "option"].includes(role(t));
 }
 
 const ARROWS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
