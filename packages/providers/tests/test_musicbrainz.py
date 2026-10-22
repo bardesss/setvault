@@ -25,3 +25,28 @@ async def test_enrich_track_returns_isrc_and_year():
     assert result.fields["isrc"].value == "GBARL0500001"
     assert result.fields["year"].value == 1992
     assert result.raw_response == payload
+
+
+@pytest.mark.asyncio
+async def test_get_spaces_consecutive_requests(monkeypatch):
+    from setvault_providers import musicbrainz
+
+    now = [100.0]
+    slept: list[float] = []
+
+    async def fake_sleep(s):
+        slept.append(s)
+        now[0] += s
+
+    monkeypatch.setattr(musicbrainz, "_sleep", fake_sleep)
+    monkeypatch.setattr(musicbrainz, "_clock", lambda: now[0])
+    monkeypatch.setattr(musicbrainz, "_last_request", 0.0)
+    p = MusicBrainzProvider(user_agent="SetVault/test (test@example.com)")
+    with respx.mock() as mock:
+        mock.get(host="musicbrainz.org").mock(return_value=Response(200, json={}))
+        await p._get("recording", {})
+        assert slept == []  # first call is long after the last one
+        now[0] += 0.3
+        await p._get("recording", {})
+    assert len(slept) == 1
+    assert slept[0] == pytest.approx(0.8)

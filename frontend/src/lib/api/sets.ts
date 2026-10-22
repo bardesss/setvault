@@ -95,8 +95,9 @@ export const patchSet = (slug: string, patch: Partial<SetDetail>) =>
 export const getSetState = (slug: string) =>
   api<SetState>(`/api/sets/${slug}/state`);
 
-export const putSetState = (slug: string, state: SetState) =>
+export const putSetState = (slug: string, state: SetState, init?: RequestInit) =>
   api<void>(`/api/sets/${slug}/state`, {
     method: "PUT",
     body: JSON.stringify(state),
+    ...init,
   });

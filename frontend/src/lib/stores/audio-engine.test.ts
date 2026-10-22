@@ -4,13 +4,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { get } from "svelte/store";
 
-const putSetState = vi.fn(async (_slug: string, _state: unknown) => undefined);
+const putSetState = vi.fn(async (_slug: string, _state: unknown, _init?: RequestInit) => undefined);
 const getSetState = vi.fn();
 
 vi.mock("$app/env", () => ({ browser: true }));
 vi.mock("#lib/api/sets.ts", () => ({
   getSetState: (slug: string) => getSetState(slug),
-  putSetState: (slug: string, state: unknown) => putSetState(slug, state),
+  putSetState: (slug: string, state: unknown, init?: RequestInit) =>
+    putSetState(slug, state, init),
 }));
 vi.mock("#lib/api/tracklist.ts", () => ({ listTracklist: async () => [] }));
 
@@ -140,5 +141,7 @@ describe("audio engine save guard", () => {
     win.dispatchEvent(new Event("pagehide"));
     await vi.advanceTimersByTimeAsync(0);
     expect(putSetState).toHaveBeenCalledTimes(3);
+    expect(putSetState.mock.calls[2][2]).toEqual({ keepalive: true });
+    expect(putSetState.mock.calls[0][2]).toBeUndefined();
   });
 });

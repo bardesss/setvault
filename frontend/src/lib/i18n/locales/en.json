@@ -80,6 +80,7 @@
     "sort_duration": "Longest first",
     "showing": "Showing {shown} of {total}",
     "load_more": "Load more",
+    "load_more_failed": "Could not load more sets. Try again.",
     "no_match": "No sets match.",
     "filter_placeholder": "Filter sets…",
     "filters": "Filters",

@@ -73,7 +73,7 @@ function patch(p: Partial<PlayerState>): void {
   player.update((s) => ({ ...s, ...p }));
 }
 
-async function saveState(): Promise<void> {
+async function saveState(init?: RequestInit): Promise<void> {
   const st = get(player);
   if (!el || !st.set || restoring || !played) return;
   const total = st.set.duration_seconds ?? st.duration ?? 0;
@@ -83,7 +83,7 @@ async function saveState(): Promise<void> {
       position_seconds: st.position,
       completed,
       playback_rate: st.playbackRate,
-    });
+    }, init);
   } catch { /* best-effort */ }
 }
 
@@ -97,7 +97,7 @@ function stopSaving(): void {
   saveTimer = null;
 }
 
-function onPageHide(): void { void saveState(); }
+function onPageHide(): void { void saveState({ keepalive: true }); }
 
 export function init(): void {
   if (!browser || initialized) return;

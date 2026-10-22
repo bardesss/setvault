@@ -214,6 +214,9 @@
             {$_("library.load_more")}
           </button>
         {/if}
+        {#if moreError}
+          <p class="more-error" role="alert">{$_("library.load_more_failed")}</p>
+        {/if}
       </div>
     </div>
   </div>
@@ -300,4 +303,5 @@
     .library-body { padding: var(--sp-3); }
     .grid { grid-template-columns: 1fr; }
   }
+  .more-error { color: var(--accent-error); font-size: var(--ts-sm); margin: 0; }
 </style>

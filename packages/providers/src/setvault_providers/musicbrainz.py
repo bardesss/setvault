@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import ClassVar
 from urllib.parse import quote_plus, urlparse
 
@@ -20,6 +22,21 @@ _SOCIAL_HOSTS = {
     "youtube.com": "youtube", "youtu.be": "youtube", "instagram.com": "instagram",
 }
 _MIN_SEARCH_SCORE = 90
+_MIN_INTERVAL = 1.1  # MusicBrainz allows 1 request/second
+_rate_lock = asyncio.Lock()
+_last_request = 0.0
+_sleep = asyncio.sleep
+_clock = time.monotonic
+
+
+async def _throttle() -> None:
+    """Hold the lock until >= _MIN_INTERVAL has passed since the last request."""
+    global _last_request
+    async with _rate_lock:
+        wait = _MIN_INTERVAL - (_clock() - _last_request)
+        if wait > 0:
+            await _sleep(wait)
+        _last_request = _clock()
 
 
 def _social_key(rel_type: str, url: str) -> str | None:
@@ -53,6 +70,7 @@ class MusicBrainzProvider:
         self.base_url = base_url
 
     async def _get(self, path: str, params: dict) -> dict:
+        await _throttle()
         async with httpx.AsyncClient(
             timeout=15.0, headers={"User-Agent": self.user_agent}
         ) as c:

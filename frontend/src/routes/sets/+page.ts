@@ -11,12 +11,15 @@ export const load: PageLoad = async ({ fetch, url }) => {
   const parsed = Number.parseInt(p.get("limit") ?? "", 10);
   const limit =
     Number.isFinite(parsed) && parsed >= 1 ? Math.min(parsed, 200) : DEFAULT_LIMIT;
+  const SORTS = ["recent", "date", "title", "duration"];
+  const sortParam = p.get("sort") ?? "";
+  const yearParam = p.get("year") ?? "";
   const filters = {
     q: p.get("q") ?? "",
     tag: p.get("tag") ?? "",
-    year: p.get("year") ?? "",
+    year: /^\d+$/.test(yearParam) ? yearParam : "",
     venue_kind: p.get("venue_kind") ?? "",
-    sort: p.get("sort") || "recent",
+    sort: SORTS.includes(sortParam) ? sortParam : "recent",
   };
   // Auth is enforced by the API: an unauthenticated /api/sets returns 401,
   // which propagates through the !response.ok guard below.
