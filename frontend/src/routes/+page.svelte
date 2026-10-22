@@ -37,6 +37,13 @@
     data.user?.email?.split("@")[0] ||
     "";
   $: summary = data.homeSummary;
+
+  const NEW_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+  function isNewSet(createdAt: string | undefined): boolean {
+    if (!createdAt) return false;
+    const t = Date.parse(createdAt);
+    return !Number.isNaN(t) && Date.now() - t < NEW_WINDOW_MS;
+  }
 </script>
 
 <svelte:head><title>SetVault</title></svelte:head>
@@ -118,7 +125,8 @@
           slug={s.slug}
           title={s.title}
           artist={Array.isArray(s.artists) && s.artists.length ? s.artists[0].name : ""}
-          venue={s.venue?.name || ""}
+          venue={s.venue?.name ?? ""}
+          isNew={isNewSet(s.created_at)}
           year={s.date ? new Date(s.date).getFullYear() : null}
         />
       {/each}

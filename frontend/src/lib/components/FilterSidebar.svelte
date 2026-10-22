@@ -2,8 +2,9 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { toStore } from "svelte/store";
+  import { _ } from "svelte-i18n";
 
-  export let tags: string[] = [];
+  export let tags: { slug: string; name: string; count?: number }[] = [];
   export let venueKinds: string[] = [];
   export let years: number[] = [];
 
@@ -15,7 +16,7 @@
     if (value && value !== "") params.set(key, value);
     else params.delete(key);
     const qs = params.toString();
-    goto(qs ? `?${qs}` : "?", { reset: false, replace: true });
+    goto(qs ? `?${qs}` : "?", { replace: true, reset: false });
   }
 
   function onSelect(key: string, event: Event) {
@@ -28,27 +29,27 @@
   $: currentYear = $pageUrl.searchParams.get("year") ?? "";
 </script>
 
-<aside class="filter-sidebar" aria-label="Filters">
+<aside class="filter-sidebar" aria-label={$_("library.filters")}>
   <label>
-    <span>Tag</span>
+    <span>{$_("library.tag")}</span>
     <select value={currentTag} on:change={(e) => onSelect("tag", e)}>
-      <option value="">All</option>
-      {#each tags as t (t)}<option value={t}>{t}</option>{/each}
+      <option value="">{$_("library.all")}</option>
+      {#each tags as t (t.slug)}<option value={t.slug}>{t.name}{t.count !== undefined ? ` (${t.count})` : ""}</option>{/each}
     </select>
   </label>
 
   <label>
-    <span>Venue kind</span>
+    <span>{$_("library.venue_kind")}</span>
     <select value={currentVenueKind} on:change={(e) => onSelect("venue_kind", e)}>
-      <option value="">All</option>
+      <option value="">{$_("library.all")}</option>
       {#each venueKinds as k (k)}<option value={k}>{k}</option>{/each}
     </select>
   </label>
 
   <label>
-    <span>Year</span>
+    <span>{$_("library.year")}</span>
     <select value={currentYear} on:change={(e) => onSelect("year", e)}>
-      <option value="">All</option>
+      <option value="">{$_("library.all")}</option>
       {#each years as y (y)}<option value={String(y)}>{y}</option>{/each}
     </select>
   </label>

@@ -38,6 +38,16 @@ async def enrich_artist_entity(
                 setattr(artist, name, fv.value)
             elif name == "external_ids" and isinstance(fv.value, dict):
                 artist.external_ids = {**(artist.external_ids or {}), **fv.value}
+            elif name == "aliases" and isinstance(fv.value, list):
+                merged = list(artist.aliases or [])
+                seen = {a.casefold() for a in merged}
+                for a in fv.value:
+                    if isinstance(a, str) and a.strip() and a.casefold() not in seen:
+                        seen.add(a.casefold())
+                        merged.append(a)
+                artist.aliases = merged
+            elif name == "socials" and isinstance(fv.value, dict):
+                artist.socials = {**(artist.socials or {}), **fv.value}
             else:
                 continue
             status[name] = {"value": fv.value, "confidence": fv.confidence,

@@ -39,7 +39,8 @@ export const offline = writable<OfflineState>({
 async function findAudioCache(): Promise<Cache | null> {
   if (!browser || !("caches" in self)) return null;
   const names = await caches.keys();
-  // SW names caches like `setvault-<version>-audio`; pick the freshest match.
+  // The SW's audio cache is the unversioned `setvault-audio`; the suffix match
+  // also finds legacy `setvault-<version>-audio` caches, freshest last.
   const audioName = names
     .filter((n) => n.endsWith("-audio"))
     .sort()
@@ -75,6 +76,19 @@ export async function refreshUsage(): Promise<void> {
     /* best-effort */
   }
   offline.update((s) => ({ ...s, usedBytes: used, quotaBytes: quota }));
+}
+
+/** Re-send the stored cap to the active SW (boot, controllerchange). */
+export function postStoredCap(): void {
+  if (!browser) return;
+  try {
+    navigator.serviceWorker?.controller?.postMessage({
+      type: "set-cap",
+      bytes: loadCap(),
+    });
+  } catch {
+    /* SW not active yet */
+  }
 }
 
 export function setCap(bytes: number): void {

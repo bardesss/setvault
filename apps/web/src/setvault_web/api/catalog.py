@@ -25,7 +25,7 @@ from setvault_core.schemas.catalog import (
 )
 from setvault_core.services.artist_enrich import enrich_artist_entity
 from setvault_core.services.audit import log as audit_log
-from setvault_core.services.catalog import list_sets_for_entity, slugify
+from setvault_core.services.catalog import list_sets_for_entity, slugify, unique_slug
 from setvault_core.services.catalog_merge import merge_entities, unmerge_entity
 from setvault_core.services.enrichment import select_providers_for_capability
 from setvault_providers.base import Capability
@@ -34,7 +34,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.config import get_settings
-from setvault_web.deps import current_user, db_session, require_admin
+from setvault_web.deps import current_user, db_session, parse_uuid, require_admin
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -97,7 +97,7 @@ async def create_artist(
 ):
     row = Artist(
         name=body.name,
-        slug=slugify(body.name),
+        slug=await unique_slug(session, Artist, slugify(body.name), name=body.name),
         country=body.country,
         bio=body.bio,
         aliases=list(body.aliases),
@@ -139,7 +139,7 @@ async def create_venue(
 ):
     row = Venue(
         name=body.name,
-        slug=slugify(body.name),
+        slug=await unique_slug(session, Venue, slugify(body.name), name=body.name),
         kind=body.kind,
         city_or_area=body.city_or_area,
         country=body.country,
@@ -182,7 +182,7 @@ async def create_series(
 ):
     row = Series(
         name=body.name,
-        slug=slugify(body.name),
+        slug=await unique_slug(session, Series, slugify(body.name), name=body.name),
         description=body.description,
         image_url=body.image_url,
     )
@@ -220,11 +220,16 @@ async def create_party(
     session: Annotated[AsyncSession, Depends(db_session)],
     _: Annotated[object, Depends(current_user)],
 ):
-    venue_uuid = uuid.UUID(body.venue_id) if body.venue_id else None
-    series_uuid = uuid.UUID(body.series_id) if body.series_id else None
+    bad = {"status_code": 422, "detail": "invalid id"}
+    venue_uuid = parse_uuid(body.venue_id, **bad) if body.venue_id else None
+    series_uuid = parse_uuid(body.series_id, **bad) if body.series_id else None
+    if venue_uuid is not None and await session.get(Venue, venue_uuid) is None:
+        raise HTTPException(status_code=422, detail="unknown venue_id")
+    if series_uuid is not None and await session.get(Series, series_uuid) is None:
+        raise HTTPException(status_code=422, detail="unknown series_id")
     row = Party(
         name=body.name,
-        slug=slugify(body.name),
+        slug=await unique_slug(session, Party, slugify(body.name), name=body.name),
         venue_id=venue_uuid,
         series_id=series_uuid,
         date=body.date,
@@ -377,6 +382,10 @@ async def edit_party(
         raise HTTPException(
             status_code=422, detail="invalid venue_id or series_id"
         ) from exc
+    for field, model in (("venue_id", Venue), ("series_id", Series)):
+        ref = patch.get(field)
+        if ref is not None and await session.get(model, ref) is None:
+            raise HTTPException(status_code=422, detail=f"unknown {field}")
     for field, value in patch.items():
         setattr(row, field, value)
     await audit_log(
@@ -385,7 +394,7 @@ async def edit_party(
         action="party.edited",
         target_type=Party.__name__,
         target_id=str(row.id),
-        after=body.model_dump(exclude_unset=True),
+        after=body.model_dump(exclude_unset=True, mode="json"),
     )
     try:
         await session.commit()

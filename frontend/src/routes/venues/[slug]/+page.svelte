@@ -69,5 +69,5 @@
   .entity-edit label { display: grid; gap: var(--sp-1); }
   .actions { display: flex; gap: var(--sp-2); }
   .muted { color: var(--text-faint); }
-  .error { color: #c33; font-size: var(--ts-sm); }
+  .error { color: var(--accent-error); font-size: var(--ts-sm); }
 </style>

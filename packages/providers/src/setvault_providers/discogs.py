@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 from typing import ClassVar
+from urllib.parse import urlparse
 
 import httpx
 
 from setvault_providers.base import (
+    ArtistRef,
     Capability,
     FieldValue,
     ProviderError,
@@ -12,6 +15,20 @@ from setvault_providers.base import (
     ProviderResult,
     TrackRef,
 )
+
+_SOCIAL_HOSTS = {
+    "bandcamp.com": "bandcamp", "soundcloud.com": "soundcloud",
+    "youtube.com": "youtube", "youtu.be": "youtube", "instagram.com": "instagram",
+}
+# Discogs markup: [a=Name] [l=Label] [m=123] [r=123] keep the text, [url=..]/[b]/[/b] drop tags.
+_MARKUP_REF = re.compile(r"\[[almr]=([^\]]*)\]")
+_MARKUP_TAG = re.compile(r"\[/?[a-z]+\d*(?:=[^\]]*)?\]", re.IGNORECASE)
+
+
+def _strip_markup(text: str) -> str:
+    out = _MARKUP_REF.sub(r"\1", text)
+    out = _MARKUP_TAG.sub("", out)
+    return re.sub(r"[ \t]+", " ", out).strip()
 
 
 class DiscogsProvider:
@@ -59,8 +76,45 @@ class DiscogsProvider:
             fields["catalog_number"] = FieldValue(value=r["catno"], confidence=0.8)
         return ProviderResult(kind=self.kind, fields=fields, raw_response=data)
 
-    async def enrich_artist(self, artist):
-        return None
+    async def enrich_artist(self, artist: ArtistRef) -> ProviderResult | None:
+        if not self.token:
+            return None
+        did = (artist.external_ids or {}).get("discogs")
+        if not did:
+            name = (artist.name or "").strip()
+            if not name:
+                return None
+            found = await self._get(
+                "database/search", {"q": name, "type": "artist", "per_page": 5})
+            want = name.casefold()
+            for cand in found.get("results") or []:
+                if (cand.get("title") or "").casefold() == want and cand.get("id"):
+                    did = str(cand["id"])
+                    break
+            if not did:
+                return None
+        data = await self._get(f"artists/{did}", {})
+        fields: dict[str, FieldValue] = {
+            "external_ids": FieldValue(value={"discogs": str(did)}, confidence=0.85)}
+        if data.get("profile"):
+            bio = _strip_markup(data["profile"])
+            if bio:
+                fields["bio"] = FieldValue(value=bio, confidence=0.7)
+        images = data.get("images") or []
+        if images and images[0].get("uri"):
+            fields["image_url"] = FieldValue(value=images[0]["uri"], confidence=0.7)
+        variations = [v for v in data.get("namevariations") or [] if v]
+        if variations:
+            fields["aliases"] = FieldValue(value=variations, confidence=0.7)
+        socials: dict[str, str] = {}
+        for url in data.get("urls") or []:
+            host = (urlparse(url).hostname or "").lower()
+            key = next((k for dom, k in _SOCIAL_HOSTS.items()
+                        if host == dom or host.endswith("." + dom)), "homepage")
+            socials.setdefault(key, url)
+        if socials:
+            fields["socials"] = FieldValue(value=socials, confidence=0.7)
+        return ProviderResult(kind=self.kind, fields=fields, raw_response=data)
 
     async def enrich_release(self, release):
         return None

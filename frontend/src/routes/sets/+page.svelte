@@ -4,48 +4,73 @@
   import FilterSidebar from "#lib/components/FilterSidebar.svelte";
   import FilterBar from "#lib/components/FilterBar.svelte";
   import BulkActionToolbar from "#lib/components/BulkActionToolbar.svelte";
-  import { refreshAll } from "$app/navigation";
+  import { goto, refreshAll } from "$app/navigation";
+  import { page } from "$app/state";
+  import { onDestroy } from "svelte";
+  import { _ } from "svelte-i18n";
   import { session } from "#lib/stores/session.ts";
+  import { listSets, type SetSummary } from "#lib/api/sets.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;
 
-  let query = "";
-  let sort: string = "recent";
+  let query = data.filters.q;
+  let sort: string = data.filters.sort || "recent";
   let view: "list" | "grid" = "grid";
 
-  $: tagOptions = Array.from(
-    new Set(data.sets.flatMap((s) => s.tags)),
-  ).sort();
-  $: yearOptions = Array.from(
-    new Set(
-      data.sets
-        .map((s) => (s.date ? Number.parseInt(s.date.slice(0, 4), 10) : null))
-        .filter((y): y is number => y !== null && !Number.isNaN(y)),
-    ),
-  ).sort((a, b) => b - a);
+  // The list lives in the URL: every filter/search/sort change navigates with
+  // new params, which re-runs load and resets the list to the first page.
+  let items: SetSummary[] = data.sets;
+  let loadingMore = false;
+  let moreError = false;
+  $: items = data.sets;
+  $: total = data.total;
+  $: sort = data.filters.sort || "recent";
 
   $: isAdmin = $session?.role === "admin";
+  $: filteredSets = items;
 
-  $: filteredSets = (() => {
-    let out = data.sets;
-    if (query) {
-      const q = query.toLowerCase();
-      out = out.filter((s) => {
-        const artistNames = (s.artists ?? []).map((a) => a.name).join(" ");
-        return (
-          s.title.toLowerCase().includes(q) ||
-          artistNames.toLowerCase().includes(q)
-        );
+  function setParam(key: string, value: string) {
+    const params = new URLSearchParams(page.url.searchParams.toString());
+    if (value) params.set(key, value);
+    else params.delete(key);
+    const qs = params.toString();
+    goto(qs ? `?${qs}` : "?", { replace: true, reset: false });
+  }
+
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  function onQuery() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => setParam("q", query.trim()), 250);
+  }
+  onDestroy(() => clearTimeout(searchTimer));
+
+  function onSort() {
+    setParam("sort", sort);
+  }
+
+  async function loadMore() {
+    loadingMore = true;
+    moreError = false;
+    try {
+      const f = data.filters;
+      const more = await listSets({
+        q: f.q,
+        tag: f.tag,
+        year: f.year,
+        venue_kind: f.venue_kind,
+        sort: f.sort,
+        limit: data.limit,
+        offset: items.length,
       });
+      const seen = new Set(items.map((s) => s.id));
+      items = [...items, ...more.items.filter((s) => !seen.has(s.id))];
+    } catch {
+      moreError = true;
+    } finally {
+      loadingMore = false;
     }
-    if (sort === "title") {
-      out = out.slice().sort((a, b) => a.title.localeCompare(b.title));
-    } else if (sort === "duration") {
-      out = out.slice().sort((a, b) => (b.duration_seconds ?? 0) - (a.duration_seconds ?? 0));
-    }
-    return out;
-  })();
+  }
 
   // Selection by set id. Reassigning the Set forces reactivity.
   let selected = new Set<string>();
@@ -70,6 +95,12 @@
       selected = next;
     }
     lastClickedIndex = index;
+  }
+
+  // A new result set (filter, sort, refresh) invalidates the selection.
+  $: if (data) {
+    selected = new Set();
+    lastClickedIndex = null;
   }
 
   function toggleAll() {
@@ -97,10 +128,13 @@
   bind:query
   bind:sort
   bind:view
+  on:query={onQuery}
+  on:sort={onSort}
   sortOptions={[
-    { value: "recent", label: "Recently added" },
-    { value: "title", label: "Title A→Z" },
-    { value: "duration", label: "Longest first" },
+    { value: "recent", label: $_("library.sort_recent") },
+    { value: "date", label: $_("library.sort_date") },
+    { value: "title", label: $_("library.sort_title") },
+    { value: "duration", label: $_("library.sort_duration") },
   ]}
 />
 
@@ -114,7 +148,11 @@
   {/if}
 
   <div class="layout">
-    <FilterSidebar tags={tagOptions} venueKinds={[]} years={yearOptions} />
+    <FilterSidebar
+      tags={data.facets.tags}
+      venueKinds={data.facets.venue_kinds}
+      years={data.facets.years}
+    />
     <div>
       {#if isAdmin && filteredSets.length > 0}
         <p class="select-all-row">
@@ -131,7 +169,7 @@
       {/if}
 
       {#if filteredSets.length === 0}
-        <div class="empty">No sets match.</div>
+        <div class="empty">{$_("library.no_match")}</div>
       {:else if view === "list"}
         <div class="list">
           {#each filteredSets as s (s.slug)}
@@ -166,6 +204,20 @@
           {/each}
         </div>
       {/if}
+
+      <div class="pager">
+        <p class="count" data-testid="library-count">
+          {$_("library.showing", { values: { shown: items.length, total } })}
+        </p>
+        {#if items.length < total}
+          <button type="button" class="load-more" disabled={loadingMore} on:click={loadMore}>
+            {$_("library.load_more")}
+          </button>
+        {/if}
+        {#if moreError}
+          <p class="more-error" role="alert">{$_("library.load_more_failed")}</p>
+        {/if}
+      </div>
     </div>
   </div>
 </section>
@@ -190,6 +242,21 @@
     gap: var(--sp-3);
   }
   .list { display: grid; }
+  .pager {
+    display: grid;
+    justify-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-4) 0;
+  }
+  .count { margin: 0; font-size: var(--ts-sm); color: var(--text-muted); }
+  .load-more {
+    padding: var(--sp-2) var(--sp-4);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--r-md);
+    color: inherit;
+    cursor: pointer;
+  }
   .empty {
     padding: var(--sp-8);
     text-align: center;
@@ -236,4 +303,5 @@
     .library-body { padding: var(--sp-3); }
     .grid { grid-template-columns: 1fr; }
   }
+  .more-error { color: var(--accent-error); font-size: var(--ts-sm); margin: 0; }
 </style>

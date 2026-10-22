@@ -10,6 +10,7 @@ from setvault_core.models.api_token import ApiToken
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.engagement import ActivityEvent, UserSetState
 from setvault_core.models.identity import NotificationPreference, User
+from setvault_core.models.system import NotificationConnector
 from setvault_core.schemas.feeds import (
     RssTokenCreateIn,
     RssTokenOut,
@@ -20,11 +21,12 @@ from setvault_core.services.api_tokens import mint_api_token, revoke_api_token
 from setvault_core.services.password_policy import MIN_PASSWORD_LENGTH
 from setvault_core.services.passwords import hash_password, verify_password
 from setvault_core.services.sessions import SessionSigner
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.api.auth import _issue_session
-from setvault_web.deps import current_user, db_session, get_signer
+from setvault_web.config import Settings, get_settings
+from setvault_web.deps import current_user, db_session, get_signer, parse_uuid
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -87,7 +89,16 @@ async def continue_listening(
         .where(
             UserSetState.user_id == user.id,
             UserSetState.completed.is_(False),
+            # A few seconds in is "opened", not "listened": skip it.
+            UserSetState.position_seconds > 5,
+            LiveSet.status == "published",
             LiveSet.deleted_at.is_(None),
+            # Within the last 3 % counts as finished when the length is known.
+            or_(
+                LiveSet.duration_seconds.is_(None),
+                LiveSet.duration_seconds <= 0,
+                UserSetState.position_seconds < LiveSet.duration_seconds * 0.97,
+            ),
         )
         .order_by(UserSetState.updated_at.desc())
         .limit(8)
@@ -232,17 +243,25 @@ async def upsert_my_pref(
             )
         )
     ).scalar_one_or_none()
+    connector_uuid = (
+        parse_uuid(body.connector_id, status_code=422, detail="invalid id")
+        if body.connector_id else None
+    )
+    if connector_uuid is not None and await session.get(
+        NotificationConnector, connector_uuid
+    ) is None:
+        raise HTTPException(status_code=422, detail="unknown connector_id")
     if existing is None:
         existing = NotificationPreference(
             user_id=user.id,
             kind=kind,
             channel=body.channel,
-            connector_id=uuid.UUID(body.connector_id) if body.connector_id else None,
+            connector_id=connector_uuid,
         )
         session.add(existing)
     else:
         existing.channel = body.channel
-        existing.connector_id = uuid.UUID(body.connector_id) if body.connector_id else None
+        existing.connector_id = connector_uuid
     await session.commit()
     return NotificationPreferenceOut(
         kind=existing.kind,
@@ -254,12 +273,17 @@ async def upsert_my_pref(
 # --- RSS tokens ---------------------------------------------------------------
 
 
-def _rss_urls(plaintext: str) -> tuple[str, str, str]:
-    """Return (favorites, recent, everything) feed URLs for a plaintext token."""
+def _rss_urls(base_url: str, plaintext: str) -> tuple[str, str, str]:
+    """Return (favorites, recent, everything) feed URLs for a plaintext token.
+
+    ``base_url`` is the configured BASE_URL; when empty the URLs stay relative
+    and the frontend prefixes its own origin.
+    """
+    base = base_url.rstrip("/")
     return (
-        f"/api/feed/favorites/{plaintext}.xml",
-        f"/api/feed/recent/{plaintext}.xml",
-        f"/api/feed/everything/{plaintext}.xml",
+        f"{base}/api/feed/favorites/{plaintext}.xml",
+        f"{base}/api/feed/recent/{plaintext}.xml",
+        f"{base}/api/feed/everything/{plaintext}.xml",
     )
 
 
@@ -299,12 +323,13 @@ async def create_my_rss_token(
     body: RssTokenCreateIn,
     user: Annotated[User, Depends(current_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ):
     row, plaintext = await mint_api_token(
         session, user_id=user.id, name=body.name, scopes=["rss"],
     )
     await session.commit()
-    fav, recent, everything = _rss_urls(plaintext)
+    fav, recent, everything = _rss_urls(settings.base_url, plaintext)
     return RssTokenWithPlaintextOut(
         id=str(row.id), name=row.name,
         favorites_url=fav, recent_url=recent, everything_url=everything,

@@ -1,13 +1,17 @@
 import { error } from "@sveltejs/kit";
 import type { PageLoad } from "./$types";
 
+/** One background job run (RQ ids repeat across runs; `id` is per run). */
 export interface JobRow {
   id: string;
+  rq_id: string;
   kind: string;
   status: string;
   progress_pct: number;
   message: string | null;
+  result: Record<string, unknown>;
   created_at: string;
+  started_at: string | null;
   finished_at: string | null;
 }
 

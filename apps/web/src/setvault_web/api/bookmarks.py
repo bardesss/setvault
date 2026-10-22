@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_web.deps import current_user, db_session
+from setvault_web.deps import current_user, db_session, parse_uuid
 
 router = APIRouter(tags=["bookmarks"])
 
@@ -82,7 +81,7 @@ async def delete_bookmark(
     user: Annotated[User, Depends(current_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
-    b = await session.get(Bookmark, uuid.UUID(bookmark_id))
+    b = await session.get(Bookmark, parse_uuid(bookmark_id))
     if b is None or b.user_id != user.id:
         raise HTTPException(status_code=404)
     await session.delete(b)

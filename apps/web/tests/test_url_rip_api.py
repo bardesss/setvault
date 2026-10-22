@@ -126,8 +126,8 @@ async def test_submit_url_rip_enqueues_with_long_timeout(authed_admin_client, mo
     """RQ's 180s default kills a real-length rip; the enqueue must override it."""
     from setvault_core.jobs.url_rip_job import RIP_JOB_TIMEOUT
     from setvault_core.models.url_rip import RipJob
+    from setvault_core.services import rip_enqueue
     from setvault_core.services import url_rip as _service
-    from setvault_web.api import url_rip as url_rip_api
 
     async def _fake_submit(session, *, user_id, url, **_kw):
         job = RipJob(
@@ -147,7 +147,7 @@ async def test_submit_url_rip_enqueues_with_long_timeout(authed_admin_client, mo
             calls.append(kwargs)
 
     monkeypatch.setattr(_service, "submit_rip", _fake_submit)
-    monkeypatch.setattr(url_rip_api, "_queue", lambda: _Q())
+    monkeypatch.setattr(rip_enqueue, "_queue", lambda url=None: _Q())
 
     r = await authed_admin_client.post(
         "/api/sets/url-rip",
@@ -166,8 +166,8 @@ async def test_submit_url_rip_commits_before_enqueueing(authed_admin_client, mon
     import threading
 
     from setvault_core.models.url_rip import RipJob
+    from setvault_core.services import rip_enqueue
     from setvault_core.services import url_rip as _service
-    from setvault_web.api import url_rip as url_rip_api
     from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy.pool import NullPool
 
@@ -209,7 +209,7 @@ async def test_submit_url_rip_commits_before_enqueueing(authed_admin_client, mon
             seen.append(_row_visible_elsewhere(kwargs["rip_job_id"]))
 
     monkeypatch.setattr(_service, "submit_rip", _fake_submit)
-    monkeypatch.setattr(url_rip_api, "_queue", lambda: _Q())
+    monkeypatch.setattr(rip_enqueue, "_queue", lambda url=None: _Q())
 
     r = await authed_admin_client.post(
         "/api/sets/url-rip",

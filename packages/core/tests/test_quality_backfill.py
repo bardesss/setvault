@@ -378,3 +378,29 @@ def test_start_while_another_start_holds_the_lock_enqueues_nothing(monkeypatch):
         assert redis.get(qb.START_LOCK_KEY) is not None
     finally:
         redis.delete(qb.START_LOCK_KEY)
+
+
+def test_duplicate_scan_enqueue_is_locked_and_not_stacked(monkeypatch):
+    import rq
+    from redis import Redis
+
+    calls = []
+
+    class _Job:
+        id = "job-scan-x"
+
+    monkeypatch.setattr(rq.Queue, "enqueue", lambda self, func, **kw: calls.append(func) or _Job())
+    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis.delete(qb.SCAN_JOB_KEY)
+    redis.set(qb.SCAN_LOCK_KEY, "1", ex=30)
+    try:
+        # Another request holds the lock: nothing is queued, its lock stays.
+        assert qb.enqueue_duplicate_scan() is None
+        assert calls == []
+        assert redis.get(qb.SCAN_LOCK_KEY) is not None
+        redis.delete(qb.SCAN_LOCK_KEY)
+        assert qb.enqueue_duplicate_scan().id == "job-scan-x"
+        assert calls == [qb.SCAN_FUNC]
+        assert redis.get(qb.SCAN_LOCK_KEY) is None  # released after queueing
+    finally:
+        redis.delete(qb.SCAN_LOCK_KEY, qb.SCAN_JOB_KEY)

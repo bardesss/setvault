@@ -64,7 +64,7 @@ class TracklistImportIn(BaseModel):
 class TracklistImportOut(BaseModel):
     id: str
     kind: Literal["paste", "url_1001tl", "ocr"]
-    status: Literal["queued", "running", "succeeded", "failed"]
+    status: Literal["queued", "running", "succeeded", "failed", "accepted"]
     parsed: list[ParsedEntry] = Field(default_factory=list)
     error: str | None = None
     created_at: datetime

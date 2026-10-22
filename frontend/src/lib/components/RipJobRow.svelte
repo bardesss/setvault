@@ -66,7 +66,7 @@
     color: var(--text-faint);
   }
   progress { width: 100%; }
-  .error { color: #c33; font-size: var(--ts-sm); }
+  .error { color: var(--accent-error); font-size: var(--ts-sm); }
   .actions {
     display: flex;
     align-items: center;

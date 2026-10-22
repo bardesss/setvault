@@ -72,13 +72,21 @@ RUN case "${TARGETARCH}" in \
     install -m 0755 "/tmp/tusd_linux_${TUS_ARCH}/tusd" /usr/local/bin/tusd && \
     rm -rf /tmp/tusd.tgz "/tmp/tusd_linux_${TUS_ARCH}"
 
-# Caddy — latest static binary from the official download endpoint.
+# Caddy — pinned GitHub release, verified against the release's published
+# SHA-512. (The caddyserver.com build API used before had no timeout and hung
+# image builds when it was slow.)
+ARG CADDY_VERSION=2.11.7
 RUN case "${TARGETARCH}" in \
-      amd64) CADDY_ARCH=amd64 ;; arm64) CADDY_ARCH=arm64 ;; \
+      amd64) CADDY_ARCH=amd64; CADDY_SHA512=a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7 ;; \
+      arm64) CADDY_ARCH=arm64; CADDY_SHA512=3db36ba90c7a6e8dda40ee3dd71fa08844c76b5fb08f61b31e5e78d2ed38e71c51dc7baed875e50d1ca1279196e84302967237386ae87c91ae9f2aaceada682e ;; \
     esac && \
-    curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=${CADDY_ARCH}" \
-      -o /usr/local/bin/caddy && \
-    chmod 0755 /usr/local/bin/caddy
+    curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 \
+      "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_${CADDY_ARCH}.tar.gz" \
+      -o /tmp/caddy.tgz && \
+    echo "${CADDY_SHA512}  /tmp/caddy.tgz" | sha512sum -c - && \
+    tar -C /tmp -xzf /tmp/caddy.tgz caddy && \
+    install -m 0755 /tmp/caddy /usr/local/bin/caddy && \
+    rm -f /tmp/caddy.tgz /tmp/caddy
 
 # s6-overlay — process supervisor. Standard LinuxServer-style install.
 RUN case "${TARGETARCH}" in \

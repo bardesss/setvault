@@ -81,3 +81,57 @@ async def test_get_settings_tolerates_unknown_stored_schedule(authed_admin_clien
             cfg = await get_config(s)
             cfg.upgrade_search_schedule = "weekly"
             await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_unknown_schedule_is_weekly_everywhere(authed_admin_client, seeded_live_set):
+    """A stored schedule outside daily/weekly/off reads as weekly in the
+    settings AND the scheduler searches on the weekly window (not "off")."""
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    from setvault_core.db import session_factory
+    from setvault_core.jobs.upgrade_search import due_sets, normalize_schedule
+    from setvault_core.models.catalog import LiveSet, SetFingerprint
+    from setvault_core.services.audio_match import MATCHER_VERSION
+    from setvault_core.services.system_config import get_config
+
+    assert normalize_schedule("daily") == "daily"
+    assert normalize_schedule("off") == "off"
+    assert normalize_schedule("hourly") == "weekly"
+    assert normalize_schedule(None) == "weekly"
+
+    sid = uuid.UUID(seeded_live_set["id"])
+    now = datetime.now(UTC)
+    async with session_factory()() as s:
+        cfg = await get_config(s)
+        before = (cfg.upgrade_search_schedule, cfg.auto_upgrades_enabled)
+        cfg.upgrade_search_schedule = "hourly"
+        cfg.auto_upgrades_enabled = True
+        live = await s.get(LiveSet, sid)
+        live.quality_tier = "low"
+        live.last_upgrade_search_at = now - timedelta(hours=48)
+        s.add(SetFingerprint(
+            live_set_id=sid, fingerprint_hash=uuid.uuid4().hex, duration_seconds=120.0,
+            raw=bytes(4), raw_version=MATCHER_VERSION,
+        ))
+        await s.commit()
+    try:
+        r = await authed_admin_client.get("/api/admin/settings")
+        assert r.json()["upgrade_search_schedule"] == "weekly"
+
+        async def due() -> bool:
+            async with session_factory()() as s:
+                rows = await due_sets(s, now=now, schedule="hourly", limit=10_000)
+                return sid in {x.id for x in rows}
+
+        assert not await due()  # 48 h ago: inside the weekly window
+        async with session_factory()() as s:
+            (await s.get(LiveSet, sid)).last_upgrade_search_at = now - timedelta(days=10)
+            await s.commit()
+        assert await due()
+    finally:
+        async with session_factory()() as s:
+            cfg = await get_config(s)
+            cfg.upgrade_search_schedule, cfg.auto_upgrades_enabled = before
+            await s.commit()

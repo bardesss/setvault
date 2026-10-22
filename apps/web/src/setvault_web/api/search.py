@@ -67,7 +67,7 @@ async def search(
     artists = (
         await session.execute(
             select(Artist)
-            .where(artists_tsv.op("@@")(tsq))
+            .where(artists_tsv.op("@@")(tsq), Artist.merged_into_id.is_(None))
             .order_by(func.ts_rank(artists_tsv, tsq).desc())
             .limit(20)
         )
@@ -76,7 +76,7 @@ async def search(
     parties = (
         await session.execute(
             select(Party)
-            .where(parties_tsv.op("@@")(tsq))
+            .where(parties_tsv.op("@@")(tsq), Party.merged_into_id.is_(None))
             .limit(20)
         )
     ).scalars().all()
@@ -84,7 +84,7 @@ async def search(
     venues = (
         await session.execute(
             select(Venue)
-            .where(venues_tsv.op("@@")(tsq))
+            .where(venues_tsv.op("@@")(tsq), Venue.merged_into_id.is_(None))
             .limit(20)
         )
     ).scalars().all()
@@ -92,7 +92,7 @@ async def search(
     series = (
         await session.execute(
             select(Series)
-            .where(series_tsv.op("@@")(tsq))
+            .where(series_tsv.op("@@")(tsq), Series.merged_into_id.is_(None))
             .limit(20)
         )
     ).scalars().all()

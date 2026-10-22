@@ -73,12 +73,32 @@
     "single_user_auto_login": "Skip login (auto-sign-in as the only user)",
     "single_user_auto_login_warning": "Only for trusted local/VPN use: while on, anyone who can reach this instance is signed in as you, with no password. Disabled automatically once a second user is added."
   },
+  "library": {
+    "sort_recent": "Recently added",
+    "sort_date": "Set date",
+    "sort_title": "Title A→Z",
+    "sort_duration": "Longest first",
+    "showing": "Showing {shown} of {total}",
+    "load_more": "Load more",
+    "load_more_failed": "Could not load more sets. Try again.",
+    "no_match": "No sets match.",
+    "filter_placeholder": "Filter sets…",
+    "filters": "Filters",
+    "filter_label": "Filter sets",
+    "view_list": "List",
+    "view_grid": "Grid",
+    "tag": "Tag",
+    "venue_kind": "Venue kind",
+    "year": "Year",
+    "all": "All"
+  },
   "nav": {
     "home": "Home",
     "library": "Library",
     "add_set": "Add set",
     "upload": "Upload",
     "search": "Search",
+    "favorites": "Favorites",
     "settings": "Settings",
     "admin": "Admin",
     "sign_out": "Sign out"
@@ -104,6 +124,7 @@
     "import_ocr_warning": "OCR uses Tesseract on the server. Quality depends on the image.",
     "import_disabled": "Admin has disabled this import source.",
     "import_choose_image": "Choose an image first.",
+    "import_already_accepted": "This import was already accepted.",
     "import_review": "Review {count} parsed entries:",
     "accept_selected": "Accept {count} selected",
     "parse": "Parse",
@@ -136,6 +157,41 @@
       "test": "Test",
       "add_or_update": "Add / update provider",
       "save": "Save"
+    },
+    "jobs": {
+      "title": "Jobs",
+      "empty": "No jobs recorded yet.",
+      "col_kind": "Kind",
+      "col_status": "Status",
+      "col_started": "Started",
+      "col_finished": "Finished",
+      "col_duration": "Duration",
+      "rq_id": "RQ job id",
+      "message": "Message",
+      "result": "Result",
+      "status": {
+        "queued": "queued",
+        "started": "running",
+        "finished": "finished",
+        "failed": "failed"
+      }
+    },
+    "quality": {
+      "scan": {
+        "never": "Duplicates not scanned yet. Use Refresh to count them.",
+        "last_scanned": "Last scanned {when}.",
+        "refresh": "Refresh",
+        "refreshing": "Scanning…",
+        "queued": "Scanning for duplicates in the background…",
+        "still_running": "The scan is still running. Check back later.",
+        "failed": "Could not start the scan."
+      }
+    },
+    "wanted": {
+      "unfingerprinted": "{count, plural, one {# set below the cutoff isn’t fingerprinted yet, so it can’t be searched.} other {# sets below the cutoff aren’t fingerprinted yet, so they can’t be searched.}}",
+      "run_backfill": "Run the backfill on the Quality tab",
+      "empty": "Every set meets the quality cutoff.",
+      "empty_pending": "No set can be searched yet."
     }
   },
   "sources": {
@@ -185,6 +241,15 @@
     "entire_set": "Whole set",
     "remove": "Remove bookmark",
     "empty": "No bookmarks yet."
+  },
+  "favorites": {
+    "add": "Favorite",
+    "remove": "Favorited",
+    "my_title": "My favorites",
+    "empty": "No favorites yet. Use the heart on a set to add one.",
+    "error": "Could not update favorite.",
+    "load_error": "Could not load favorites.",
+    "load_more": "Load more"
   },
   "downloads": {
     "title": "My downloads",
@@ -273,6 +338,8 @@
     "create": "Create RSS token",
     "name_label": "Token name (for your reference)",
     "copy": "Copy",
+    "copied": "Copied",
+    "copy_failed": "Copy failed. Select the URL and copy it manually.",
     "revoke": "Revoke",
     "shown_once": "These URLs are shown once. Copy and save them now."
   },

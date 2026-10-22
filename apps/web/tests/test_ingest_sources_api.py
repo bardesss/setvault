@@ -167,3 +167,73 @@ async def test_search_results_ranked_by_expected_quality(authed_admin_client):
     items = r.json()["items"]
     assert [i["external_id"] for i in items] == ["ll", "hi", "low", "unk", "unk2"]
     assert items[0]["expected_tier"] == "lossless" and items[3]["expected_tier"] is None
+
+
+async def _degrade(kind: str, *, enabled: bool = True, state: str = "degraded") -> None:
+    from setvault_core.models.ingest_sources import IngestSourceState
+    from setvault_core.services.ingest_sources import ensure_seed_states
+    from sqlalchemy import select
+
+    init_engine(__import__("os").environ["TEST_DATABASE_URL"])
+    async with session_factory()() as s:
+        await ensure_seed_states(s)
+        st = (await s.execute(
+            select(IngestSourceState).where(IngestSourceState.kind == kind)
+        )).scalar_one()
+        st.enabled, st.state = enabled, state
+        st.consecutive_failures, st.last_error = 2, "boom"
+        await s.commit()
+
+
+async def _reset(kind: str) -> None:
+    from setvault_core.services.ingest_sources import set_enabled
+
+    async with session_factory()() as s:
+        await set_enabled(s, kind, True)
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_put_keeps_health_state(authed_admin_client):
+    await _degrade("youtube")
+    try:
+        r = await authed_admin_client.put(
+            "/api/admin/ingest-sources/youtube",
+            json={"rate_limit_max": 7, "rate_limit_window_seconds": 120},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["rate_limit_max"] == 7 and body["rate_limit_window_seconds"] == 120
+        assert body["state"] == "degraded"
+        assert body["consecutive_failures"] == 2
+        assert body["last_error"] == "boom"
+        assert body["enabled"] is True
+    finally:
+        await _reset("youtube")
+
+
+@pytest.mark.asyncio
+async def test_put_enabled_unchanged_does_not_reset(authed_admin_client):
+    """An old client resending the current enabled flag with a rate limit must
+    not wipe health, nor relabel an auto-disabled source as manually disabled."""
+    await _degrade("youtube", enabled=False, state="auto_disabled")
+    try:
+        r = await authed_admin_client.put(
+            "/api/admin/ingest-sources/youtube",
+            json={"enabled": False, "rate_limit_max": 9},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["state"] == "auto_disabled"
+        assert body["consecutive_failures"] == 2 and body["last_error"] == "boom"
+        assert body["rate_limit_max"] == 9
+
+        # A real change still resets health.
+        r = await authed_admin_client.put(
+            "/api/admin/ingest-sources/youtube", json={"enabled": True},
+        )
+        body = r.json()
+        assert body["enabled"] is True and body["state"] == "healthy"
+        assert body["consecutive_failures"] == 0 and body["last_error"] is None
+    finally:
+        await _reset("youtube")

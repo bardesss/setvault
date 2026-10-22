@@ -123,7 +123,7 @@
     font-size: var(--ts-sm);
   }
   .err {
-    color: #c33;
+    color: var(--accent-error);
     font-size: var(--ts-sm);
   }
 </style>

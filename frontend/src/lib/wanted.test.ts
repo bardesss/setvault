@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { IntlMessageFormat } from "intl-messageformat";
+import en from "./i18n/locales/en.json";
 import { fmtLocalDateTime, searchRefusal, wantedResult } from "./wanted";
 
 const ev = (outcome: string, reason: string | null = null) => ({
@@ -18,6 +20,19 @@ describe("wantedResult", () => {
   it("tells a fruitless search from no search", () => {
     expect(wantedResult(null, "2026-10-18T10:00:00+00:00")).toBe("No better copy found");
     expect(wantedResult(null, null)).toBe("None yet");
+  });
+
+  it("wantedResult ignores events older than last search (60 s slack)", () => {
+    const at = "2026-10-18T10:00:00+00:00"; // the event's time
+    const old = ev("rejected", "different audio");
+    // A later search that found nothing writes no event: the old one is stale.
+    expect(wantedResult(old, "2026-10-19T10:00:00+00:00")).toBe("No better copy found");
+    expect(wantedResult(old, "2026-10-18T10:01:01+00:00")).toBe("No better copy found");
+    // The search that wrote the event stamps the set a little later.
+    expect(wantedResult(old, "2026-10-18T10:01:00+00:00")).toBe("Rejected: different audio");
+    expect(wantedResult(old, at)).toBe("Rejected: different audio");
+    expect(wantedResult(old, "2026-10-18T09:00:00+00:00")).toBe("Rejected: different audio");
+    expect(wantedResult(ev("upgraded"), null)).toBe("Upgraded");
   });
 
   it("never shows a raw enum", () => {
@@ -58,5 +73,14 @@ describe("fmtLocalDateTime", () => {
 
   it("handles empty input", () => {
     expect(fmtLocalDateTime(null)).toBe("");
+  });
+});
+
+describe("wanted page backfill hint", () => {
+  it("counts the sets that still need a fingerprint", () => {
+    const fmt = (count: number) =>
+      new IntlMessageFormat(en.admin.wanted.unfingerprinted, "en").format({ count });
+    expect(fmt(1)).toBe("1 set below the cutoff isn’t fingerprinted yet, so it can’t be searched.");
+    expect(fmt(3)).toBe("3 sets below the cutoff aren’t fingerprinted yet, so they can’t be searched.");
   });
 });

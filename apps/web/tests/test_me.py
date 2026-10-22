@@ -72,3 +72,91 @@ async def test_home_summary_counts_one_seeded_set(
     body = response.json()
     assert body["sets_count"] == 1
     assert body["audio_bytes"] >= 0
+
+
+async def _patch_live_set(set_id: str, **fields) -> None:
+    import uuid
+
+    from setvault_core.db import session_factory
+    from setvault_core.models.catalog import LiveSet
+
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, uuid.UUID(set_id))
+        for k, v in fields.items():
+            setattr(live, k, v)
+        await s.commit()
+
+
+async def test_continue_listening_skips_position_zero(
+    authed_admin_client, seeded_live_set
+):
+    slug = seeded_live_set["slug"]
+    for pos in (0.0, 5.0):
+        put = await authed_admin_client.put(
+            f"/api/sets/{slug}/state",
+            json={"position_seconds": pos, "completed": False},
+        )
+        assert put.status_code == 204
+        response = await authed_admin_client.get("/api/me/continue-listening")
+        assert response.status_code == 200
+        assert response.json() == [], pos
+
+
+async def test_continue_listening_skips_unpublished(
+    authed_admin_client, seeded_live_set
+):
+    slug = seeded_live_set["slug"]
+    put = await authed_admin_client.put(
+        f"/api/sets/{slug}/state",
+        json={"position_seconds": 60.0, "completed": False},
+    )
+    assert put.status_code == 204
+    await _patch_live_set(seeded_live_set["id"], status="draft")
+    response = await authed_admin_client.get("/api/me/continue-listening")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_continue_listening_skips_nearly_done(
+    authed_admin_client, seeded_live_set
+):
+    slug = seeded_live_set["slug"]
+    await _patch_live_set(seeded_live_set["id"], duration_seconds=1000)
+    # 96 % is still in progress; 97 % counts as done.
+    await authed_admin_client.put(
+        f"/api/sets/{slug}/state",
+        json={"position_seconds": 960.0, "completed": False},
+    )
+    response = await authed_admin_client.get("/api/me/continue-listening")
+    assert [i["slug"] for i in response.json()] == [slug]
+    await authed_admin_client.put(
+        f"/api/sets/{slug}/state",
+        json={"position_seconds": 970.0, "completed": False},
+    )
+    response = await authed_admin_client.get("/api/me/continue-listening")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def _mint_rss(client) -> dict:
+    response = await client.post("/api/me/rss-tokens", json={"name": "t"})
+    assert response.status_code == 201
+    return response.json()
+
+
+async def test_rss_token_urls_are_absolute(authed_admin_client, monkeypatch):
+    from setvault_web.config import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("BASE_URL", "http://sv.test:1970/")
+    try:
+        body = await _mint_rss(authed_admin_client)
+        for key in ("favorites_url", "recent_url", "everything_url"):
+            assert body[key].startswith("http://sv.test:1970/api/feed/")
+        monkeypatch.setenv("BASE_URL", "")
+        get_settings.cache_clear()
+        body = await _mint_rss(authed_admin_client)
+        for key in ("favorites_url", "recent_url", "everything_url"):
+            assert body[key].startswith("/api/feed/")
+    finally:
+        get_settings.cache_clear()

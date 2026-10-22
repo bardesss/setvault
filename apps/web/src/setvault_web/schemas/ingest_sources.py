@@ -41,6 +41,7 @@ class SourceStatesOut(BaseModel):
 
 
 class SetEnabledIn(BaseModel):
-    enabled: bool
+    # Optional so a rate-limit-only save leaves enabled/health untouched.
+    enabled: bool | None = None
     rate_limit_max: int | None = None
     rate_limit_window_seconds: int | None = Field(None, ge=1)

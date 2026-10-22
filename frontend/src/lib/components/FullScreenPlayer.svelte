@@ -38,7 +38,7 @@
 
     <div class="fs-body">
       <div class="lockscreen-art" aria-hidden="true">{(st.set.title ?? "").slice(0, 2).toUpperCase()}</div>
-      <Waveform slug={st.set.slug} url={st.set.audio_stream_url} />
+      <Waveform slug={st.set.slug} url={st.set.audio_stream_url} waveformUrl={st.set.waveform_url} fallbackDuration={st.set.duration_seconds ?? undefined} />
       <div class="transport-time" style="text-align:center">
         <b>{formatTime(st.position)}</b><span class="div"> / </span>{formatTime(st.duration)}
       </div>

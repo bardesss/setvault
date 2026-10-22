@@ -3,6 +3,7 @@
   import { _ } from "svelte-i18n";
   import { createBookmark, deleteBookmark, listForSet, type Bookmark } from "#lib/api/bookmarks.ts";
   import { player, seekTo } from "#lib/stores/audio.ts";
+  import { shouldIgnoreShortcut } from "#lib/keyboard.ts";
 
   export let slug: string;
   export let flat = false;
@@ -63,10 +64,7 @@
   }
 
   function onKey(ev: KeyboardEvent) {
-    const target = ev.target as HTMLElement | null;
-    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
-      return;
-    }
+    if (shouldIgnoreShortcut(ev, ev.key)) return;
     if (ev.key === "b" || ev.key === "B") {
       ev.preventDefault();
       void bookmarkPlayhead();
@@ -102,7 +100,7 @@
     padding: var(--sp-2) var(--sp-3);
     border: 1px solid var(--border-default);
     border-radius: var(--r-sm);
-    background: var(--surface-1);
+    background: var(--bg-surface);
     cursor: pointer;
     color: var(--text-default);
     font: inherit;

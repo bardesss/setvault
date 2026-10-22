@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { api, ApiError } from "#lib/api/client.ts";
+  import { copyText } from "#lib/clipboard.ts";
   import OfflineAudioCache from "#lib/components/OfflineAudioCache.svelte";
   import TabStrip from "#lib/components/TabStrip.svelte";
   import AdminForm from "#lib/components/AdminForm.svelte";
@@ -50,7 +51,14 @@
     rssBusy = true;
     try {
       const minted = await createRssToken(rssNewName.trim() || "RSS");
-      rssJustMinted = minted;
+      const abs = (u: string) => (u.startsWith("/") ? `${location.origin}${u}` : u);
+      rssJustMinted = {
+        ...minted,
+        favorites_url: abs(minted.favorites_url),
+        recent_url: abs(minted.recent_url),
+        everything_url: abs(minted.everything_url),
+      };
+      copyState = null;
       rssNewName = "";
       await loadRssTokens();
     } catch (e) {
@@ -70,10 +78,10 @@
     }
   }
 
-  function copyToClipboard(text: string) {
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      void navigator.clipboard.writeText(text);
-    }
+  let copyState: "copied" | "failed" | null = null;
+
+  async function copyToClipboard(text: string) {
+    copyState = (await copyText(text)) ? "copied" : "failed";
   }
 
   type Kind = "account_security" | "mention" | "comment_reply" | "set_upgraded" | "maintenance";
@@ -226,6 +234,11 @@
               </button>
             </li>
           </ul>
+          {#if copyState}
+            <p class="muted" role="status" data-test="copy-state">
+              {copyState === "copied" ? $_("feeds.copied") : $_("feeds.copy_failed")}
+            </p>
+          {/if}
           <button type="button" class="btn btn-sm" on:click={() => (rssJustMinted = null)}>OK</button>
         </aside>
       {/if}

@@ -33,7 +33,8 @@ LEGACY_PAIRS: tuple[tuple[str, str], ...] = (
 )
 
 # Every legacy prefix is applied to every one of these (table, column) targets;
-# the strict prefix match keeps look-alikes safe.
+# the strict prefix match keeps look-alikes safe. watch_folders must precede
+# unmatched_files: a file is only repointed once its folder has moved.
 _TARGETS: tuple[tuple[str, str], ...] = (
     ("media_roots", "host_path"),
     ("watch_folders", "host_path"),
@@ -175,6 +176,16 @@ async def repair(
                         file=sys.stderr,
                     )
                 where += f" AND NOT {taken}"
+            if table == "unmatched_files":
+                # Runs after the watch_folders pass (see _TARGETS order): a file
+                # moves only once its folder has left the legacy prefix, so a
+                # folder skipped above (collision or mount) keeps its files.
+                where += (
+                    " AND EXISTS (SELECT 1 FROM watch_folders wf"
+                    " WHERE wf.id = unmatched_files.watch_folder_id"
+                    " AND NOT (wf.host_path = :legacy"
+                    " OR left(wf.host_path, :n1) = :legacy_slash))"
+                )
             res = await session.execute(
                 text(
                     f"UPDATE {table} SET {col} = :eff || substr({col}, :n) "  # noqa: S608

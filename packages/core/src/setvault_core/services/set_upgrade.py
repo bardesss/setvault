@@ -297,6 +297,23 @@ async def apply_upgrade(
             .values(live_set_id=target.id)
             .execution_options(synchronize_session="fetch")
         )
+        shift = offset is not None and abs(offset) >= MIN_SHIFT_SECONDS
+        if shift:
+            # Duplicates already held against the target were measured
+            # against its old audio: move them into the new audio, the same
+            # way _shift_positions moves positions (-offset). Done before the
+            # arrival's duplicates are repointed below; those were measured
+            # against the arrival (the new audio) and stay as they are.
+            await session.execute(
+                update(LiveSet)
+                .where(
+                    LiveSet.duplicate_of == target.id,
+                    LiveSet.id != arrival.id,
+                    LiveSet.match_offset_seconds.is_not(None),
+                )
+                .values(match_offset_seconds=LiveSet.match_offset_seconds - offset)
+                .execution_options(synchronize_session="fetch")
+            )
         # So do other rows that pointed at the arrival: a held duplicate of
         # it and a watch-folder file resolved to it. (The arrival becomes
         # the recycled old copy, which they never meant.)
@@ -312,7 +329,7 @@ async def apply_upgrade(
             .values(resolved_to_set_id=target.id)
             .execution_options(synchronize_session="fetch")
         )
-        if offset is not None and abs(offset) >= MIN_SHIFT_SECONDS:
+        if shift:
             await _shift_positions(session, target, offset)
 
         now = datetime.now(UTC)

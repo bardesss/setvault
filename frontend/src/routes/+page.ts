@@ -24,6 +24,7 @@ interface RecentSet {
   artists?: Array<{ name: string }>;
   venue?: { name: string } | null;
   date?: string | null;
+  created_at?: string;
   [k: string]: unknown;
 }
 
@@ -41,7 +42,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
   const [summaryRes, cont, recentBody] = await Promise.all([
     fetch("/api/me/home-summary").then((r) => (r.ok ? r.json() : null)),
     fetch("/api/me/continue-listening").then((r) => (r.ok ? r.json() : [])),
-    fetch("/api/sets?limit=12").then((r) => (r.ok ? r.json() : { items: [] })),
+    fetch("/api/sets?limit=12&sort=recent").then((r) => (r.ok ? r.json() : { items: [] })),
   ]);
 
   return {

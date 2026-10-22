@@ -124,6 +124,7 @@ async def test_rip_discovery_marks_job_failed_when_enqueue_fails(authed_admin_cl
     failed RipJob (like POST /api/url-rip), not one stuck at "queued" forever."""
     from setvault_core.models.monitors import MonitorDiscovery
     from setvault_core.models.url_rip import RipJob
+    from setvault_core.services import rip_enqueue
     from setvault_web.api import monitors as monitors_api
 
     r = await authed_admin_client.post("/api/monitors", json={"kind": "query", "query_text": "q"})
@@ -156,7 +157,7 @@ async def test_rip_discovery_marks_job_failed_when_enqueue_fails(authed_admin_cl
             raise ConnectionError("redis down")
 
     monkeypatch.setattr(monitors_api, "submit_rip", fake_submit)
-    monkeypatch.setattr(monitors_api, "Queue", DownQueue)
+    monkeypatch.setattr(rip_enqueue, "_queue", lambda url=None: DownQueue())
 
     r = await authed_admin_client.post(f"/api/me/discoveries/{discovery_id}/rip")
     assert r.status_code == 204, r.text
@@ -168,3 +169,111 @@ async def test_rip_discovery_marks_job_failed_when_enqueue_fails(authed_admin_cl
         assert job.error_text == "failed to enqueue worker"
     # A manually approved discovery is still a monitor find.
     assert triggers == ["monitor"]
+
+
+async def _seed_discovery(client) -> uuid.UUID:
+    from setvault_core.models.monitors import MonitorDiscovery
+
+    r = await client.post("/api/monitors", json={"kind": "query", "query_text": "q"})
+    assert r.status_code == 201, r.text
+    init_engine(os.environ["TEST_DATABASE_URL"])
+    async with session_factory()() as s:
+        d = MonitorDiscovery(
+            monitor_id=uuid.UUID(r.json()["id"]), source_kind="youtube",
+            external_id=uuid.uuid4().hex, title="t", webpage_url="https://example.test/v",
+            confidence="low", status="pending_review",
+        )
+        s.add(d)
+        await s.commit()
+        return d.id
+
+
+async def _fake_submit(session, *, user_id, url, trigger=None):
+    from setvault_core.models.url_rip import RipJob
+
+    job = RipJob(submitted_by=user_id, source_url=url, status="queued")
+    session.add(job)
+    await session.flush()
+    return job
+
+
+@pytest.mark.asyncio
+async def test_rip_discovery_commits_before_enqueue_with_timeout(authed_admin_client, monkeypatch):
+    """A worker that pops the job at once must find the RipJob row, and the
+    enqueue must override RQ's 180 s default timeout."""
+    import asyncio
+    import threading
+
+    from setvault_core.jobs.url_rip_job import RIP_JOB_TIMEOUT
+    from setvault_core.models.url_rip import RipJob
+    from setvault_core.services import rip_enqueue
+    from setvault_web.api import monitors as monitors_api
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    discovery_id = await _seed_discovery(authed_admin_client)
+
+    def _row_visible_elsewhere(job_id: str) -> bool:
+        async def _check() -> bool:
+            engine = create_async_engine(os.environ["TEST_DATABASE_URL"], poolclass=NullPool)
+            try:
+                async with engine.connect() as conn:
+                    row = (await conn.execute(
+                        select(RipJob.id).where(RipJob.id == uuid.UUID(job_id)),
+                    )).first()
+                    return row is not None
+            finally:
+                await engine.dispose()
+
+        result: list[bool] = []
+        t = threading.Thread(target=lambda: result.append(asyncio.run(_check())))
+        t.start()
+        t.join()
+        return result[0]
+
+    seen: list[tuple[bool, object]] = []
+
+    class _Q:
+        def enqueue(self, *_a, **kw):
+            seen.append((_row_visible_elsewhere(kw["rip_job_id"]), kw.get("job_timeout")))
+
+    monkeypatch.setattr(monitors_api, "submit_rip", _fake_submit)
+    monkeypatch.setattr(rip_enqueue, "_queue", lambda url=None: _Q())
+
+    r = await authed_admin_client.post(f"/api/me/discoveries/{discovery_id}/rip")
+    assert r.status_code == 204, r.text
+    assert seen == [(True, RIP_JOB_TIMEOUT)]
+
+
+@pytest.mark.asyncio
+async def test_rip_discovery_status_ingested_only_after_enqueue(authed_admin_client, monkeypatch):
+    from setvault_core.models.monitors import MonitorDiscovery
+    from setvault_core.services import rip_enqueue
+    from setvault_web.api import monitors as monitors_api
+
+    class _Down:
+        def enqueue(self, *_a, **_kw):
+            raise ConnectionError("redis down")
+
+    class _Up:
+        def enqueue(self, *_a, **_kw):
+            return None
+
+    monkeypatch.setattr(monitors_api, "submit_rip", _fake_submit)
+
+    down_id = await _seed_discovery(authed_admin_client)
+    monkeypatch.setattr(rip_enqueue, "_queue", lambda url=None: _Down())
+    r = await authed_admin_client.post(f"/api/me/discoveries/{down_id}/rip")
+    assert r.status_code == 204, r.text
+    async with session_factory()() as s:
+        d = await s.get(MonitorDiscovery, down_id)
+        assert d.status == "pending_review" and d.decided_at is None
+
+    up_id = await _seed_discovery(authed_admin_client)
+    monkeypatch.setattr(rip_enqueue, "_queue", lambda url=None: _Up())
+    r = await authed_admin_client.post(f"/api/me/discoveries/{up_id}/rip")
+    assert r.status_code == 204, r.text
+    async with session_factory()() as s:
+        d = await s.get(MonitorDiscovery, up_id)
+        assert d.status == "ingested" and d.decided_at is not None

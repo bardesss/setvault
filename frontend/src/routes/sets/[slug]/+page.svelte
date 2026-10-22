@@ -3,6 +3,7 @@
   import Tracklist from "#lib/components/Tracklist.svelte";
   import SidePanel from "#lib/components/SidePanel.svelte";
   import SetQuality from "#lib/components/SetQuality.svelte";
+  import FavoriteButton from "#lib/components/FavoriteButton.svelte";
   import EmbedToggleAdmin from "#lib/components/EmbedToggleAdmin.svelte";
   import { session } from "#lib/stores/session.ts";
   import type { PageData } from "./$types";
@@ -41,11 +42,14 @@
           {#if set.date}<span class="sep">·</span><span>{set.date}</span>{/if}
         </div>
       </div>
-      {#if isAdmin}
-        <div class="set-title-actions">
+      <div class="set-title-actions">
+        {#key set.slug}
+          <FavoriteButton slug={set.slug} initial={set.is_favorite} />
+        {/key}
+        {#if isAdmin}
           <EmbedToggleAdmin slug={set.slug} allowed={set.embed_allowed} />
-        </div>
-      {/if}
+        {/if}
+      </div>
     </div>
 
     <SetQuality {set} />

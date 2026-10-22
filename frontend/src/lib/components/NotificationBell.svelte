@@ -157,12 +157,12 @@
   }
   .count {
     position: absolute; top: -2px; right: -4px;
-    background: var(--danger, var(--accent)); color: var(--surface-0);
+    background: var(--accent-error); color: var(--bg-base);
     font-size: 10px; padding: 1px 4px; border-radius: 8px;
   }
   .panel {
     position: absolute; right: 0; top: 32px; width: 320px;
-    background: var(--surface-1); border: 1px solid var(--border-default);
+    background: var(--bg-elevated); border: 1px solid var(--border-default);
     border-radius: var(--r-md); box-shadow: 0 4px 12px rgba(0,0,0,0.2);
     z-index: 100;
   }
@@ -180,7 +180,7 @@
   }
   li { border-top: 1px solid var(--border-default); }
   li:first-child { border-top: none; }
-  li.unread { background: var(--surface-2, var(--surface-1)); }
+  li.unread { background: var(--bg-hover); }
   .item {
     display: grid; gap: 2px; width: 100%; text-align: left;
     background: none; border: none; padding: var(--sp-2) var(--sp-3);

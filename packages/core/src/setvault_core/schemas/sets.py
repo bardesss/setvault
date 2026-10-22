@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import date as _date
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 from setvault_core.schemas.catalog import PartyOut, VenueOut
 
@@ -18,6 +18,24 @@ class SetArtistOut(BaseModel):
     role: str
 
 
+class VenueRefOut(BaseModel):
+    name: str
+    slug: str
+    kind: str | None = None
+
+
+class SetFacetTagOut(BaseModel):
+    slug: str
+    name: str
+    count: int
+
+
+class SetFacetsOut(BaseModel):
+    tags: list[SetFacetTagOut]
+    years: list[int]
+    venue_kinds: list[str]
+
+
 class SetSummaryOut(BaseModel):
     id: str
     slug: str
@@ -28,6 +46,8 @@ class SetSummaryOut(BaseModel):
     status: str
     artists: list[SetArtistOut]
     tags: list[str]
+    created_at: datetime
+    venue: VenueRefOut | None = None
 
 
 class SetQualityOut(BaseModel):
@@ -60,6 +80,7 @@ class SetDetailOut(SetSummaryOut):
     # (the page says so).
     auto_upgrades_enabled: bool = True
     upgrade_history: list[SetUpgradeHistoryOut] = []
+    is_favorite: bool = False
 
 
 class SetListOut(BaseModel):
@@ -75,5 +96,5 @@ class SetPatchIn(BaseModel):
     venue_id: str | None = None
     description: str | None = None
     artist_ids: list[str] | None = None
-    tag_names: list[str] | None = None
+    tag_names: list[Annotated[str, StringConstraints(max_length=80)]] | None = None
     upgrades_enabled: bool | None = None

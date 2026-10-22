@@ -3,9 +3,12 @@
   import WaveSurfer from "wavesurfer.js";
   import { listComments } from "#lib/api/comments.ts";
   import { player, seekTo } from "#lib/stores/audio.ts";
+  import { toPeaks } from "#lib/waveform-peaks.ts";
 
   export let slug: string;
   export let url: string;
+  export let waveformUrl: string | null = null;
+  export let fallbackDuration: number | undefined = undefined;
 
   let container: HTMLDivElement;
   let ws: WaveSurfer | null = null;
@@ -52,15 +55,37 @@
     return false;
   }
 
+  let destroyed = false;
+
+  async function fetchPeaks(): Promise<ReturnType<typeof toPeaks>> {
+    if (!waveformUrl) return null;
+    try {
+      const res = await fetch(waveformUrl, { credentials: "same-origin" });
+      if (!res.ok) return null;
+      return toPeaks(await res.json(), fallbackDuration);
+    } catch {
+      return null;
+    }
+  }
+
   onMount(() => {
-    // Render from the URL with wavesurfer's OWN internal element (decode for
-    // the picture only). We never bind it to the engine's <audio> and never
-    // play it — so ws.destroy() on unmount can't touch live playback. The
-    // engine (stores/audio) is the single source of truth for playback; this
-    // view's cursor is driven by the reactive setTime above.
+    void init();
+    void loadMarkers();
+  });
+
+  async function init(): Promise<void> {
+    // Prefer precomputed peaks (no audio download/decode); fall back to
+    // decoding the stream URL when they are missing or invalid.
+    const pre = await fetchPeaks();
+    if (destroyed) return;
+    // Render with wavesurfer's OWN internal element. We never bind it to the
+    // engine's <audio> and never play it — so ws.destroy() on unmount can't
+    // touch live playback. The engine (stores/audio) is the single source of
+    // truth for playback; this view's cursor is driven by the reactive
+    // setTime above.
     ws = WaveSurfer.create({
       container,
-      url,
+      ...(pre ? { peaks: pre.peaks, duration: pre.duration } : { url }),
       waveColor: getComputedStyle(document.documentElement).getPropertyValue("--waveform-unplayed").trim() || "#6c707d",
       progressColor: getComputedStyle(document.documentElement).getPropertyValue("--waveform-played").trim() || "#00ffb2",
       cursorColor: getComputedStyle(document.documentElement).getPropertyValue("--playhead").trim() || "#00ffb2",
@@ -72,14 +97,13 @@
     ws.on("ready", () => { ready = true; tagCanvas(); });
     // click-to-seek: wavesurfer 'interaction' gives the clicked time
     ws.on("interaction", (t: number) => seekTo(t));
-    void loadMarkers();
-  });
+  }
 
-  onDestroy(() => { ws?.destroy(); ws = null; });
+  onDestroy(() => { destroyed = true; ws?.destroy(); ws = null; });
 </script>
 
 <div class="wave-wrap">
-  <div class="wave" bind:this={container} aria-label="audio waveform"></div>
+  <div class="wave" bind:this={container} data-ready={ready ? "true" : "false"} aria-label="audio waveform"></div>
   {#if duration > 0 && loopStart !== null && loopEnd !== null}
     <div class="loop-band" data-test="loop-band"
       style="left: {(loopStart / duration) * 100}%; width: {((loopEnd - loopStart) / duration) * 100}%"

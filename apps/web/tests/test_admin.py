@@ -12,6 +12,42 @@ async def test_jobs_listing_is_admin_only(client, seeded_admin):
     assert response.status_code in (401, 403)
 
 
+async def test_jobs_api_returns_rq_id_and_started_at(authed_admin_client):
+    from datetime import UTC, datetime, timedelta
+
+    from setvault_core.db import session_factory
+    from setvault_core.models.system import Job
+    from sqlalchemy import delete
+
+    started = datetime.now(UTC) - timedelta(seconds=5)
+    async with session_factory()() as s:
+        await s.execute(delete(Job).where(Job.rq_id == "api-test-rq"))
+        for status in ("finished", "failed"):
+            s.add(Job(rq_id="api-test-rq", kind="pipeline.run_pipeline", status=status,
+                      message="ValueError: boom" if status == "failed" else None,
+                      result={"ok": True} if status == "finished" else {},
+                      started_at=started, finished_at=started + timedelta(seconds=2)))
+        await s.commit()
+    try:
+        r = await authed_admin_client.get("/api/admin/jobs")
+        assert r.status_code == 200, r.text
+        rows = [j for j in r.json()["items"] if j["rq_id"] == "api-test-rq"]
+        assert len(rows) == 2
+        assert rows[0]["id"] != rows[1]["id"]
+        by_status = {j["status"]: j for j in rows}
+        assert by_status["failed"]["message"] == "ValueError: boom"
+        assert by_status["finished"]["result"] == {"ok": True}
+        for j in rows:
+            assert j["kind"] == "pipeline.run_pipeline"
+            assert datetime.fromisoformat(j["started_at"]) == started
+            assert j["finished_at"] is not None
+            assert j["created_at"] is not None
+    finally:
+        async with session_factory()() as s:
+            await s.execute(delete(Job).where(Job.rq_id == "api-test-rq"))
+            await s.commit()
+
+
 async def test_users_listing_includes_admin(authed_admin_client):
     response = await authed_admin_client.get("/api/users")
     assert response.status_code == 200
@@ -54,13 +90,84 @@ async def test_remeasure_loudness_enqueues_backfill(
     assert enqueued == ["setvault_core.jobs.loudness_backfill.run_remeasure_bogus_loudness"]
 
 
+def _clear_scan_cache():
+    from setvault_core.jobs import quality_backfill as qb
+
+    redis = qb._redis()
+    redis.delete(qb.SCAN_CACHE_KEY, qb.SCAN_JOB_KEY, qb.SCAN_LOCK_KEY)
+
+
 async def test_quality_backfill_dry_run_counts(authed_admin_client, seeded_live_set):
+    _clear_scan_cache()
     r = await authed_admin_client.get("/api/admin/maintenance/quality-backfill")
     assert r.status_code == 200, r.text
+    # Never scanned: the duplicate figures are unknown, not zero.
     assert r.json() == {
         "to_fingerprint": 1, "to_measure": 1, "failed": 0,
-        "duplicate_pairs": 0, "duplicate_pairs_complete": True,
+        "duplicate_pairs": None, "duplicate_pairs_complete": None, "scanned_at": None,
     }
+
+
+async def test_quality_backfill_get_does_not_scan(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    """The fingerprint comparison is CPU-bound: it runs in the worker, never
+    in the API process on a page load."""
+    from setvault_core.jobs import quality_backfill as qb
+    from setvault_core.services import set_merge
+
+    async def boom(*a, **kw):
+        raise AssertionError("GET must not scan")
+
+    monkeypatch.setattr(set_merge, "scan_duplicate_pairs", boom)
+    monkeypatch.setattr(qb, "scan_duplicate_pairs", boom)
+    _clear_scan_cache()
+    r = await authed_admin_client.get("/api/admin/maintenance/quality-backfill")
+    assert r.status_code == 200, r.text
+    assert r.json()["to_fingerprint"] == 1
+
+
+async def test_scan_post_enqueues_and_caches(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    import rq
+    from setvault_core.jobs import quality_backfill as qb
+
+    _clear_scan_cache()
+    calls: list[tuple[str, str, dict]] = []
+
+    class _Job:
+        id = "job-scan"
+
+    def _enqueue(self, func, **kwargs):
+        calls.append((self.name, func, kwargs))
+        return _Job()
+
+    monkeypatch.setattr(rq.Queue, "enqueue", _enqueue)
+    try:
+        r = await authed_admin_client.post("/api/admin/maintenance/quality-backfill/scan")
+        assert r.status_code == 202, r.text
+        assert r.json() == {"job_id": "job-scan"}
+        assert calls == [(
+            "default", "setvault_core.jobs.quality_backfill.run_duplicate_scan",
+            {"job_timeout": qb.DUPLICATE_SCAN_TIMEOUT},
+        )]
+
+        # The worker runs the job; the GET then serves its cached result.
+        res = await qb._run_duplicate_scan()
+        assert res["duplicate_pairs"] == 0 and res["duplicate_pairs_complete"] is True
+        body = (await authed_admin_client.get("/api/admin/maintenance/quality-backfill")).json()
+        assert body["duplicate_pairs"] == 0
+        assert body["duplicate_pairs_complete"] is True
+        assert body["scanned_at"] == res["scanned_at"]
+    finally:
+        _clear_scan_cache()
+
+
+async def test_scan_post_is_admin_only(client, seeded_admin):
+    client.cookies.clear()
+    r = await client.post("/api/admin/maintenance/quality-backfill/scan")
+    assert r.status_code in (401, 403)
 
 
 async def test_quality_backfill_post_enqueues_with_timeout(

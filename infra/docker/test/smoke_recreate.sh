@@ -8,7 +8,9 @@
 # the same command again: the old session cookie must still work (SECRET_KEY was
 # persisted, not regenerated) and the set must still stream. Last, it seeds a
 # legacy media root at /srv/media and restarts; the boot repair job must repoint
-# it at /data/media.
+# it at /data/media. Finally it breaks the persisted SECRET_KEY line and
+# recreates: the container must stop with the 01-defaults FATAL and without
+# 02-validate's "missing required environment variable" banner.
 #
 # Owns the `sv` container and `svdata` volume: removes any leftovers first, and
 # removes both again on success (set SMOKE_KEEP=1 to keep them). On failure it
@@ -138,5 +140,27 @@ for _ in $(seq 1 20); do
 done
 echo "legacy-smoke host_path: ${HOST_PATH}"
 test "${HOST_PATH}" = "/data/media" || { echo "repair job did not repoint the legacy root"; exit 1; }
+
+echo "--- an invalid SECRET_KEY line stops boot with one clear FATAL"
+docker exec "${CONTAINER}" sed -i 's/^SECRET_KEY=.*/SECRET_KEY=not*a*valid*key/' /data/config/.secrets
+docker rm -f "${CONTAINER}" >/dev/null
+start
+RUNNING="true"
+for _ in $(seq 1 $((TIMEOUT / 3))); do
+  RUNNING="$(docker inspect -f '{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo false)"
+  [ "${RUNNING}" = "false" ] && break
+  sleep 3
+done
+test "${RUNNING}" = "false" || { echo "container kept running with an invalid SECRET_KEY line"; exit 1; }
+LOGS="$(docker logs "${CONTAINER}" 2>&1)"
+grep -q '\[setvault\] FATAL: the SECRET_KEY line' <<<"${LOGS}" \
+  || { echo "logs lack the SECRET_KEY FATAL"; exit 1; }
+if grep -q 'missing required environment variable' <<<"${LOGS}"; then
+  echo "02-validate printed its banner after the 01-defaults FATAL"; exit 1
+fi
+if grep -q 'not\*a\*valid\*key' <<<"${LOGS}"; then
+  echo "logs echo the secret value"; exit 1
+fi
+echo "stopped with FATAL, no missing-variable banner"
 
 echo "recreate smoke OK"

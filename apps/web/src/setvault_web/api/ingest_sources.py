@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from setvault_core.models.url_rip import RipJob
 from setvault_core.services.ingest_sources import (
+    get_state,
     list_states,
     search_all_sources,
     set_enabled,
@@ -127,7 +128,14 @@ async def admin_set_enabled(
     source = get_source(kind)
     if source is None:
         raise HTTPException(status_code=404, detail="unknown source")
-    st = await set_enabled(session, kind, body.enabled)
+    st = await get_state(session, kind)
+    # set_enabled resets health (failures, last_error, state), so only call it
+    # when the enabled flag actually changes; a rate-limit save must not clear
+    # a degraded source or relabel an auto-disabled one.
+    if body.enabled is not None and (st is None or body.enabled != st.enabled):
+        st = await set_enabled(session, kind, body.enabled)
+    elif st is None:
+        st = await set_enabled(session, kind, True)
     if body.rate_limit_max is not None:
         st.rate_limit_max = body.rate_limit_max
     if body.rate_limit_window_seconds is not None:

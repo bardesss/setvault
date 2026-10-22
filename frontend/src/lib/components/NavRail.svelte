@@ -2,6 +2,7 @@
   import { page } from "$app/state";
   import { toStore } from "svelte/store";
   import { goto } from "$app/navigation";
+  import { _ } from "svelte-i18n";
   import { logout } from "#lib/api/auth.ts";
   import type { CurrentUser } from "#lib/api/auth.ts";
 
@@ -54,6 +55,12 @@
         <path d="M4 2h8v12l-4-3-4 3V2z" />
       </svg>
       Bookmarks
+    </a>
+    <a class="rail-link" class:active={active("/me/favorites")} href="/me/favorites">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
+        <path d="M8 14s-6-3.7-6-8a3.4 3.4 0 0 1 6-2 3.4 3.4 0 0 1 6 2c0 4.3-6 8-6 8z" />
+      </svg>
+      {$_("nav.favorites")}
     </a>
     <a class="rail-link" class:active={active("/me/downloads")} href="/me/downloads">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">

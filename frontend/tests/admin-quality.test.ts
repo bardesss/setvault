@@ -145,3 +145,17 @@ test("wanted tab shows a refused search on that set's row", async ({ page, reque
   );
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+test("wanted tab points to the backfill when sets aren't fingerprinted", async ({ page, request }) => {
+  await loginAs(page, request);
+  await page.route(/\/api\/admin\/wanted\?/, (r) =>
+    r.fulfill(json({ items: [], unfingerprinted_below_cutoff: 2 })),
+  );
+  await page.goto("/admin/wanted");
+  await expect(page.getByTestId("wanted-unfingerprinted")).toContainText(
+    "2 sets below the cutoff aren’t fingerprinted yet",
+  );
+  await expect(page.getByRole("link", { name: "Run the backfill on the Quality tab" }))
+    .toHaveAttribute("href", "/admin/quality");
+  await expect(page.getByText("Every set meets the quality cutoff.")).toHaveCount(0);
+});

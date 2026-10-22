@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 from typing import Annotated
 
@@ -24,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.config import get_settings
-from setvault_web.deps import current_user, db_session
+from setvault_web.deps import current_user, db_session, parse_uuid
 from setvault_web.rate_limit import hit
 
 router = APIRouter(prefix="/api/sets", tags=["enrichment"])
@@ -40,7 +39,7 @@ async def _load_entry(
         raise HTTPException(status_code=404, detail="set not found")
     entry = (await session.execute(
         select(TracklistEntry).where(
-            TracklistEntry.id == uuid.UUID(entry_id),
+            TracklistEntry.id == parse_uuid(entry_id),
             TracklistEntry.live_set_id == live.id,
         )
     )).scalar_one_or_none()

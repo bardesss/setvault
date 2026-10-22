@@ -10,7 +10,6 @@ import pytest
 import rq
 from setvault_core.jobs.pipeline import PIPELINE_JOB_TIMEOUT
 from setvault_core.jobs.url_rip_job import RIP_JOB_TIMEOUT
-from setvault_ingest_sources.base import Candidate
 
 
 class _FakeQueue:
@@ -40,26 +39,38 @@ async def test_watch_folder_pipeline_enqueue_sets_timeout(fake_queue):
     assert kwargs["job_timeout"] == PIPELINE_JOB_TIMEOUT
 
 
-async def test_monitor_auto_ingest_enqueue_sets_timeout(fake_queue, monkeypatch):
-    from setvault_core.services import discoveries, url_rip
+class _Session:
+    def __init__(self) -> None:
+        self.commits = 0
 
-    job_id = uuid.uuid4()
+    async def commit(self):
+        self.commits += 1
 
-    async def _fake_submit(_session, *, user_id, url, **_kw):
-        return SimpleNamespace(id=job_id)
 
-    monkeypatch.setattr(url_rip, "submit_rip", _fake_submit)
-    candidate = Candidate(
-        source_kind="youtube", external_id="x", title="t", uploader=None,
-        duration_seconds=None, thumbnail_url=None,
-        webpage_url="https://www.youtube.com/watch?v=x",
-    )
-    monitor = SimpleNamespace(id=uuid.uuid4(), owner_user_id=uuid.uuid4())
+async def test_enqueue_rip_sets_timeout_and_returns_true(fake_queue):
+    from setvault_core.services.rip_enqueue import enqueue_rip
 
-    assert await discoveries._ingest_candidate(
-        None, monitor=monitor, candidate=candidate,
-    ) == job_id
+    session = _Session()
+    job = SimpleNamespace(id=uuid.uuid4(), status="queued", error_text=None)
+    assert await enqueue_rip(session, job) is True
 
     (args, kwargs), = fake_queue
     assert args[0] == "setvault_core.jobs.url_rip_job.run_rip_job"
     assert kwargs["job_timeout"] == RIP_JOB_TIMEOUT
+    assert kwargs["rip_job_id"] == str(job.id)
+    assert session.commits == 1
+
+
+async def test_enqueue_rip_marks_job_failed_when_enqueue_raises(monkeypatch):
+    from setvault_core.services.rip_enqueue import enqueue_rip
+
+    class _Down(_FakeQueue):
+        def enqueue(self, *args, **kwargs):
+            raise ConnectionError("redis down")
+
+    monkeypatch.setattr(rq, "Queue", _Down)
+    session = _Session()
+    job = SimpleNamespace(id=uuid.uuid4(), status="queued", error_text=None)
+    assert await enqueue_rip(session, job) is False
+    assert job.status == "failed" and job.error_text == "failed to enqueue worker"
+    assert session.commits == 2

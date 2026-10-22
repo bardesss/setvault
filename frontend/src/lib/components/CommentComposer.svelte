@@ -46,10 +46,10 @@
               border: 1px solid var(--border-default); border-radius: var(--r-md); }
   .composer.flat { padding: 0; border: none; }
   textarea { font: inherit; padding: var(--sp-2); border: 1px solid var(--border-default);
-             background: var(--surface-0); color: var(--text-default);
+             background: var(--bg-input); color: var(--text-default);
              border-radius: var(--r-sm); resize: vertical; }
   .ts { font-size: var(--ts-sm); color: var(--text-muted); display: flex; gap: var(--sp-2); align-items: center; }
-  .primary { background: var(--accent); color: var(--surface-0); border: none;
+  .primary { background: var(--accent); color: var(--text-on-accent); border: none;
              padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); cursor: pointer; justify-self: start; }
   .primary:disabled { opacity: 0.5; }
 </style>

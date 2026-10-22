@@ -509,7 +509,7 @@ async def test_dry_run_stops_at_its_time_budget(lib, monkeypatch):
     a = _items(12)
     await lib.add(a)
     await lib.add(a[TRIM:])
-    monkeypatch.setattr(qb, "DRY_RUN_SECONDS", -1)
+    monkeypatch.setattr(qb, "DUPLICATE_SCAN_SECONDS", -1)
     async with session_factory()() as s:
         counts = await qb.duplicate_pair_counts(s)
     assert counts == {"duplicate_pairs": 0, "duplicate_pairs_complete": False}
@@ -553,9 +553,13 @@ async def test_cleanup_sends_one_admin_summary(lib, fake_queue):
     state = kwargs["kwargs"]
     assert state["phase"] == "cleanup" and state["cleanup"] is True
     # ...which merges and notifies once.
+    qb._redis().delete(qb.SCAN_JOB_KEY, qb.SCAN_LOCK_KEY)
     res = await qb._run_quality_backfill(**state)
     assert res["done"] and res["merged"] == 1
-    assert len(fake_queue) == 1  # nothing more queued
+    # No more cleanup slices; only a fresh duplicate scan for the Quality tab.
+    assert len(fake_queue) == 2
+    assert fake_queue[1] == (qb.SCAN_FUNC, {"job_timeout": qb.DUPLICATE_SCAN_TIMEOUT})
+    qb._redis().delete(qb.SCAN_JOB_KEY)
 
     async with session_factory()() as s:
         rows = (await s.execute(select(InAppNotification).where(
@@ -689,7 +693,9 @@ async def test_backfill_with_cleanup_on_real_audio(lib, tmp_path, fake_queue, re
 
     await qb._run_quality_backfill(cleanup=True, phase="fill")
     while fake_queue:
-        _, kwargs = fake_queue.pop(0)
+        func, kwargs = fake_queue.pop(0)
+        if func == qb.SCAN_FUNC:  # the finished cleanup queues a duplicate scan
+            continue
         await qb._run_quality_backfill(**kwargs["kwargs"])
 
     older, newer = await _get(ids["a_mp3_128"]), await _get(ids["a_trim20"])

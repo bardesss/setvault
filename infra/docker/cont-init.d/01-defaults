@@ -12,25 +12,44 @@
 
 set -e
 
+# s6 keeps running the later cont-init scripts after this one fails. Leave a
+# marker on any non-zero exit so 02-validate stays quiet instead of adding a
+# misleading "missing DATABASE_URL" banner under the real FATAL printed here.
+DEFAULTS_FAILED=/run/setvault-defaults-failed
+rm -f "${DEFAULTS_FAILED}"
+trap 'rc=$?; if [ "${rc}" -ne 0 ]; then : > "${DEFAULTS_FAILED}" 2>/dev/null || true; fi; exit "${rc}"' EXIT
+
 CONFIG_DIR="${SETVAULT_CONFIG_PATH:?SETVAULT_CONFIG_PATH unset (00-mode should set it)}"
 SECRETS_FILE="${CONFIG_DIR}/.secrets"
-mkdir -p "${CONFIG_DIR}"
+if ! mkdir -p "${CONFIG_DIR}" 2>/dev/null; then
+  echo "[setvault] FATAL: cannot create the config directory ${CONFIG_DIR} (read-only or no permission). Mount it writable and restart." >&2
+  exit 1
+fi
 
 # Keep the persisted secret store owner-only (it holds SECRET_KEY + the embedded
 # POSTGRES_PASSWORD appended below). Create it 0600 if absent — WITHOUT
 # truncating an existing file, which would wipe the persisted SECRET_KEY and
 # invalidate every session on restart — then tighten perms on any pre-existing
-# file from an older boot.
-[ -f "${SECRETS_FILE}" ] || (umask 077; : > "${SECRETS_FILE}")
-chmod 600 "${SECRETS_FILE}"
+# file from an older boot. Some mounts (NFS root_squash, rootless, SMB /
+# Windows-host binds) refuse chmod; that must not stop boot.
+if [ ! -f "${SECRETS_FILE}" ] && ! (umask 077; : > "${SECRETS_FILE}") 2>/dev/null; then
+  echo "[setvault] FATAL: cannot create ${SECRETS_FILE}: the config directory ${CONFIG_DIR} is read-only or not writable. Mount it writable and restart." >&2
+  exit 1
+fi
+chmod 600 "${SECRETS_FILE}" 2>/dev/null || echo "[setvault] WARNING: could not set 0600 on .secrets" >&2
 
 # Append KEY=VALUE, first terminating a final line that lacks a newline so the
-# new entry can't be glued onto it.
+# new entry can't be glued onto it. On failure names the key, never the value.
 append_secret() {
-  if [ -s "${SECRETS_FILE}" ] && [ -n "$(tail -c1 "${SECRETS_FILE}")" ]; then
-    echo >> "${SECRETS_FILE}"
+  if ! {
+    if [ -s "${SECRETS_FILE}" ] && [ -n "$(tail -c1 "${SECRETS_FILE}")" ]; then
+      echo
+    fi
+    printf '%s=%s\n' "$1" "$2"
+  } 2>/dev/null >> "${SECRETS_FILE}"; then
+    echo "[setvault] FATAL: cannot write the generated $1 to ${SECRETS_FILE} (read-only or not writable). Mount ${CONFIG_DIR} writable, or set $1 in the container env." >&2
+    exit 1
   fi
-  printf '%s=%s\n' "$1" "$2" >> "${SECRETS_FILE}"
 }
 
 # Remember what the user supplied BEFORE reading the file.

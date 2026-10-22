@@ -87,6 +87,17 @@ async def test_email_content(emails):
         await s.rollback()
 
 
+async def test_upgrade_email_link_is_absolute(emails, monkeypatch):
+    monkeypatch.setenv("BASE_URL", "http://sv.test:1970/")
+    async with session_factory()() as s:
+        owner = await _owner(s)
+        s.add(NotificationPreference(user_id=owner.id, kind="set_upgraded", channel="email"))
+        await s.flush()
+        await notifications.notify_set_upgraded(s, _target(owner), _event())
+        assert "http://sv.test:1970/sets/set-x" in emails[0]["text"]
+        await s.rollback()
+
+
 async def test_no_owner_notifies_nobody(emails):
     async with session_factory()() as s:
         target = SimpleNamespace(id=uuid.uuid4(), slug="s", title="S", uploaded_by=None)

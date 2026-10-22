@@ -1,8 +1,11 @@
 """Admin Wanted list: sets still below the quality cutoff (Phase 7D).
 
-  - GET  /api/admin/wanted: published sets with upgrades on whose measured
-    tier is below the cutoff, least-recently searched first, each with the
-    last upgrade attempt on it.
+  - GET  /api/admin/wanted: the sets the upgrade schedule searches
+    (``wanted_filter``: published, upgrades on, measured below the cutoff,
+    fingerprinted, not a kept duplicate), least-recently searched first,
+    each with the last upgrade attempt on it, plus
+    ``unfingerprinted_below_cutoff``: sets that would be wanted but still
+    need a fingerprint (the Quality tab backfill).
   - POST /api/admin/wanted/{slug}/search: look for a better copy now.
 """
 from __future__ import annotations
@@ -10,19 +13,18 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from setvault_core.jobs.upgrade_search import enqueue_search_upgrade_now
+from setvault_core.jobs.upgrade_search import (
+    enqueue_search_upgrade_now,
+    unfingerprinted_wanted_filter,
+    wanted_filter,
+)
 from setvault_core.models.catalog import LiveSet, SetFingerprint
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.services.audio_match import MATCHER_VERSION
 from setvault_core.services.audio_quality import quality_label
 from setvault_core.services.notifications import source_name
-from setvault_core.services.quality_profile import (
-    cutoff_unmet,
-    effective_cutoff,
-    get_profile,
-    rank,
-)
-from sqlalchemy import select
+from setvault_core.services.quality_profile import cutoff_unmet, get_profile
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.deps import db_session, require_admin
@@ -38,16 +40,9 @@ async def list_wanted(
 ):
     limit = max(1, min(limit, 500))
     profile = await get_profile(session)
-    at_or_above = list(profile.order[: rank(profile, effective_cutoff(profile)) + 1])
     rows = (await session.execute(
         select(LiveSet)
-        .where(
-            LiveSet.status == "published",
-            LiveSet.deleted_at.is_(None),
-            LiveSet.upgrades_enabled.is_(True),
-            LiveSet.quality_tier.is_not(None),
-            LiveSet.quality_tier.not_in(at_or_above),
-        )
+        .where(wanted_filter(profile))
         .order_by(
             LiveSet.last_upgrade_search_at.asc().nulls_first(),
             LiveSet.created_at, LiveSet.id,
@@ -66,7 +61,14 @@ async def list_wanted(
         for ev in events:  # ascending, so the newest per set wins
             last[ev.live_set_id] = ev
 
-    return {"items": [
+    # Below the cutoff but not searchable until the backfill fingerprints
+    # them; the page says so instead of claiming every set meets the cutoff.
+    unfingerprinted = (await session.execute(
+        select(func.count()).select_from(LiveSet)
+        .where(unfingerprinted_wanted_filter(profile))
+    )).scalar_one()
+
+    return {"unfingerprinted_below_cutoff": int(unfingerprinted), "items": [
         {
             "id": str(live.id),
             "slug": live.slug,
@@ -106,6 +108,9 @@ async def search_now(
         raise HTTPException(status_code=404, detail="set not found")
     if not live.upgrades_enabled:
         raise HTTPException(status_code=409, detail="upgrades are off for this set")
+    if live.duplicate_of is not None:
+        # A kept duplicate is never searched (due_sets); its original is.
+        raise HTTPException(status_code=409, detail="set is a duplicate of another set")
     if live.quality_tier is None:
         raise HTTPException(status_code=409, detail="quality not measured yet")
     profile = await get_profile(session)

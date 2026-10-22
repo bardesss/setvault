@@ -128,6 +128,8 @@ async def test_due_sets_respects_schedule_and_cutoff(session, tmp_path):
     # Weekly: two days ago is not due yet.
     assert await due("weekly") == [never.id, ten_days.id]
     assert await due("off") == []
+    # An unknown stored value runs weekly (as the settings page shows it).
+    assert await due("hourly") == await due("weekly")
 
     cfg.auto_upgrades_enabled = False
     assert await due("daily") == []

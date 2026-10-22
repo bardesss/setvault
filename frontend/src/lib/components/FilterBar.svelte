@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
+  import { _ } from "svelte-i18n";
 
   export let query: string = "";
   export let sort: string = "recent";
@@ -35,8 +36,8 @@
     type="search"
     bind:value={query}
     on:input={onInput}
-    placeholder="Filter sets…"
-    aria-label="Filter sets"
+    placeholder={$_("library.filter_placeholder")}
+    aria-label={$_("library.filter_label")}
   />
   <select bind:value={sort} on:change={onSort} aria-label="Sort by">
     {#each sortOptions as opt (opt.value)}
@@ -49,13 +50,13 @@
       class:active={view === "list"}
       on:click={() => toggleView("list")}
       aria-pressed={view === "list"}
-    >List</button>
+    >{$_("library.view_list")}</button>
     <button
       type="button"
       class:active={view === "grid"}
       on:click={() => toggleView("grid")}
       aria-pressed={view === "grid"}
-    >Grid</button>
+    >{$_("library.view_grid")}</button>
   </div>
   <slot name="extra" />
 </div>

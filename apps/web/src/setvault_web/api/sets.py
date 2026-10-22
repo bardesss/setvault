@@ -4,12 +4,21 @@ import mimetypes
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from setvault_core.models.catalog import LiveSet, LiveSetTag, MediaRoot, Tag
+from setvault_core.models.catalog import (
+    Artist,
+    LiveSet,
+    LiveSetArtist,
+    LiveSetTag,
+    MediaRoot,
+    Party,
+    Tag,
+    Venue,
+)
 from setvault_core.models.engagement import UserSetState
 from setvault_core.models.identity import User
 from setvault_core.models.upgrades import SetUpgradeEvent
@@ -17,24 +26,34 @@ from setvault_core.schemas.catalog import PartyOut, SeriesOut, VenueOut
 from setvault_core.schemas.sets import (
     SetArtistOut,
     SetDetailOut,
+    SetFacetsOut,
+    SetFacetTagOut,
     SetListOut,
     SetPatchIn,
     SetQualityOut,
     SetSummaryOut,
     SetUpgradeHistoryOut,
+    VenueRefOut,
 )
 from setvault_core.services.audio_quality import quality_label
+from setvault_core.services.favorites import is_favorite
 from setvault_core.services.notifications import event_labels, source_name
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
 from setvault_core.services.set_merge import TRACKLIST_KEPT
-from setvault_core.services.sets import replace_artists, replace_tags
+from setvault_core.services.sets import UnknownArtistError, replace_artists, replace_tags
 from setvault_core.services.signed_urls import verify_stream_sig
 from setvault_core.services.system_config import get_config
-from sqlalchemy import func, select
+from sqlalchemy import exists, extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.config import Settings, get_settings
-from setvault_web.deps import current_user, db_session, require_admin, resolve_session_user
+from setvault_web.deps import (
+    current_user,
+    db_session,
+    parse_uuid,
+    require_admin,
+    resolve_session_user,
+)
 
 router = APIRouter(prefix="/api/sets", tags=["sets"])
 
@@ -136,51 +155,151 @@ def _party_out(p) -> PartyOut:
     )
 
 
+async def tags_by_set(
+    session: AsyncSession, set_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, list[str]]:
+    """Tag names for many sets in one grouped query (no N+1)."""
+    out: dict[uuid.UUID, list[str]] = {}
+    if not set_ids:
+        return out
+    tag_rows = (
+        await session.execute(
+            select(LiveSetTag.live_set_id, Tag.name)
+            .join(Tag, Tag.id == LiveSetTag.tag_id)
+            .where(LiveSetTag.live_set_id.in_(set_ids))
+            .order_by(Tag.name)
+        )
+    ).all()
+    for sid, name in tag_rows:
+        out.setdefault(sid, []).append(name)
+    return out
+
+
+def summary_out(r: LiveSet, tags: list[str]) -> SetSummaryOut:
+    return SetSummaryOut(
+        id=str(r.id),
+        slug=r.slug,
+        title=r.title,
+        date=r.date,
+        duration_seconds=r.duration_seconds,
+        set_type=r.set_type,
+        status=r.status,
+        artists=_artists_out(r),
+        tags=tags,
+        created_at=r.created_at,
+        venue=(
+            VenueRefOut(name=r.venue.name, slug=r.venue.slug, kind=r.venue.kind)
+            if r.venue is not None else None
+        ),
+    )
+
+
+def _published():
+    return (LiveSet.deleted_at.is_(None), LiveSet.status == "published")
+
+
+def _like_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @router.get("", response_model=SetListOut)
 async def list_sets(
     session: Annotated[AsyncSession, Depends(db_session)],
     _: Annotated[object, Depends(current_user)],
-    limit: int = 50,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    tag: Annotated[str | None, Query(max_length=80)] = None,
+    year: Annotated[int | None, Query(ge=1, le=9999)] = None,
+    venue_kind: Annotated[str | None, Query(max_length=32)] = None,
+    sort: Literal["recent", "date", "title", "duration"] = "date",
 ):
-    base = select(LiveSet).where(
-        LiveSet.deleted_at.is_(None), LiveSet.status == "published"
-    )
+    conds = list(_published())
+    if q:
+        pattern = f"%{_like_escape(q.strip())}%"
+        conds.append(or_(
+            LiveSet.title.ilike(pattern, escape="\\"),
+            exists().where(
+                LiveSetArtist.live_set_id == LiveSet.id,
+                LiveSetArtist.artist_id == Artist.id,
+                Artist.name.ilike(pattern, escape="\\"),
+            ),
+        ))
+    if tag:
+        conds.append(exists().where(
+            LiveSetTag.live_set_id == LiveSet.id,
+            LiveSetTag.tag_id == Tag.id,
+            Tag.slug == tag,
+        ))
+    if year is not None:
+        conds.append(extract("year", LiveSet.date) == year)
+    if venue_kind:
+        conds.append(exists().where(
+            Venue.id == LiveSet.venue_id, Venue.kind == venue_kind,
+        ))
     total = (
-        await session.execute(select(func.count()).select_from(base.subquery()))
+        await session.execute(select(func.count()).select_from(LiveSet).where(*conds))
     ).scalar_one()
+    if sort == "recent":
+        order = [LiveSet.created_at.desc(), LiveSet.id]
+    elif sort == "title":
+        order = [func.lower(LiveSet.title), LiveSet.id]
+    elif sort == "duration":
+        order = [LiveSet.duration_seconds.desc().nullslast(), LiveSet.id]
+    else:
+        order = [LiveSet.date.desc().nullslast(), LiveSet.created_at.desc(), LiveSet.id]
     rows = (
         await session.execute(
-            base.order_by(
-                LiveSet.date.desc().nullslast(), LiveSet.created_at.desc()
-            )
-            .limit(limit)
-            .offset(offset)
+            select(LiveSet).where(*conds).order_by(*order).limit(limit).offset(offset)
         )
     ).scalars().unique().all()
-    items = []
-    for r in rows:
-        items.append(
-            SetSummaryOut(
-                id=str(r.id),
-                slug=r.slug,
-                title=r.title,
-                date=r.date,
-                duration_seconds=r.duration_seconds,
-                set_type=r.set_type,
-                status=r.status,
-                artists=_artists_out(r),
-                tags=await _tag_names_for(session, r.id),
-            )
-        )
+    tags = await tags_by_set(session, [r.id for r in rows])
+    items = [summary_out(r, tags.get(r.id, [])) for r in rows]
     return SetListOut(items=items, total=int(total))
+
+
+# Registered before "/{slug}" so "facets" is not treated as a slug.
+@router.get("/facets", response_model=SetFacetsOut)
+async def facets(
+    session: Annotated[AsyncSession, Depends(db_session)],
+    _: Annotated[object, Depends(current_user)],
+):
+    pub = _published()
+    tag_rows = (
+        await session.execute(
+            select(Tag.slug, Tag.name, func.count(LiveSet.id))
+            .join(LiveSetTag, LiveSetTag.tag_id == Tag.id)
+            .join(LiveSet, LiveSet.id == LiveSetTag.live_set_id)
+            .where(*pub)
+            .group_by(Tag.id)
+            .order_by(func.count(LiveSet.id).desc(), Tag.name)
+        )
+    ).all()
+    year_col = extract("year", LiveSet.date)
+    years = (
+        await session.execute(
+            select(year_col).where(*pub, LiveSet.date.is_not(None))
+            .distinct().order_by(year_col.desc())
+        )
+    ).scalars().all()
+    kinds = (
+        await session.execute(
+            select(Venue.kind).join(LiveSet, LiveSet.venue_id == Venue.id)
+            .where(*pub).distinct().order_by(Venue.kind)
+        )
+    ).scalars().all()
+    return SetFacetsOut(
+        tags=[SetFacetTagOut(slug=s, name=n, count=int(c)) for s, n, c in tag_rows],
+        years=[int(y) for y in years],
+        venue_kinds=list(kinds),
+    )
 
 
 @router.get("/{slug}", response_model=SetDetailOut)
 async def show_set(
     slug: str,
     session: Annotated[AsyncSession, Depends(db_session)],
-    _: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
 ):
     row = (
         await session.execute(
@@ -227,6 +346,7 @@ async def show_set(
         status=row.status,
         artists=_artists_out(row),
         tags=await _tag_names_for(session, row.id),
+        created_at=row.created_at,
         party=_party_out(row.party) if row.party else None,
         venue=_venue_out(row.venue) if row.venue else None,
         description=row.description,
@@ -238,6 +358,7 @@ async def show_set(
         upgrades_enabled=row.upgrades_enabled,
         auto_upgrades_enabled=bool((await get_config(session)).auto_upgrades_enabled),
         upgrade_history=history,
+        is_favorite=await is_favorite(session, user.id, row.id),
     )
 
 
@@ -246,7 +367,7 @@ async def edit_set(
     slug: str,
     body: SetPatchIn,
     session: Annotated[AsyncSession, Depends(db_session)],
-    _: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
 ):
     live = (
         await session.execute(
@@ -264,19 +385,28 @@ async def edit_set(
     if body.set_type is not None:
         live.set_type = body.set_type
     if body.party_id is not None:
-        live.party_id = uuid.UUID(body.party_id)
+        party_id = parse_uuid(body.party_id, status_code=422, detail="invalid party_id")
+        if await session.get(Party, party_id) is None:
+            raise HTTPException(status_code=422, detail="unknown party_id")
+        live.party_id = party_id
     if body.venue_id is not None:
-        live.venue_id = uuid.UUID(body.venue_id)
+        venue_id = parse_uuid(body.venue_id, status_code=422, detail="invalid venue_id")
+        if await session.get(Venue, venue_id) is None:
+            raise HTTPException(status_code=422, detail="unknown venue_id")
+        live.venue_id = venue_id
     if body.description is not None:
         live.description = body.description
     if body.upgrades_enabled is not None:
         live.upgrades_enabled = body.upgrades_enabled
     if body.artist_ids is not None:
-        await replace_artists(session, live, body.artist_ids)
+        try:
+            await replace_artists(session, live, body.artist_ids)
+        except UnknownArtistError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     if body.tag_names is not None:
         await replace_tags(session, live, body.tag_names)
     await session.commit()
-    return await show_set(slug, session, None)  # type: ignore[arg-type]
+    return await show_set(slug, session, user)
 
 
 class EmbedToggleIn(BaseModel):
