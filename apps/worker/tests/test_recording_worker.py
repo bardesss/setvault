@@ -32,21 +32,28 @@ _TRACEBACK = (
 
 
 class FakeJob:
-    """The slice of ``rq.job.Job`` the recording hooks touch."""
+    """The slice of ``rq.job.Job`` the recording hooks touch. ``store`` stands
+    in for the job hash in Redis: pass one dict to two FakeJobs to model the
+    work horse's and the main worker process's copies of the same job."""
 
-    def __init__(self, rq_id: str, func_name: str, kwargs: dict | None = None):
+    def __init__(self, rq_id: str, func_name: str, kwargs: dict | None = None,
+                 meta: dict | None = None, store: dict | None = None):
         self.id = rq_id
         self.func_name = func_name
         self.kwargs = kwargs or {}
-        self.meta: dict = {}
+        self.meta: dict = dict(meta or {})
+        self.store = store if store is not None else {"meta": dict(self.meta)}
         self.saved_meta: list[dict] = []
         self.started_at = None
         self._result = None
 
     def save_meta(self) -> None:
         self.saved_meta.append(dict(self.meta))
+        self.store["meta"] = dict(self.meta)
 
     def get_meta(self, refresh: bool = True) -> dict:
+        if refresh:
+            self.meta = dict(self.store["meta"])
         return self.meta
 
 
@@ -72,7 +79,7 @@ def _worker(database_url: str):
 
 
 @pytest.fixture
-def worker(db_url, parent_calls):
+def worker(db_url, run_db, parent_calls):
     return _worker(db_url)
 
 
@@ -132,35 +139,47 @@ def test_quiet_kinds_map_to_the_real_job_paths():
         assert short_kind(path) not in QUIET_KINDS
 
 
-def test_redact_matches_whole_key_words_only():
+def test_redact_is_an_allowlist():
+    """Kept: `id`, `*_id`, `*_ids` and the plain control flags; everything
+    else is replaced, recursively."""
     from setvault_worker.recording import REDACTED, redact
 
     out = redact({
-        "to": "a@b", "set_id": "x", "total": 3, "email": "a@b",
-        "recipient_email": "a@b", "reset_link": "https://x", "webhook_url": "u",
-        "access_token": "t", "password": "p", "client_secret": "s",
-        "ip_address": "1.2.3.4", "callbackUrl": "u", "emails": ["a@b"],
-        "addresses": ["a"], "tokenize": False, "history": "h", "stop": 1,
-        "nested": {"to": "a@b", "count": 2}, "items": [{"url": "u", "id": 1}],
-        "photo": "p",
+        "id": 1, "set_id": "x", "live_set_ids": ["a", "b"], "monitor_id": "m",
+        "kind": "k", "action": "soft_delete", "event": "e", "trigger": "t",
+        "queue": "low", "dry_run": True, "retry_failed": False, "cleanup": True,
+        "to": "a@b", "subject": "Reset", "text": "https://x/reset?t=1", "total": 3,
+        "params": {"target_media_root_id": "r"}, "items": [{"id": 1}],
+        "state": {"cursor": 5}, "identity": "i", "valid": 1,
+        "nested_ids": [{"set_id": "s", "email": "e"}, "plain"],
     })
     assert out == {
-        "to": REDACTED, "set_id": "x", "total": 3, "email": REDACTED,
-        "recipient_email": REDACTED, "reset_link": REDACTED, "webhook_url": REDACTED,
-        "access_token": REDACTED, "password": REDACTED, "client_secret": REDACTED,
-        "ip_address": REDACTED, "callbackUrl": REDACTED, "emails": REDACTED,
-        "addresses": REDACTED, "tokenize": False, "history": "h", "stop": 1,
-        "nested": {"to": REDACTED, "count": 2}, "items": [{"url": REDACTED, "id": 1}],
-        "photo": "p",
+        "id": 1, "set_id": "x", "live_set_ids": ["a", "b"], "monitor_id": "m",
+        "kind": "k", "action": "soft_delete", "event": "e", "trigger": "t",
+        "queue": "low", "dry_run": True, "retry_failed": False, "cleanup": True,
+        "to": REDACTED, "subject": REDACTED, "text": REDACTED, "total": REDACTED,
+        "params": REDACTED, "items": REDACTED, "state": REDACTED,
+        "identity": REDACTED, "valid": REDACTED,
+        "nested_ids": [{"set_id": "s", "email": REDACTED}, "plain"],
     }
-    assert redact({"TO": "a@b", "Email": "a@b"}) == {"TO": REDACTED, "Email": REDACTED}
+
+
+def test_redact_send_email_job_keeps_only_connector_id():
+    from setvault_worker.recording import REDACTED, redact
+
+    assert redact({
+        "connector_id": "c1", "to": "a@b", "subject": "Reset your password",
+        "text": "Open https://setvault.test/reset?token=abc",
+    }) == {"connector_id": "c1", "to": REDACTED, "subject": REDACTED, "text": REDACTED}
 
 
 def test_redact_makes_values_json_safe():
     from setvault_worker.recording import redact
 
     uid = uuid.uuid4()
-    assert redact({"set_id": uid, "ids": (1, 2)}) == {"set_id": str(uid), "ids": [1, 2]}
+    assert redact({"set_id": uid, "set_ids": (1, 2)}) == {
+        "set_id": str(uid), "set_ids": [1, 2],
+    }
 
 
 # --- hooks ------------------------------------------------------------------
@@ -248,6 +267,105 @@ def test_payload_redacted(worker, run_db):
                              {"to": "a@b", "set_id": "x"}))
     (row,) = _rows(run_db, rq_id)
     assert row.payload == {"to": "[redacted]", "set_id": "x"}
+
+
+def test_email_job_payload_keeps_only_connector_id(worker, run_db):
+    rq_id = f"{RQ_PREFIX}{uuid.uuid4().hex[:8]}"
+    _succeed(worker, FakeJob(rq_id, "setvault_core.jobs.email.send_email_job", {
+        "connector_id": "c1", "to": "a@b", "subject": "Reset your password",
+        "text": "Open https://setvault.test/reset?token=abc",
+    }))
+    (row,) = _rows(run_db, rq_id)
+    assert row.payload == {"connector_id": "c1", "to": "[redacted]",
+                           "subject": "[redacted]", "text": "[redacted]"}
+
+
+def test_result_counts_are_stored_unredacted(worker, run_db):
+    rq_id = f"{RQ_PREFIX}{uuid.uuid4().hex[:8]}"
+    result = {"processed": 12, "errors": 1, "total": 13, "deleted": 0,
+              "summary": {"auto_ingested": 2, "pending_review": 3}, "skipped": ["a"]}
+    _succeed(worker, FakeJob(rq_id, "setvault_core.jobs.bulk_action.run_bulk_action"),
+             result=result)
+    (row,) = _rows(run_db, rq_id)
+    assert row.result == result
+
+
+# --- reused rq ids: a re-run arrives with the previous run's row id ---------
+
+def test_rerun_carrying_previous_row_id_gets_a_new_row_on_success(worker, run_db):
+    """rq-scheduler re-enqueues the same job hash, meta included."""
+    rq_id = f"{RQ_PREFIX}{uuid.uuid4().hex[:8]}"
+    func = "setvault_core.jobs.recycle_bin_purge.run_purge_recycle_bin"
+    first = FakeJob(rq_id, func)
+    _succeed(worker, first, result={"purged": 1})
+    (old,) = _rows(run_db, rq_id)
+    assert first.store["meta"]["setvault_job_row"] == old.id
+
+    again = FakeJob(rq_id, func, meta=first.store["meta"])
+    _succeed(worker, again, result={"purged": 2})
+    rows = {r.id: r for r in _rows(run_db, rq_id)}
+    assert len(rows) == 2
+    assert rows[old.id] == old  # untouched
+    (new_id,) = set(rows) - {old.id}
+    assert again.store["meta"]["setvault_job_row"] == new_id
+    assert rows[new_id].result == {"purged": 2}
+
+
+def test_rerun_main_process_failure_updates_this_runs_row(worker, run_db):
+    """Killed horse: the main process's copy was loaded at dequeue and still
+    holds the previous run's row id in memory; the horse saved the new one."""
+    rq_id = f"{RQ_PREFIX}{uuid.uuid4().hex[:8]}"
+    func = "setvault_core.jobs.upgrade_search.run_upgrade_search"
+    _succeed(worker, FakeJob(rq_id, func))
+    (old,) = _rows(run_db, rq_id)
+    stale_meta = {"setvault_job_row": old.id}
+
+    store = {"meta": dict(stale_meta)}
+    horse = FakeJob(rq_id, func, meta=stale_meta, store=store)
+    main_copy = FakeJob(rq_id, func, meta=stale_meta, store=store)
+    worker.prepare_job_execution(horse)
+    new_id = store["meta"]["setvault_job_row"]
+    assert new_id != old.id
+    worker.handle_job_failure(main_copy, None, None, exc_string="SIGKILL")
+
+    rows = {r.id: r for r in _rows(run_db, rq_id)}
+    assert set(rows) == {old.id, new_id}
+    assert rows[old.id] == old
+    assert (rows[new_id].status, rows[new_id].message) == ("failed", "SIGKILL")
+
+
+def test_stale_row_id_with_redis_unreadable_never_touches_old_row(worker, run_db):
+    rq_id = f"{RQ_PREFIX}{uuid.uuid4().hex[:8]}"
+    func = "setvault_core.jobs.upgrade_search.run_upgrade_search"
+    _succeed(worker, FakeJob(rq_id, func))
+    (old,) = _rows(run_db, rq_id)
+
+    main_copy = FakeJob(rq_id, func, meta={"setvault_job_row": old.id})
+
+    def _redis_down(refresh=True):
+        raise ConnectionError("redis down")
+    main_copy.get_meta = _redis_down
+    worker.handle_job_failure(main_copy, None, None, exc_string="boom")
+    rows = {r.id: r for r in _rows(run_db, rq_id)}
+    assert len(rows) == 2 and rows[old.id] == old
+    (new_id,) = set(rows) - {old.id}
+    assert rows[new_id].status == "failed"
+
+
+def test_quiet_rerun_clears_a_stale_row_id(worker, run_db):
+    rq_id = f"{RQ_PREFIX}{uuid.uuid4().hex[:8]}"
+    job = FakeJob(rq_id, "setvault_core.jobs.tus_spool_prune.run_prune_tus_spool",
+                  meta={"setvault_job_row": "previous"})
+    worker.prepare_job_execution(job)
+    assert "setvault_job_row" not in job.store["meta"]
+
+
+def test_stale_row_id_cleared_even_when_start_write_fails(parent_calls):
+    worker = _worker(_UNREACHABLE_DB)
+    job = FakeJob(f"{RQ_PREFIX}down-stale", "setvault_core.jobs.email.send_email_job",
+                  meta={"setvault_job_row": "previous"})
+    worker.prepare_job_execution(job)
+    assert "setvault_job_row" not in job.store["meta"]
 
 
 def test_initiated_by_only_for_existing_user(worker, run_db):

@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -43,20 +42,20 @@ QUIET_KINDS: frozenset[str] = frozenset({
     "tus_spool_prune.run_prune_tus_spool",
 })
 
-# A key is redacted when one of its *words* is a sensitive word, optionally
-# plural. Words are split on non-alphanumerics (so snake_case and kebab-case)
-# and camelCase humps, compared case-insensitively. Matching whole words keeps
-# `to` from hitting `total`/`photo`/`stop` and `token` from hitting `tokenize`,
-# while `recipient_email`, `reset_link`, `webhookUrl`, `access_token`, `emails`
-# and `addresses` are all caught.
-_SENSITIVE_WORD = re.compile(
-    r"(?:email|to|address|link|url|token|password|secret)(?:e?s)?", re.IGNORECASE
-)
-_CAMEL_HUMP = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
-_NON_ALNUM = re.compile(r"[^A-Za-z0-9]+")
+# Payload redaction is an ALLOWLIST: a value is kept only when its key is an
+# identifier (`id`, `*_id`, `*_ids`) or one of the plain control flags below.
+# Everything else (addresses, subjects, bodies with reset links, URLs, tokens,
+# free-form state) is replaced, recursively. A denylist can't know every key a
+# future job will carry; send_email_job's `subject`/`text` already slipped one.
+_KEPT_KEYS = frozenset({
+    "kind", "action", "event", "trigger", "queue", "dry_run", "retry_failed", "cleanup",
+})
 
 _CONNECT_TIMEOUT_S = 5
 _WRITE_TIMEOUT_S = 10
+# The start write runs before the job body: keep it short so a slow DB costs
+# a job at most a few seconds before recording gives up.
+_START_TIMEOUT_S = 3
 
 
 def short_kind(func_name: str) -> str:
@@ -64,14 +63,15 @@ def short_kind(func_name: str) -> str:
     return ".".join(func_name.split(".")[-2:])
 
 
-def _is_sensitive_key(key: object) -> bool:
-    words = _NON_ALNUM.split(_CAMEL_HUMP.sub("_", str(key)))
-    return any(_SENSITIVE_WORD.fullmatch(w) for w in words if w)
+def _is_kept_key(key: object) -> bool:
+    k = str(key)
+    return k == "id" or k.endswith(("_id", "_ids")) or k in _KEPT_KEYS
 
 
 def _json_safe(value: Any) -> Any:
+    """JSON-safe copy, no redaction (used for results: counts must survive)."""
     if isinstance(value, dict):
-        return redact(value)
+        return {str(k): _json_safe(v) for k, v in value.items()}
     if isinstance(value, (list, tuple, set, frozenset)):
         return [_json_safe(v) for v in value]
     if value is None or isinstance(value, (str, int, float, bool)):
@@ -79,10 +79,19 @@ def _json_safe(value: Any) -> Any:
     return str(value)
 
 
+def _redact_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return redact(value)
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_redact_value(v) for v in value]
+    return _json_safe(value)
+
+
 def redact(kwargs: dict) -> dict:
-    """JSON-safe copy of ``kwargs`` with sensitive values (recursively) replaced."""
+    """JSON-safe copy of ``kwargs`` keeping only allowlisted keys' values;
+    nested dicts (also inside lists) under a kept key are redacted the same way."""
     return {
-        str(k): REDACTED if _is_sensitive_key(k) else _json_safe(v)
+        str(k): _redact_value(v) if _is_kept_key(k) else REDACTED
         for k, v in kwargs.items()
     }
 
@@ -121,15 +130,15 @@ class JobRecorder:
     def __init__(self, database_url: str | None):
         self.database_url = database_url
 
-    def _run(self, fn) -> Any:
+    def _run(self, fn, timeout_s: float = _WRITE_TIMEOUT_S) -> Any:
         if not self.database_url:
             raise RuntimeError("DATABASE_URL not set; job runs are not recorded")
 
         async def _main():
             engine = create_async_engine(
                 self.database_url, poolclass=NullPool,
-                connect_args={"timeout": _CONNECT_TIMEOUT_S,
-                              "command_timeout": _CONNECT_TIMEOUT_S},
+                connect_args={"timeout": min(_CONNECT_TIMEOUT_S, timeout_s),
+                              "command_timeout": min(_CONNECT_TIMEOUT_S, timeout_s)},
             )
             try:
                 async with engine.begin() as conn:
@@ -138,7 +147,7 @@ class JobRecorder:
                 await engine.dispose()
 
         async def _bounded():
-            return await asyncio.wait_for(_main(), _WRITE_TIMEOUT_S)
+            return await asyncio.wait_for(_main(), timeout_s)
 
         return asyncio.run(_bounded())
 
@@ -170,7 +179,7 @@ class JobRecorder:
                           initiated_by=await self._initiated_by(conn, job))
             await conn.execute(insert(Job).values(**values))
 
-        self._run(_write)
+        self._run(_write, _START_TIMEOUT_S)
         return row_id
 
     def ended(self, job, row_id: str | None, *, status: str,
@@ -182,17 +191,22 @@ class JobRecorder:
 
         async def _write(conn: AsyncConnection):
             if row_id is not None:
+                # Only a still-running row of this rq id: a stale id from an
+                # earlier run (scheduler re-enqueues keep meta) never matches.
                 done = await conn.execute(
-                    update(Job).where(Job.id == row_id).values(**end)
+                    update(Job)
+                    .where(Job.id == row_id, Job.rq_id == str(job.id)[:64],
+                           Job.status == "started")
+                    .values(**end)
                 )
                 if done.rowcount:
                     return
-            # No started row (quiet kind, or the main worker process handling
-            # a crashed work horse): write the whole row now.
+            # No started row of this run (quiet kind, failed start write, or a
+            # stale id from an earlier run): write a whole new row now.
             values = self._base_values(job)
             values.update(end)
             values.update(
-                id=row_id or str(uuid.uuid4()),
+                id=str(uuid.uuid4()),
                 started_at=_aware(getattr(job, "started_at", None)) or finished_at,
                 initiated_by=await self._initiated_by(conn, job),
             )
@@ -202,7 +216,11 @@ class JobRecorder:
 
 
 class RecordingWorker(Worker):
-    """``rq.Worker`` that records each job run for Admin -> Jobs."""
+    """``rq.Worker`` that records each job run for Admin -> Jobs.
+
+    A job that returns ``rq.Retry`` goes through ``handle_job_retry``, not the
+    success/failure hooks, so its row stays "started" (no job here does that).
+    """
 
     def __init__(self, *args, database_url: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -217,31 +235,44 @@ class RecordingWorker(Worker):
 
     @staticmethod
     def _row_id(job) -> str | None:
-        row_id = (getattr(job, "meta", None) or {}).get(ROW_META_KEY)
-        if row_id is None:
-            try:  # the main process's copy may predate the horse's save_meta
-                row_id = (job.get_meta(refresh=True) or {}).get(ROW_META_KEY)
-            except Exception:
-                logger.debug("job recording: could not refresh meta of %s", job.id,
-                             exc_info=True)
-        return row_id
+        """This run's row id. Redis first: the main worker process (handling a
+        crashed or killed work horse) holds a copy of the job loaded at
+        dequeue, whose meta can still carry the previous run's id. Falls back
+        to the in-memory meta if Redis can't be read; ``ended`` only updates a
+        still-started row of the same rq id, so a stale id there is harmless."""
+        try:
+            return (job.get_meta(refresh=True) or {}).get(ROW_META_KEY)
+        except Exception:
+            logger.debug("job recording: could not refresh meta of %s", job.id,
+                         exc_info=True)
+        return (getattr(job, "meta", None) or {}).get(ROW_META_KEY)
 
     def prepare_job_execution(self, job, *args, **kwargs):
         super().prepare_job_execution(job, *args, **kwargs)
-        if self._quiet(job):
-            return
         try:
-            row_id = self.recorder.started(job)
+            # rq-scheduler re-enqueues the same job hash, meta included, so a
+            # periodic run arrives carrying the previous run's row id: drop it
+            # (and persist that) even when this run records nothing.
+            meta = job.meta
+            stale = meta.pop(ROW_META_KEY, None) is not None
         except Exception:
-            logger.warning("job recording: could not record start of %s", job.id,
+            logger.warning("job recording: could not read meta of %s", job.id,
                            exc_info=True)
             return
-        try:
-            job.meta[ROW_META_KEY] = row_id
-            job.save_meta()
-        except Exception:
-            logger.warning("job recording: could not save row id on %s", job.id,
-                           exc_info=True)
+        row_id = None
+        if not self._quiet(job):
+            try:
+                row_id = self.recorder.started(job)
+                meta[ROW_META_KEY] = row_id
+            except Exception:
+                logger.warning("job recording: could not record start of %s", job.id,
+                               exc_info=True)
+        if stale or row_id is not None:
+            try:
+                job.save_meta()
+            except Exception:
+                logger.warning("job recording: could not save row id on %s", job.id,
+                               exc_info=True)
 
     def handle_job_success(self, job, queue, started_job_registry):
         if not self._quiet(job):
