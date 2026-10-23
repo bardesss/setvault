@@ -175,7 +175,8 @@
     "jobs": {
       "title": "Jobs",
       "empty": "No jobs recorded yet.",
-        "col_status": "Status",
+      "col_kind": "Kind",
+      "col_status": "Status",
       "col_started": "Started",
       "col_finished": "Finished",
       "col_duration": "Duration",
@@ -312,7 +313,6 @@
     "kind_query": "Query",
     "kind_entity": "Entity",
     "source_label": "Source",
-    "source_all": "All sources",
     "source_pick": "Pick a source",
     "external_id": "External id",
     "help_youtube": "The channel id (starts with UC) or handle.",
@@ -341,7 +341,8 @@
     "tab_pending": "Pending",
     "tab_ingested": "Ingested",
     "tab_dismissed": "Dismissed",
-    "tab_all": "All"
+    "tab_all": "All",
+    "pending_badge": "{count} pending"
   },
   "url_rip": {
     "tab_label": "URL",
@@ -477,4 +478,3 @@
     "discard": "Discard"
   }
 }
-

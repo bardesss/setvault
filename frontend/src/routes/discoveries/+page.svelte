@@ -4,13 +4,20 @@
   import EmptyState from "#lib/components/EmptyState.svelte";
   import { goto } from "$app/navigation";
   import TabStrip from "#lib/components/TabStrip.svelte";
+  import { pendingDiscoveries } from "#lib/stores/discoveries.ts";
   import { dismissDiscovery, ripDiscovery, type Discovery } from "#lib/api/monitors.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;
-  let rows: Discovery[] = data.discoveries;
   let errorMsg: string | null = null;
+  let rows: Discovery[];
   $: rows = data.discoveries;
+  $: pendingDiscoveries.set(data.pendingCount);
+
+  function decided(d: Discovery, status: Discovery["status"]) {
+    rows = rows.map((x) => (x.id === d.id ? { ...x, status } : x));
+    if (d.status === "pending_review") pendingDiscoveries.update((n) => Math.max(0, (n ?? 1) - 1));
+  }
 
   let active = data.status;
   $: active = data.status;
@@ -27,7 +34,7 @@
   async function rip(d: Discovery) {
     try {
       await ripDiscovery(d.id);
-      rows = rows.map((x) => (x.id === d.id ? { ...x, status: "ingested" } : x));
+      decided(d, "ingested");
     } catch (e) {
       errorMsg = e instanceof Error ? e.message : "failed";
     }
@@ -35,7 +42,7 @@
   async function dismiss(d: Discovery) {
     try {
       await dismissDiscovery(d.id);
-      rows = rows.map((x) => (x.id === d.id ? { ...x, status: "dismissed" } : x));
+      decided(d, "dismissed");
     } catch (e) {
       errorMsg = e instanceof Error ? e.message : "failed";
     }

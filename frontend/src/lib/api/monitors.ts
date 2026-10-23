@@ -83,9 +83,12 @@ export async function deleteMonitor(id: string): Promise<void> {
 }
 
 export async function listDiscoveries(
-  status?: string,
+  status?: string | string[],
 ): Promise<{ items: Discovery[]; pending_count: number }> {
-  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  const list = status === undefined ? [] : Array.isArray(status) ? status : [status];
+  const qs = list.length
+    ? "?" + list.map((s) => `status=${encodeURIComponent(s)}`).join("&")
+    : "";
   return api<{ items: Discovery[]; pending_count: number }>(
     `/api/me/discoveries${qs}`,
   );

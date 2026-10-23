@@ -6,6 +6,7 @@
   import { onMount } from "svelte";
   import { logout } from "#lib/api/auth.ts";
   import { listDiscoveries } from "#lib/api/monitors.ts";
+  import { pendingDiscoveries } from "#lib/stores/discoveries.ts";
   import type { CurrentUser } from "#lib/api/auth.ts";
 
   export let user: CurrentUser;
@@ -20,11 +21,11 @@
   }
 
   // Loaded once per layout mount; only users who can monitor have discoveries.
-  let pendingCount = 0;
+  $: pendingCount = $pendingDiscoveries ?? 0;
   onMount(() => {
     if (user.role !== "admin") return;
-    listDiscoveries()
-      .then((r) => (pendingCount = r.pending_count))
+    listDiscoveries("pending_review")
+      .then((r) => pendingDiscoveries.set(r.pending_count))
       .catch(() => {});
   });
 
@@ -80,7 +81,7 @@
           <path d="M8 4v4l2.5 2.5" />
         </svg>
         {$_("nav.discoveries")}
-        {#if pendingCount > 0}<span class="rail-badge" aria-label="{pendingCount} pending">{pendingCount}</span>{/if}
+        {#if pendingCount > 0}<span class="rail-badge" aria-label={$_("discoveries.pending_badge", { values: { count: pendingCount } })}>{pendingCount}</span>{/if}
       </a>
     {/if}
     <a class="rail-link" class:active={active("/me/downloads")} href="/me/downloads">

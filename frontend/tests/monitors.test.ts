@@ -64,6 +64,32 @@ test("admin monitors: entity monitor form and inline cap edit", async ({ page })
   }
 });
 
+test("admin monitors: add a query monitor", async ({ page }) => {
+  await loginAs(page, page.request);
+  const q = `E2E Query ${Date.now()}`;
+  try {
+    await page.goto("/admin/monitors", { waitUntil: "networkidle" });
+    await page.getByPlaceholder(/artist, party, or venue/i).fill(q);
+    await page.getByRole("button", { name: /add monitor/i }).click();
+    await expect(page.getByRole("row", { name: new RegExp(q) })).toBeVisible();
+  } finally {
+    await deleteMonitorsWhere(page.request, (m) => m.query_text === q);
+  }
+});
+
+test("admin monitors: add a query monitor", async ({ page }) => {
+  await loginAs(page, page.request);
+  const q = `E2E Query ${Date.now()}`;
+  try {
+    await page.goto("/admin/monitors", { waitUntil: "networkidle" });
+    await page.getByPlaceholder(/artist, party, or venue/i).fill(q);
+    await page.getByRole("button", { name: /add monitor/i }).click();
+    await expect(page.getByRole("row", { name: new RegExp(q) })).toBeVisible();
+  } finally {
+    await deleteMonitorsWhere(page.request, (m) => m.query_text === q);
+  }
+});
+
 test("nav shows Discoveries and the page has status tabs", async ({ page }) => {
   await loginAs(page, page.request);
   await page.goto("/", { waitUntil: "networkidle" });

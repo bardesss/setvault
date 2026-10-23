@@ -160,7 +160,7 @@
       <span>{$_("monitors.source_label")}</span>
       <select bind:value={sourceKind} aria-label={$_("monitors.source_label")}>
         {#if kind === "query"}
-          <option value="">{$_("monitors.source_all")}</option>
+          <option value="">{$_("monitors.all_sources")}</option>
         {:else}
           <option value="" disabled>{$_("monitors.source_pick")}</option>
         {/if}

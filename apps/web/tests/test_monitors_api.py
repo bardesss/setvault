@@ -475,3 +475,28 @@ async def test_discoveries_pending_count(authed_admin_client):
     r = await authed_admin_client.get("/api/me/discoveries")
     assert len(r.json()["items"]) == 4
     assert r.json()["pending_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_discoveries_repeated_status_filter(authed_admin_client):
+    from setvault_core.models.monitors import MonitorDiscovery
+
+    r = await authed_admin_client.post("/api/monitors", json={"kind": "query", "query_text": "q"})
+    mid = uuid.UUID(r.json()["id"])
+    init_engine(os.environ["TEST_DATABASE_URL"])
+    async with session_factory()() as s:
+        for status in ("ingested", "auto_ingested", "dismissed", "pending_review"):
+            s.add(MonitorDiscovery(
+                monitor_id=mid, source_kind="youtube", external_id=uuid.uuid4().hex,
+                title="t", webpage_url="https://example.test/v", confidence="low",
+                status=status,
+            ))
+        await s.commit()
+
+    r = await authed_admin_client.get(
+        "/api/me/discoveries", params=[("status", "ingested"), ("status", "auto_ingested")],
+    )
+    assert r.status_code == 200, r.text
+    assert {d["status"] for d in r.json()["items"]} == {"ingested", "auto_ingested"}
+    r = await authed_admin_client.get("/api/me/discoveries", params={"status": "dismissed"})
+    assert [d["status"] for d in r.json()["items"]] == ["dismissed"]

@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from setvault_core.models.identity import User
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
 from setvault_core.schemas.monitors import (
@@ -196,7 +196,7 @@ async def _owned_discovery_or_404(
 async def list_discoveries(
     user: Annotated[User, Depends(require_can_monitor)],
     session: Annotated[AsyncSession, Depends(db_session)],
-    status: str | None = None,
+    status: Annotated[list[str] | None, Query()] = None,
 ):
     q = select(MonitorDiscovery).order_by(MonitorDiscovery.created_at.desc())
     pending = select(func.count()).select_from(MonitorDiscovery).where(
@@ -211,7 +211,7 @@ async def list_discoveries(
             Monitor.owner_user_id == scope,
         )
     if status:
-        q = q.where(MonitorDiscovery.status == status)
+        q = q.where(MonitorDiscovery.status.in_(status))
     rows = (await session.execute(q.limit(200))).scalars().all()
     return DiscoveriesListOut(
         items=[_disc_out(d) for d in rows],

@@ -44,7 +44,8 @@
       {#if $session?.role === "admin"}
         <MonitorButton kind="venue" entityId={venue.id} name={venue.name} monitor={data.venue.monitor ?? null} />
       {/if}
-      <button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>{/if}
+      <button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>
+    {/if}
   </header>
 
   {#if editing}
