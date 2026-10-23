@@ -210,3 +210,31 @@ async def test_publish_enqueues_naming_when_template(tmp_path: Path, monkeypatch
         await s.commit()
 
     assert calls == ([sid] if template else [])
+
+
+async def test_name_taken_after_check_is_never_overwritten(tmp_path: Path, monkeypatch):
+    """Another worker creates the target between the free-name check and the
+    placement: the existing file keeps its bytes and the set moves on to the
+    next suffix."""
+    from setvault_core.jobs import apply_naming
+
+    ids = await _root(tmp_path)
+    sid = await _set(tmp_path, ids, slug="my-set", audio_path="originals/x/upload.flac")
+    racer = tmp_path / "Carl-Cox/my-set.flac"
+    racer.parent.mkdir(parents=True)
+    racer.write_bytes(b"OTHER-WORKER")
+
+    real_is_taken = apply_naming._is_taken
+
+    async def stale_check(session, live, root, candidate):
+        # The check ran before the other worker created the file.
+        if candidate == "Carl-Cox/my-set.flac":
+            return False
+        return await real_is_taken(session, live, root, candidate)
+
+    monkeypatch.setattr(apply_naming, "_is_taken", stale_check)
+
+    assert await _apply(sid) == ("renamed", "Carl-Cox/my-set (2).flac")
+    assert racer.read_bytes() == b"OTHER-WORKER"
+    assert (tmp_path / "Carl-Cox/my-set (2).flac").read_bytes() == b"AUDIO"
+    assert not (tmp_path / "originals/x/upload.flac").exists()

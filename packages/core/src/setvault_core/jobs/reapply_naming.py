@@ -18,7 +18,7 @@ import uuid
 from sqlalchemy import select
 
 from setvault_core.db import init_engine, run_job, session_factory
-from setvault_core.jobs.apply_naming import apply_naming_to_set
+from setvault_core.jobs.apply_naming import apply_naming_to_set, lock_set_for_naming
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.services.audit import log as audit_log
 
@@ -53,10 +53,11 @@ async def reapply_naming_template(media_root_id: str) -> dict:
 
         for set_id in set_ids:
             try:
-                # Fresh copies each time: a failed set's rollback expires the
-                # session's objects.
+                # Fresh, row-locked copy each time (a failed set's rollback
+                # expires the session's objects); the lock serialises this
+                # with a per-set rename job for the same set.
                 root = await s.get(MediaRoot, root_uuid, populate_existing=True)
-                live = await s.get(LiveSet, set_id, populate_existing=True)
+                live = await lock_set_for_naming(s, set_id)
                 if root is None or live is None or live.deleted_at is not None:
                     continue
                 outcome = await apply_naming_to_set(s, live, root)
@@ -64,8 +65,10 @@ async def reapply_naming_template(media_root_id: str) -> dict:
             except Exception:
                 summary["errors"] += 1
                 logger.exception("reapply: failed for %s", set_id)
+            finally:
+                # Release the row lock of a set that wasn't renamed (a rename
+                # already committed) before moving on.
                 await s.rollback()
-
         await audit_log(
             s,
             actor_user_id=None,

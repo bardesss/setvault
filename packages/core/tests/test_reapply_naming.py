@@ -90,3 +90,43 @@ async def test_reapply_without_template_does_nothing(tmp_path: Path):
     summary = await reapply_naming_template(str(root_id))
 
     assert summary == {"renamed": 0, "unchanged": 0, "skipped": 0, "errors": 0}
+
+
+async def test_reapply_counts_a_failing_set_and_continues(tmp_path: Path, monkeypatch):
+    from setvault_core.jobs import reapply_naming
+
+    async with session_factory()() as s:
+        u = User(email=f"u{uuid.uuid4().hex[:6]}@x.test", username=f"u{uuid.uuid4().hex[:6]}",
+                 display_name="u", password_hash="x")
+        r = MediaRoot(name=f"r{uuid.uuid4().hex[:6]}", host_path=str(tmp_path),
+                      enabled=True, naming_template="sets/{Slug}.{Ext}")
+        s.add_all([u, r])
+        await s.flush()
+        sets = [LiveSet(slug=slug, title=slug, media_root_id=r.id,
+                        audio_path=f"originals/{slug}/a.flac", uploaded_by=u.id)
+                for slug in ("aa", "bb", "cc")]
+        s.add_all(sets)
+        await s.commit()
+        root_id = r.id
+        ids = {x.slug: x.id for x in sets}
+    for slug in ids:
+        p = tmp_path / f"originals/{slug}/a.flac"
+        p.parent.mkdir(parents=True)
+        p.write_bytes(slug.encode())
+
+    real = reapply_naming.apply_naming_to_set
+
+    async def flaky(session, live, root):
+        if live.slug == "bb":
+            raise OSError("disk hiccup")
+        return await real(session, live, root)
+
+    monkeypatch.setattr(reapply_naming, "apply_naming_to_set", flaky)
+
+    summary = await reapply_naming_template(str(root_id))
+
+    assert summary == {"renamed": 2, "unchanged": 0, "skipped": 0, "errors": 1}
+    async with session_factory()() as s:
+        paths = {k: (await s.get(LiveSet, v)).audio_path for k, v in ids.items()}
+    assert paths == {"aa": "sets/aa.flac", "bb": "originals/bb/a.flac", "cc": "sets/cc.flac"}
+    assert (tmp_path / "originals/bb/a.flac").read_bytes() == b"bb"

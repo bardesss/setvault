@@ -161,3 +161,12 @@ def test_render_filename_dot_before_ext_is_not_doubled():
     live = _Live()
     assert render_filename("{Artist}/{Slug}.{Ext}", live, ext=".opus") == "Carl-Cox/test-set.opus"
     assert render_filename("{Artist}/{Slug}{Ext}", live, ext=".opus") == "Carl-Cox/test-set.opus"
+
+
+def test_every_token_resolves():
+    """Each validated token is one the renderer knows (no silent empties)."""
+    from setvault_core.services.naming import TOKENS
+
+    live = _Live()
+    for token in TOKENS:
+        assert render_filename(f"{{{token}}}", live, ext=".opus"), token

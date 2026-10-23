@@ -19,6 +19,7 @@ Windows + Linux runners.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -27,9 +28,6 @@ if TYPE_CHECKING:
 
 _TOKEN_RE = re.compile(r"\{(?P<name>[A-Za-z]+)\}")
 
-TOKENS = frozenset({
-    "Artist", "Party", "Series", "Venue", "Date", "Year", "Slug", "Type", "SetId", "Ext",
-})
 _UNIQUE_TOKENS = ("{SetId}", "{Slug}")
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 
@@ -65,6 +63,7 @@ def template_has_unique_token(template: str) -> bool:
     """True when the template names each set uniquely ({SetId} or {Slug})."""
     return any(tok in template for tok in _UNIQUE_TOKENS)
 
+
 # Characters not allowed in a single path segment. Slash also stripped from
 # token VALUES so they can't escape a path component.
 _UNSAFE_CHARS_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -96,31 +95,29 @@ def _artist_name(live: LiveSet) -> str:
     return getattr(first.artist, "name", "") or ""
 
 
+# Token name → (live, ext) → safe-segment string. The single source of the
+# token vocabulary: TOKENS (validation) is derived from it.
+_RESOLVERS: dict[str, Callable[[LiveSet, str], str]] = {
+    "Artist": lambda live, ext: _safe_segment(_artist_name(live)),
+    "Party": lambda live, ext: _safe_segment(live.party.name if live.party else ""),
+    "Series": lambda live, ext: _safe_segment(
+        live.party.series.name if (live.party and live.party.series) else "",
+    ),
+    "Venue": lambda live, ext: _safe_segment(live.venue.name if live.venue else ""),
+    "Date": lambda live, ext: live.date.isoformat() if live.date else "",
+    "Year": lambda live, ext: str(live.date.year) if live.date else "",
+    "Slug": lambda live, ext: _safe_segment(live.slug),
+    "Type": lambda live, ext: _safe_segment(live.set_type or ""),
+    "SetId": lambda live, ext: str(live.id),
+    "Ext": lambda live, ext: ext,  # already includes the leading dot
+}
+TOKENS = frozenset(_RESOLVERS)
+
+
 def _resolve_token(name: str, live: LiveSet, ext: str) -> str:
     """Token → safe-segment string. Unknown tokens render as empty."""
-    if name == "Artist":
-        return _safe_segment(_artist_name(live))
-    if name == "Party":
-        return _safe_segment(live.party.name if live.party else "")
-    if name == "Series":
-        return _safe_segment(
-            live.party.series.name if (live.party and live.party.series) else "",
-        )
-    if name == "Venue":
-        return _safe_segment(live.venue.name if live.venue else "")
-    if name == "Date":
-        return live.date.isoformat() if live.date else ""
-    if name == "Year":
-        return str(live.date.year) if live.date else ""
-    if name == "Slug":
-        return _safe_segment(live.slug)
-    if name == "Type":
-        return _safe_segment(live.set_type or "")
-    if name == "SetId":
-        return str(live.id)
-    if name == "Ext":
-        return ext  # already includes the leading dot
-    return ""
+    resolver = _RESOLVERS.get(name)
+    return resolver(live, ext) if resolver else ""
 
 
 def render_filename(template: str, live: LiveSet, *, ext: str) -> str:
