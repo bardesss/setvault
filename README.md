@@ -6,7 +6,7 @@
 
 **Self-hosted vault for DJ live sets.** Upload FLAC/WAV/MP3 or rip from
 YouTube / SoundCloud / Mixcloud / Internet Archive / Bandcamp, and get waveforms,
-loudness-normalized audio, time-coded tracklists, enriched metadata, comments,
+loudness-matched streams, time-coded tracklists, enriched metadata, comments,
 per-user RSS feeds, an embeddable player, and an installable PWA.
 
 > Think **Mixcloud × 1001tracklists × Plex** — but for DJ live sets.
@@ -17,7 +17,7 @@ per-user RSS feeds, an embeddable player, and an installable PWA.
 
 | Area | What you get |
 |---|---|
-| **Ingest** | Resumable multi-GB uploads (tus) · paste-URL rip · watch-folder auto-ingest · ffmpeg → Opus + R128 normalize · waveform peaks · chromaprint dedup |
+| **Ingest** | Resumable multi-GB uploads (tus) · paste-URL rip · watch-folder auto-ingest · ffmpeg → Opus, EBU R128 measured, static gain to a target loudness · waveform peaks · chromaprint dedup |
 | **Catalog** | LiveSets · Artists · Venues · Series · Parties · Tags · naming templates · Postgres FTS · recycle bin · bulk editor |
 | **Tracklists** | Per-set editor · reorder + time-shift · live add · paste-parse · 1001tracklists scrape · OCR |
 | **Enrichment** | Pluggable providers — MusicBrainz · Discogs · AcoustID — with per-row + bulk resolve |

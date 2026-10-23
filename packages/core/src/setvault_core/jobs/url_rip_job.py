@@ -381,13 +381,15 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
                                   message=early.message)
                 return
 
-        await _set_status(session, job, "transcoding", progress_pct=45,
-                          message="encoding Opus")
-        await transcode_audio(live_set_id)
-
-        await _set_status(session, job, "normalizing", progress_pct=65,
+        # Measure the original first: transcode applies the gain towards the
+        # loudness target (P2a A3).
+        await _set_status(session, job, "normalizing", progress_pct=45,
                           message="EBU R128 scan")
         await normalize_audio(live_set_id)
+
+        await _set_status(session, job, "transcoding", progress_pct=65,
+                          message="encoding Opus")
+        await transcode_audio(live_set_id)
 
         await _set_status(session, job, "waveform", progress_pct=85,
                           message="rendering waveform")

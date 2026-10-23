@@ -857,7 +857,7 @@ proxy.
 
 ### Ingest
 
-- ffmpeg → Opus transcode with EBU R128 loudness normalization
+- ffmpeg → Opus transcode with EBU R128 loudness measurement
 - waveform peak extraction cached on disk
 - chromaprint dedup via AcoustID fingerprints
 - per-`MediaRoot` naming templates

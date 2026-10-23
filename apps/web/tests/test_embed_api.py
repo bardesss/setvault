@@ -32,7 +32,7 @@ async def test_admin_toggle_then_embed_200(authed_admin_client, seeded_live_set)
         body = r.json()
         assert body["slug"] == seeded_live_set["slug"]
         assert body["title"] == "seeded set"
-        assert "audio_url" in body
+        assert body["audio_url"] == f"/api/sets/{seeded_live_set['slug']}/stream?v=0.0"
         assert "tracklist" in body
 
 

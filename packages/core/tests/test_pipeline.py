@@ -133,3 +133,37 @@ def test_init_engine_reuses_engine_on_same_loop_only(monkeypatch):
     c, _ = run_job(_twice())
     assert a is b
     assert c is not a
+
+
+def test_pipeline_order(tmp_path: Path, monkeypatch):
+    """Normalize measures the original before transcode, so transcode can
+    apply the gain (P2a A3)."""
+    import setvault_core.jobs.fingerprint as fingerprint
+    import setvault_core.jobs.normalize as normalize
+    import setvault_core.jobs.pipeline as pipeline
+    import setvault_core.jobs.ready as ready
+    import setvault_core.jobs.transcode as transcode
+    import setvault_core.jobs.waveform as waveform
+
+    url = os.environ["TEST_DATABASE_URL"]
+    monkeypatch.setenv("SETVAULT_DB_NULLPOOL", "1")
+    init_engine(url)
+    sid = asyncio.run(_make_set(tmp_path))
+
+    calls: list[str] = []
+
+    def _step(name):
+        async def _fn(live_set_id, **kwargs):
+            calls.append(name)
+        return _fn
+
+    monkeypatch.setattr(pipeline, "probe_audio", _step("probe"))
+    monkeypatch.setattr(fingerprint, "fingerprint_audio", _step("fingerprint"))
+    monkeypatch.setattr(normalize, "normalize_audio", _step("normalize"))
+    monkeypatch.setattr(transcode, "transcode_audio", _step("transcode"))
+    monkeypatch.setattr(waveform, "generate_waveform", _step("waveform"))
+    monkeypatch.setattr(ready, "mark_ready", _step("ready"))
+
+    run_pipeline(str(sid))
+
+    assert calls == ["probe", "fingerprint", "normalize", "transcode", "waveform", "ready"]

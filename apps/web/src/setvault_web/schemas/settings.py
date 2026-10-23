@@ -17,6 +17,8 @@ class SettingsOut(BaseModel):
     quality_cutoff: str
     auto_upgrades_enabled: bool
     upgrade_search_schedule: Literal["daily", "weekly", "off"]
+    # None = loudness matching off.
+    loudness_target_lufs: float | None
 
 
 class SettingsIn(BaseModel):
@@ -34,6 +36,9 @@ class SettingsIn(BaseModel):
     quality_cutoff: str | None = None
     auto_upgrades_enabled: bool | None = None
     upgrade_search_schedule: Literal["daily", "weekly", "off"] | None = None
+    # An explicit null turns loudness matching off; leaving the field out
+    # keeps the stored target (the PUT checks ``model_fields_set``).
+    loudness_target_lufs: float | None = Field(default=None, ge=-30.0, le=-5.0)
 
     @field_validator("quality_tiers_order")
     @classmethod

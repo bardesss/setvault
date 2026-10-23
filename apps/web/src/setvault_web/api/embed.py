@@ -13,6 +13,7 @@ from setvault_core.models.tracklist import TracklistEntry
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_web.api.sets import stream_url
 from setvault_web.deps import db_session
 
 router = APIRouter(tags=["embed"])
@@ -43,7 +44,7 @@ async def embed_set(
         "slug": live.slug,
         "title": live.title,
         "duration_seconds": live.duration_seconds,
-        "audio_url": f"/api/sets/{slug}/stream",
+        "audio_url": stream_url(live),
         "waveform_url": f"/api/sets/{slug}/waveform",
         "tracklist": [
             {"position": e.position, "start_seconds": e.start_seconds,

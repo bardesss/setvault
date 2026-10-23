@@ -30,7 +30,27 @@ async def test_get_set_by_slug(authed_admin_client, seeded_live_set):
     assert response.status_code == 200
     body = response.json()
     assert body["slug"] == slug
-    assert body["audio_stream_url"].endswith(f"/api/sets/{slug}/stream")
+    assert body["audio_stream_url"].endswith(f"/api/sets/{slug}/stream?v=0.0")
+
+
+async def test_stream_url_has_gain_version(authed_admin_client, seeded_live_set, tmp_path):
+    """The stream URL carries the applied gain, so a re-gained file is a new
+    resource to the service-worker cache. The stream route ignores ``v``."""
+    slug = seeded_live_set["slug"]
+    (tmp_path / "stream").mkdir()
+    (tmp_path / "stream" / "s.opus").write_bytes(b"opus-bytes")
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, _uuid.UUID(seeded_live_set["id"]))
+        live.stream_gain_db = -6.04
+        live.streaming_path = "stream/s.opus"
+        await s.commit()
+
+    body = (await authed_admin_client.get(f"/api/sets/{slug}")).json()
+    assert body["audio_stream_url"] == f"/api/sets/{slug}/stream?v=-6.0"
+
+    r = await authed_admin_client.get(body["audio_stream_url"])
+    assert r.status_code == 200, r.text
+    assert r.content == b"opus-bytes"
 
 
 async def test_edit_set_replaces_artists_and_tags(authed_admin_client, seeded_live_set):

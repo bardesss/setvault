@@ -26,7 +26,7 @@ async def normalize_audio(live_set_id: str) -> None:
 
         publish(ProgressEvent(
             kind="normalize", live_set_id=live_set_id, job_id=live_set_id,
-            progress_pct=70, message="EBU R128 scan",
+            progress_pct=40, message="EBU R128 scan",
         ))
         cmd = [
             "ffmpeg", "-hide_banner", "-i", str(src),
@@ -42,7 +42,7 @@ async def normalize_audio(live_set_id: str) -> None:
         await s.commit()
         publish(ProgressEvent(
             kind="normalize", live_set_id=live_set_id, job_id=live_set_id,
-            progress_pct=80, message=f"integrated loudness {lufs} LUFS",
+            progress_pct=60, message=f"integrated loudness {lufs} LUFS",
         ))
 
 

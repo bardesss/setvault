@@ -9,6 +9,8 @@ from pathlib import Path
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.progress import ProgressEvent, publish
+from setvault_core.services.loudness import audio_filter, gain_for
+from setvault_core.services.system_config import get_config
 
 
 async def transcode_audio(live_set_id: str) -> None:
@@ -28,14 +30,20 @@ async def transcode_audio(live_set_id: str) -> None:
         tmp = dest.with_suffix(".opus.tmp")
         dest.parent.mkdir(parents=True, exist_ok=True)
 
+        # Normalize has measured the original by now (pipeline order), so the
+        # stream gets a static gain towards the configured target.
+        gain_db = gain_for(live.normalized_lufs, (await get_config(s)).loudness_target_lufs)
+        af = audio_filter(gain_db)
+
         publish(ProgressEvent(
             kind="transcode", live_set_id=live_set_id, job_id=live_set_id,
-            progress_pct=40, message="encoding opus 128k",
+            progress_pct=70, message="encoding opus 128k",
         ))
         await asyncio.to_thread(
             subprocess.run,
             [
                 "ffmpeg", "-y", "-i", str(src),
+                *(["-af", af] if af else []),
                 "-c:a", "libopus", "-b:a", "128k", "-vbr", "on",
                 "-application", "audio",
                 "-ac", "2", "-ar", "48000",
@@ -46,10 +54,11 @@ async def transcode_audio(live_set_id: str) -> None:
         tmp.replace(dest)
 
         live.streaming_path = rel
+        live.stream_gain_db = gain_db
         await s.commit()
         publish(ProgressEvent(
             kind="transcode", live_set_id=live_set_id, job_id=live_set_id,
-            progress_pct=60, message="opus ready",
+            progress_pct=80, message="opus ready",
         ))
 
 

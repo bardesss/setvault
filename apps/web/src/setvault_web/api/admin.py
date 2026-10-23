@@ -103,6 +103,7 @@ def _settings_out(config) -> SettingsOut:
         # An unknown stored value (hand-edited / older build) reads as the
         # default, which is also what the scheduler runs (due_sets).
         upgrade_search_schedule=normalize_schedule(config.upgrade_search_schedule),
+        loudness_target_lufs=config.loudness_target_lufs,
     )
 
 
@@ -149,6 +150,9 @@ async def update_settings(
         config.auto_upgrades_enabled = body.auto_upgrades_enabled
     if body.upgrade_search_schedule is not None:
         config.upgrade_search_schedule = body.upgrade_search_schedule
+    # Null is a real value here (off), so "supplied" means present in the body.
+    if "loudness_target_lufs" in body.model_fields_set:
+        config.loudness_target_lufs = body.loudness_target_lufs
     await session.flush()
     await session.commit()
     return _settings_out(config)
@@ -186,6 +190,32 @@ async def remeasure_loudness(
     )
     await session.commit()
     return {"status": "queued", "job_id": rq_job.id, "candidates": int(candidates)}
+
+
+@router.post("/maintenance/regain", status_code=202)
+async def regain_library(
+    session: Annotated[AsyncSession, Depends(db_session)],
+    admin: Annotated[User, Depends(current_user)],
+    _: Annotated[object, Depends(require_admin)],
+):
+    """Re-apply to library: enqueue the low-priority job that re-transcodes
+    every stream whose gain no longer matches the loudness target."""
+    from redis import Redis
+    from rq import Queue
+    from setvault_core.jobs.regain import REGAIN_JOB_FUNC, REGAIN_JOB_TIMEOUT
+
+    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    rq_job = Queue("low", connection=redis).enqueue(
+        REGAIN_JOB_FUNC, job_timeout=REGAIN_JOB_TIMEOUT,
+    )
+    await audit_log(
+        session,
+        actor_user_id=admin.id,
+        action="maintenance.regain_started",
+        after={"job_id": rq_job.id},
+    )
+    await session.commit()
+    return {"job_id": rq_job.id}
 
 
 @router.get("/maintenance/quality-backfill")

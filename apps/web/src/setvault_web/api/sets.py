@@ -98,6 +98,13 @@ async def _stream_authorize(
     raise HTTPException(status_code=401, detail="not authenticated")
 
 
+def stream_url(live: LiveSet) -> str:
+    """The set's stream URL. ``v`` is the gain baked into the stream file, so a
+    re-gained stream is a new URL to the service-worker cache; the stream
+    route ignores it."""
+    return f"/api/sets/{live.slug}/stream?v={live.stream_gain_db or 0.0:.1f}"
+
+
 async def _tag_names_for(session: AsyncSession, live_id: uuid.UUID) -> list[str]:
     rows = (
         await session.execute(
@@ -352,7 +359,7 @@ async def show_set(
         party=_party_out(row.party) if row.party else None,
         venue=_venue_out(row.venue) if row.venue else None,
         description=row.description,
-        audio_stream_url=f"/api/sets/{slug}/stream",
+        audio_stream_url=stream_url(row),
         waveform_url=f"/api/sets/{slug}/waveform" if row.waveform_path else None,
         normalized_lufs=row.normalized_lufs,
         embed_allowed=row.embed_allowed,
