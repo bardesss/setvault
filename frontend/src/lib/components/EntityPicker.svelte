@@ -2,6 +2,7 @@
   import { createEventDispatcher, onDestroy, tick } from "svelte";
   import { _ } from "svelte-i18n";
   import { lookup, type LookupKind, type LookupRow } from "#lib/api/lookup.ts";
+  import { toast } from "#lib/stores/toast.ts";
   import { moveItem, nextIndex, offerCreate } from "#lib/entity-picker.ts";
 
   export let kind: LookupKind;
@@ -24,10 +25,15 @@
   let active = -1;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let seq = 0;
+  let pending = false; // a lookup is debounced or in flight for the current query
+  let failed = false; // the last lookup errored
+  let fieldEl: HTMLElement | undefined;
 
   $: selectedIds = new Set(value.map((v) => v.id));
   $: visible = results.filter((r) => !selectedIds.has(r.id));
-  $: showCreate = allowCreate && offerCreate(query, results, value);
+  // Never offer "create" on stale or unknown results: that is how duplicates get made.
+  $: showCreate =
+    allowCreate && !pending && !failed && offerCreate(query, results, value);
   $: rowCount = visible.length + (showCreate ? 1 : 0);
   $: showInput = multiple || value.length === 0;
 
@@ -39,12 +45,16 @@
   function schedule() {
     clearTimeout(timer);
     const q = query;
+    failed = false;
     if (!q.trim()) {
       seq++;
+      pending = false;
       results = [];
       active = -1;
       return;
     }
+    pending = true;
+    active = -1;
     timer = setTimeout(() => void run(q), DEBOUNCE_MS);
   }
 
@@ -54,10 +64,14 @@
       const rows = await lookup(kind, q.trim());
       if (mine !== seq) return;
       results = rows;
+      failed = false;
     } catch {
       if (mine !== seq) return;
       results = [];
+      failed = true;
+      toast.error($_("picker.lookup_failed"));
     }
+    pending = false;
     await tick(); // let the reactive row count settle
     active = rowCount > 0 ? 0 : -1;
   }
@@ -70,6 +84,12 @@
   function pick(row: LookupRow) {
     setValue(multiple ? [...value, row] : [row]);
     reset();
+    if (!multiple) void focusChipRemove();
+  }
+
+  async function focusChipRemove() {
+    await tick();
+    fieldEl?.querySelector<HTMLElement>("[data-remove]")?.focus();
   }
 
   function create() {
@@ -82,6 +102,8 @@
   function reset() {
     clearTimeout(timer);
     seq++;
+    pending = false;
+    failed = false;
     query = "";
     results = [];
     active = -1;
@@ -131,7 +153,7 @@
 </script>
 
 <div class="picker">
-  <div class="field">
+  <div class="field" bind:this={fieldEl}>
     {#each value as item, i (item.id)}
       <span class="chip">
         <span class="chip-name">{item.name}</span>
@@ -155,6 +177,7 @@
         <button
           type="button"
           class="chip-btn"
+          data-remove
           aria-label={$_("picker.remove", { values: { name: item.name } })}
           on:click={() => remove(i)}>×</button
         >

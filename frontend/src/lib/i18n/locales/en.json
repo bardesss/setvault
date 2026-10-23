@@ -9,7 +9,8 @@
     "create": "Create \"{name}\"",
     "move_up": "Move up",
     "move_down": "Move down",
-    "remove": "Remove {name}"
+    "remove": "Remove {name}",
+    "lookup_failed": "Search failed. Try again."
   },
   "auth": {
     "login": {

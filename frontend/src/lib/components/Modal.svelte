@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { createEventDispatcher, tick } from "svelte";
+  import { createEventDispatcher, onDestroy, tick } from "svelte";
   import { _ } from "svelte-i18n";
+  import { isTopModal, pushModal, removeModal } from "#lib/modal-stack.ts";
 
   export let open = false;
   export let title: string;
@@ -12,16 +13,22 @@
   let dialogEl: HTMLElement | undefined;
   let opener: HTMLElement | null = null;
   let wasOpen = false;
+  let downOnBackdrop = false;
+  const id = Symbol("modal");
+
+  onDestroy(() => removeModal(id));
 
   $: if (open !== wasOpen) {
     wasOpen = open;
     if (open) {
+      pushModal(id);
       opener = document.activeElement as HTMLElement | null;
       void tick().then(() => {
         const first = dialogEl?.querySelector<HTMLElement>(FOCUSABLE);
         (first ?? dialogEl)?.focus();
       });
     } else {
+      removeModal(id);
       opener?.focus?.();
       opener = null;
     }
@@ -32,7 +39,7 @@
   }
 
   function onKeydown(ev: KeyboardEvent) {
-    if (!open) return;
+    if (!open || !isTopModal(id)) return;
     if (ev.key === "Escape") {
       ev.preventDefault();
       close();
@@ -55,15 +62,26 @@
     }
   }
 
+  function onBackdropDown(ev: MouseEvent) {
+    downOnBackdrop = ev.target === ev.currentTarget;
+  }
+
   function onBackdrop(ev: MouseEvent) {
-    if (ev.target === ev.currentTarget) close();
+    const both = downOnBackdrop && ev.target === ev.currentTarget;
+    downOnBackdrop = false;
+    if (both) close();
   }
 </script>
 
 <svelte:window on:keydown={onKeydown} />
 
 {#if open}
-  <div class="backdrop" on:click={onBackdrop} role="presentation">
+  <div
+    class="backdrop"
+    on:mousedown={onBackdropDown}
+    on:click={onBackdrop}
+    role="presentation"
+  >
     <div
       class="dialog modal"
       role="dialog"
