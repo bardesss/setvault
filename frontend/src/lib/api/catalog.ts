@@ -1,15 +1,19 @@
 import { api } from "./client";
 
+export interface EntityMonitor { id: string; enabled: boolean }
 export interface Artist {
+  monitor?: EntityMonitor | null;
   id: string; name: string; slug: string;
   country: string | null; bio: string | null; aliases: string[]; image_url: string | null;
 }
 export interface Venue {
+  monitor?: EntityMonitor | null;
   id: string; slug: string; name: string; kind: string;
   city_or_area: string | null; country: string | null; capacity: number | null; website: string | null;
 }
 export interface Series { id: string; slug: string; name: string; description: string | null; image_url: string | null; }
 export interface Party {
+  monitor?: EntityMonitor | null;
   id: string; name: string; slug: string;
   venue: { id: string; name: string; slug: string } | null;
   series: { id: string; name: string; slug: string } | null;

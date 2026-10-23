@@ -3,7 +3,9 @@
   import { toStore } from "svelte/store";
   import { goto } from "$app/navigation";
   import { _ } from "svelte-i18n";
+  import { onMount } from "svelte";
   import { logout } from "#lib/api/auth.ts";
+  import { listDiscoveries } from "#lib/api/monitors.ts";
   import type { CurrentUser } from "#lib/api/auth.ts";
 
   export let user: CurrentUser;
@@ -16,6 +18,15 @@
     if (href === "/") return pathname === "/";
     return pathname === href || pathname.startsWith(href + "/");
   }
+
+  // Loaded once per layout mount; only users who can monitor have discoveries.
+  let pendingCount = 0;
+  onMount(() => {
+    if (user.role !== "admin") return;
+    listDiscoveries()
+      .then((r) => (pendingCount = r.pending_count))
+      .catch(() => {});
+  });
 
   async function handleLogout() {
     await logout();
@@ -62,6 +73,16 @@
       </svg>
       {$_("nav.favorites")}
     </a>
+    {#if user.role === "admin"}
+      <a class="rail-link" class:active={active("/discoveries")} href="/discoveries">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
+          <circle cx="8" cy="8" r="6" />
+          <path d="M8 4v4l2.5 2.5" />
+        </svg>
+        {$_("nav.discoveries")}
+        {#if pendingCount > 0}<span class="rail-badge" aria-label="{pendingCount} pending">{pendingCount}</span>{/if}
+      </a>
+    {/if}
     <a class="rail-link" class:active={active("/me/downloads")} href="/me/downloads">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
         <path d="M8 1v9M4.5 6.5L8 10l3.5-3.5M2 14h12" />
@@ -119,6 +140,17 @@
     cursor: pointer;
     font-family: var(--font-sans);
     font-size: var(--ts-sm);
+  }
+  .rail-badge {
+    margin-left: auto;
+    min-width: 18px;
+    padding: 0 6px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: var(--bg-surface);
+    font-family: var(--font-mono);
+    font-size: var(--ts-xs);
+    text-align: center;
   }
   .rail-logout:hover { border-color: var(--accent); color: var(--accent); }
 

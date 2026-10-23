@@ -2,12 +2,27 @@
   import { _ } from "svelte-i18n";
   import AdminTable from "#lib/components/AdminTable.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
+  import { goto } from "$app/navigation";
+  import TabStrip from "#lib/components/TabStrip.svelte";
   import { dismissDiscovery, ripDiscovery, type Discovery } from "#lib/api/monitors.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;
   let rows: Discovery[] = data.discoveries;
   let errorMsg: string | null = null;
+  $: rows = data.discoveries;
+
+  let active = data.status;
+  $: active = data.status;
+  $: tabs = [
+    { id: "pending_review", label: $_("discoveries.tab_pending"), count: data.pendingCount },
+    { id: "ingested", label: $_("discoveries.tab_ingested") },
+    { id: "dismissed", label: $_("discoveries.tab_dismissed") },
+    { id: "all", label: $_("discoveries.tab_all") },
+  ];
+  $: if (active !== data.status) {
+    void goto(`?status=${active}`);
+  }
 
   async function rip(d: Discovery) {
     try {
@@ -31,6 +46,7 @@
 
 <section>
   <h1>{$_("discoveries.title")}</h1>
+  <TabStrip {tabs} bind:active />
   {#if errorMsg}<p class="admin-msg is-error" role="alert">{errorMsg}</p>{/if}
   {#if rows.length === 0}
     <EmptyState message={$_("discoveries.empty")} />

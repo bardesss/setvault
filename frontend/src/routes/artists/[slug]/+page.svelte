@@ -5,6 +5,8 @@
   import { patchArtist } from "#lib/api/catalog.ts";
   import { enrichArtist } from "#lib/api/catalog_admin.ts";
   import { ApiError } from "#lib/api/client.ts";
+  import MonitorButton from "#lib/components/MonitorButton.svelte";
+  import { session } from "#lib/stores/session.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;
@@ -57,6 +59,9 @@
   <header class="entity-head">
     <h1>{artist.name}</h1>
     {#if !editing}
+      {#if $session?.role === "admin"}
+        <MonitorButton kind="artist" entityId={artist.id} name={artist.name} monitor={data.artist.monitor ?? null} />
+      {/if}
       <button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>
       <button class="btn btn-ghost" on:click={enrich} disabled={enriching}>{$_("catalog.enrich")}</button>
     {/if}

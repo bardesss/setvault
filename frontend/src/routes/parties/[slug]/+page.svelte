@@ -5,6 +5,8 @@
   import EmptyState from "#lib/components/EmptyState.svelte";
   import { patchParty } from "#lib/api/catalog.ts";
   import { ApiError } from "#lib/api/client.ts";
+  import MonitorButton from "#lib/components/MonitorButton.svelte";
+  import { session } from "#lib/stores/session.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;
@@ -30,7 +32,11 @@
 <article class="entity-detail">
   <header class="entity-head">
     <h1>{party.name}</h1>
-    {#if !editing}<button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>{/if}
+    {#if !editing}
+      {#if $session?.role === "admin"}
+        <MonitorButton kind="party" entityId={party.id} name={party.name} monitor={data.party.monitor ?? null} />
+      {/if}
+      <button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>{/if}
   </header>
   {#if editing}
     <form class="entity-edit" on:submit|preventDefault={save}>
