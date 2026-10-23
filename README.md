@@ -158,6 +158,8 @@ External mode needs `BASE_URL` plus `DATABASE_URL`/`REDIS_URL`. The essentials:
 | `DATABASE_URL` / `REDIS_URL` | optional | Set to use external datastores; unset = bundled. |
 | `SETVAULT_VERSION` | optional | Image tag — **pin in production** (default floats on `latest`). |
 | `PUID` / `PGID` | optional | Container user/group for bind-mount permissions (default `1000`). |
+| `TZ` | optional | Time zone for the nightly backup time (default `UTC`). |
+| `SETVAULT_BACKUP_PATH` | optional | External compose: host folder for nightly DB backups (default `./.data/backups`). |
 
 `SETVAULT_DEV_SEED` enables a public test-only seed endpoint — **never set it in production**.
 See [CHANGELOG.md](CHANGELOG.md) / `.env.example` for the full list (paths, ports, advanced proxy flags).
@@ -208,6 +210,43 @@ fresh data dir, and restore (see below).
 >   `POSTGRES_USER` after first boot isn't supported: the database stays owned by the original role.
 
 ## 💾 Backup & restore
+
+### Scheduled database backups
+
+SetVault backs up its database every night (on by default, 03:30). Each backup is a gzipped
+`pg_dump` named `setvault-YYYYMMDD-HHMMSS.sql.gz`; the newest 14 are kept. Change the time,
+retention and folder under **Admin → Backups**, which also lists, downloads and deletes the files
+and has a "Back up now" button. A failed backup shows in red there and notifies the admins.
+
+- **Where:** `/data/backups` in bundled mode (inside the `/data` volume). With the external
+  compose files it's the `/srv/backups` mount, set by `SETVAULT_BACKUP_PATH` in `.env`
+  (default `./.data/backups`). A folder that is neither under `/data` nor a mount is lost when
+  the container is recreated; the Backups tab warns about that.
+- **When:** `backup_time` is in the container's time zone. Set `TZ` (e.g. `TZ=Europe/Amsterdam`);
+  the default is `UTC`. If the container was down at that time, the backup runs at the next
+  hourly check the same day.
+- **Space:** a backup refuses to start when the folder has less than twice the previous
+  backup's size free.
+- **What's not in it:** your media (it's large and already on your disk) and `.secrets` (the key
+  that decrypts saved connector passwords doesn't belong next to them; after a restore on a new
+  install, re-enter SMTP and connector passwords). Keep the backup folder on a **different disk**
+  if you want protection against losing the disk, and back up your media separately.
+
+### Restore from a scheduled backup
+
+The restore CLI loads a `.sql.gz` into the database (media is untouched). It is **destructive**
+and refuses to run without `--yes`:
+
+```bash
+# bundled: backups are already inside the container
+docker exec setvault python -m setvault_web.restore /data/backups/setvault-20261023-033000.sql.gz --yes
+# external compose: the backups mount is /srv/backups
+docker compose exec setvault python -m setvault_web.restore /srv/backups/setvault-20261023-033000.sql.gz --yes
+```
+
+Restart the container afterwards so every process picks up the restored data.
+
+### Full export (database + media)
 
 The admin backup endpoint streams a tarball of a fresh `pg_dump` + your media:
 

@@ -21,6 +21,7 @@ from redis import Redis
 from rq import Queue
 from rq_scheduler import Scheduler
 from setvault_core.db import init_engine
+from setvault_core.jobs.backup import BACKUP_JOB_TIMEOUT
 from setvault_core.jobs.upgrade_search import UPGRADE_QUEUE, UPGRADE_SEARCH_JOB_TIMEOUT
 
 from setvault_worker.recording import RecordingWorker
@@ -28,9 +29,10 @@ from setvault_worker.recording import RecordingWorker
 _HOURLY = 60 * 60
 _DAILY = 24 * 60 * 60
 
-# (func_path, interval_seconds[, job_timeout_seconds]). Re-registered exactly
-# once at worker boot. Without a timeout RQ's default (180 s) applies.
-_SCHEDULE: tuple[tuple[str, int] | tuple[str, int, int], ...] = (
+# (func_path, interval_seconds[, job_timeout]). Re-registered exactly once at
+# worker boot. Without a timeout RQ's default (180 s) applies; RQ accepts
+# seconds or a string like "2h".
+_SCHEDULE: tuple[tuple[str, int] | tuple[str, int, int | str], ...] = (
     ("setvault_core.jobs.media_root_health.run_health_checks_sync", 5 * 60),
     ("setvault_core.jobs.recycle_bin_purge.run_purge_recycle_bin", _HOURLY),
     ("setvault_core.jobs.github_version_poll.run_poll_github_releases", _DAILY),
@@ -40,6 +42,8 @@ _SCHEDULE: tuple[tuple[str, int] | tuple[str, int, int], ...] = (
     # Hourly batches spread the daily/weekly upgrade sweep over its window.
     ("setvault_core.jobs.upgrade_search.run_upgrade_search", _HOURLY,
      UPGRADE_SEARCH_JOB_TIMEOUT),
+    # Runs the nightly DB backup once it is due (catches up after downtime).
+    ("setvault_core.jobs.backup.run_backup_tick", _HOURLY, BACKUP_JOB_TIMEOUT),
 )
 # Queue per scheduled job when not "default" (R30).
 _QUEUES: dict[str, str] = {

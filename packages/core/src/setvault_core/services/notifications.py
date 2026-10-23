@@ -194,13 +194,9 @@ async def notify_set_upgraded(
         await _deliver_email(session, user_id=uid, kind="set_upgraded", payload=payload)
 
 
-async def notify_backfill_summary(session: AsyncSession, counts: dict) -> int:
-    """One in-app ``maintenance`` notification per active admin when the
-    quality backfill's duplicate cleanup finishes (Phase 7D spec §4.7: no
-    per-merge notifications). An admin whose ``maintenance`` preference is
-    ``off`` gets none. Returns the number sent; the caller commits."""
-    payload = {k: int(counts.get(k, 0))
-               for k in ("fingerprinted", "measured", "merged", "skipped", "errors")}
+async def _notify_admins_maintenance(session: AsyncSession, payload: dict) -> int:
+    """In-app ``maintenance`` notification to every active admin whose
+    ``maintenance`` preference isn't ``off``. Returns the number sent."""
     admins = (await session.execute(
         select(User.id).where(User.role == "admin", User.disabled_at.is_(None))
     )).scalars().all()
@@ -215,6 +211,25 @@ async def notify_backfill_summary(session: AsyncSession, counts: dict) -> int:
         )
         sent += 1
     return sent
+
+
+async def notify_backfill_summary(session: AsyncSession, counts: dict) -> int:
+    """One in-app ``maintenance`` notification per active admin when the
+    quality backfill's duplicate cleanup finishes (Phase 7D spec §4.7: no
+    per-merge notifications). An admin whose ``maintenance`` preference is
+    ``off`` gets none. Returns the number sent; the caller commits."""
+    payload = {k: int(counts.get(k, 0))
+               for k in ("fingerprinted", "measured", "merged", "skipped", "errors")}
+    return await _notify_admins_maintenance(session, payload)
+
+
+async def notify_backup_failed(session: AsyncSession, error: str) -> int:
+    """One in-app ``maintenance`` notification per active admin when a
+    scheduled or manual database backup fails (P2a A5). An admin whose
+    ``maintenance`` preference is ``off`` gets none. Returns the number sent;
+    the caller commits."""
+    payload = {"event": "backup.failed", "error": error}
+    return await _notify_admins_maintenance(session, payload)
 
 
 def event_labels(event: SetUpgradeEvent) -> tuple[str, str]:

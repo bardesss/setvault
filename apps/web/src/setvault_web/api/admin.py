@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -104,7 +105,24 @@ def _settings_out(config) -> SettingsOut:
         # default, which is also what the scheduler runs (due_sets).
         upgrade_search_schedule=normalize_schedule(config.upgrade_search_schedule),
         loudness_target_lufs=config.loudness_target_lufs,
+        backup_enabled=config.backup_enabled,
+        backup_time=config.backup_time,
+        backup_keep=config.backup_keep,
+        backup_dir=config.backup_dir,
     )
+
+
+def _ensure_writable_dir(path: str) -> None:
+    """Create ``path`` if missing and prove it's writable (a probe file), else
+    422. The web and worker processes run as the same uid."""
+    try:
+        os.makedirs(path, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=path, prefix=".write-test-"):
+            pass
+    except OSError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"backup_dir is not a writable directory: {exc}",
+        ) from exc
 
 
 @router.get("/settings", response_model=SettingsOut)
@@ -122,6 +140,8 @@ async def update_settings(
     session: Annotated[AsyncSession, Depends(db_session)],
     _: Annotated[object, Depends(require_admin)],
 ) -> SettingsOut:
+    if body.backup_dir is not None:
+        _ensure_writable_dir(body.backup_dir)
     config = await get_config(session)
     if body.audit_retention_days is not None:
         config.audit_retention_days = body.audit_retention_days
@@ -153,6 +173,15 @@ async def update_settings(
     # Null is a real value here (off), so "supplied" means present in the body.
     if "loudness_target_lufs" in body.model_fields_set:
         config.loudness_target_lufs = body.loudness_target_lufs
+    if body.backup_enabled is not None:
+        config.backup_enabled = body.backup_enabled
+    if body.backup_time is not None:
+        config.backup_time = body.backup_time
+    if body.backup_keep is not None:
+        config.backup_keep = body.backup_keep
+    # Null is a real value (use SETVAULT_BACKUP_PATH), as for the loudness target.
+    if "backup_dir" in body.model_fields_set:
+        config.backup_dir = body.backup_dir
     await session.flush()
     await session.commit()
     return _settings_out(config)

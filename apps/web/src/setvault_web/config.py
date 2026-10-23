@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     allow_1001tl_scrape: bool = Field(default=False, alias="SETVAULT_ALLOW_1001TL_SCRAPE")
     # tusd spools uploads under <cache>/tus (infra/docker/s6-rc.d/tusd/run).
     cache_path: str = Field(default="/srv/cache", alias="SETVAULT_CACHE_PATH")
+    # Scheduled DB backups land here unless SystemConfig.backup_dir overrides
+    # it (infra/docker/cont-init.d/00-mode: /data/backups when bundled).
+    backup_path: str = Field(default="/srv/backups", alias="SETVAULT_BACKUP_PATH")
 
 
 @lru_cache

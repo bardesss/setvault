@@ -17,6 +17,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
+      # Scheduled backups (in /data/backups) run at backup_time in this zone.
+      TZ: ${TZ:-UTC}
     ports:
       - "${SETVAULT_HTTP_PORT:-1970}:1970"
     volumes:

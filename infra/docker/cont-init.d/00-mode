@@ -55,6 +55,7 @@ if [ "${SETVAULT_PG_EMBEDDED}" = "1" ]; then
   resolve_bundled_dir SETVAULT_CACHE_PATH         cache
   resolve_bundled_dir SETVAULT_CONFIG_PATH        config
   resolve_bundled_dir SETVAULT_WATCH_FOLDERS_PATH watch
+  resolve_bundled_dir SETVAULT_BACKUP_PATH        backups
   : "${SETVAULT_PGDATA:=/data/db}"
   : "${SETVAULT_REDIS_DIR:=/data/redis}"
 else
@@ -62,6 +63,7 @@ else
   : "${SETVAULT_CACHE_PATH:=/srv/cache}"
   : "${SETVAULT_CONFIG_PATH:=/srv/config}"
   : "${SETVAULT_WATCH_FOLDERS_PATH:=/srv/watch}"
+  : "${SETVAULT_BACKUP_PATH:=/srv/backups}"
   : "${SETVAULT_PGDATA:=/data/db}"
   : "${SETVAULT_REDIS_DIR:=/data/redis}"
 fi
@@ -84,6 +86,7 @@ write_env SETVAULT_MEDIA_PATH         "${SETVAULT_MEDIA_PATH}"
 write_env SETVAULT_CACHE_PATH         "${SETVAULT_CACHE_PATH}"
 write_env SETVAULT_CONFIG_PATH        "${SETVAULT_CONFIG_PATH}"
 write_env SETVAULT_WATCH_FOLDERS_PATH "${SETVAULT_WATCH_FOLDERS_PATH}"
+write_env SETVAULT_BACKUP_PATH        "${SETVAULT_BACKUP_PATH}"
 write_env SETVAULT_PGDATA         "${SETVAULT_PGDATA}"
 write_env SETVAULT_REDIS_DIR      "${SETVAULT_REDIS_DIR}"
 
