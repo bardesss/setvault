@@ -1,5 +1,6 @@
 <script lang="ts">
   import { _ } from "svelte-i18n";
+  import { ApiError } from "#lib/api/client.ts";
   import { createMonitor, deleteMonitor } from "#lib/api/monitors.ts";
   import { toast } from "#lib/stores/toast.ts";
 
@@ -19,7 +20,12 @@
     try {
       if (prev && prev.enabled) {
         monitor = null; // optimistic
-        await deleteMonitor(prev.id);
+        try {
+          await deleteMonitor(prev.id);
+        } catch (e) {
+          // Already deleted elsewhere: the outcome the user asked for.
+          if (!(e instanceof ApiError && e.status === 404)) throw e;
+        }
         toast.success($_("monitors.stopped", { values: { name } }));
       } else {
         monitor = { id: prev?.id ?? "", enabled: true }; // optimistic
