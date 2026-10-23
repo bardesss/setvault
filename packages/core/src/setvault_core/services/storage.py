@@ -147,8 +147,8 @@ async def path_in_use(
 
     Every code path that deletes set files checks this first: after a quality
     upgrade (services/set_upgrade.py) the live set and its recycled old copy
-    can end up naming the same file, e.g. once the live set's stream is
-    regenerated at ``stream/<id>.opus``.
+    can end up naming the same file. ``jobs/transcode.py`` checks it before
+    rewriting a stream too.
     """
     conds = [
         LiveSet.media_root_id == media_root_id,

@@ -1,6 +1,7 @@
 import os
 import subprocess
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -128,6 +129,76 @@ async def test_transcode_no_filter_when_target_off(tmp_path: Path, monkeypatch, 
     assert "-af" not in args
     async with session_factory()() as s:
         assert (await s.get(LiveSet, sid)).stream_gain_db == 0.0
+
+
+async def _seed_swapped_pair(tmp_path: Path) -> tuple[uuid.UUID, uuid.UUID]:
+    """A quality upgrade's aftermath: the target streams from the arrival's
+    file and the recycled arrival row names ``stream/<target-id>.opus``."""
+    async with session_factory()() as s:
+        u = User(email=f"u{uuid.uuid4().hex[:6]}@x.test", username=f"u{uuid.uuid4().hex[:6]}",
+                 display_name="u", password_hash="x", role="admin")
+        r = MediaRoot(name=f"r{uuid.uuid4().hex[:6]}", host_path=str(tmp_path),
+                      enabled=True, default_for_ingest=True)
+        s.add_all([u, r])
+        await s.flush()
+        target_id, arrival_id = uuid.uuid4(), uuid.uuid4()
+        common = {"media_root_id": r.id, "uploaded_by": u.id, "source_type": "upload",
+                  "normalized_lufs": -8.0}
+        s.add_all([
+            LiveSet(id=target_id, slug=f"s-{uuid.uuid4().hex[:6]}", title="target",
+                    audio_path="new.flac", status="published",
+                    streaming_path=f"stream/{arrival_id}.opus", **common),
+            LiveSet(id=arrival_id, slug=f"s-{uuid.uuid4().hex[:6]}", title="recycled",
+                    audio_path="old.flac", status="draft", deleted_at=datetime.now(UTC),
+                    streaming_path=f"stream/{target_id}.opus", **common),
+        ])
+        await s.commit()
+    (tmp_path / "stream").mkdir()
+    (tmp_path / f"stream/{arrival_id}.opus").write_bytes(b"target-old")
+    (tmp_path / f"stream/{target_id}.opus").write_bytes(b"recycled")
+    return target_id, arrival_id
+
+
+async def test_regain_after_upgrade_keeps_recycled_stream(
+    tmp_path: Path, monkeypatch, loudness_target,
+):
+    await loudness_target(-14.0)
+    target_id, arrival_id = await _seed_swapped_pair(tmp_path)
+    _fake_ffmpeg(monkeypatch)
+
+    # What "Re-apply to library" runs per set (calling regain_library itself
+    # would re-transcode every published set in the shared test database).
+    await transcode_audio(str(target_id))
+
+    assert (tmp_path / f"stream/{target_id}.opus").read_bytes() == b"recycled"
+    async with session_factory()() as s:
+        target = await s.get(LiveSet, target_id)
+        assert target.stream_gain_db == -6.0
+        assert (tmp_path / target.streaming_path).read_bytes() == b"opus"
+        referenced = {target.streaming_path, (await s.get(LiveSet, arrival_id)).streaming_path}
+    on_disk = {f"stream/{p.name}" for p in (tmp_path / "stream").iterdir()}
+    assert on_disk == referenced  # no orphan, no tmp
+
+
+async def test_transcode_shared_stream_gets_fresh_file(
+    tmp_path: Path, monkeypatch, loudness_target,
+):
+    """Another row names the very file this set streams from: write a fresh
+    file and leave the shared one alone."""
+    await loudness_target(-14.0)
+    target_id, arrival_id = await _seed_swapped_pair(tmp_path)
+    async with session_factory()() as s:
+        (await s.get(LiveSet, arrival_id)).streaming_path = f"stream/{arrival_id}.opus"
+        await s.commit()
+    _fake_ffmpeg(monkeypatch)
+
+    await transcode_audio(str(target_id))
+
+    assert (tmp_path / f"stream/{arrival_id}.opus").read_bytes() == b"target-old"
+    async with session_factory()() as s:
+        path = (await s.get(LiveSet, target_id)).streaming_path
+    assert path.startswith(f"stream/{target_id}-") and path.endswith(".opus")
+    assert (tmp_path / path).read_bytes() == b"opus"
 
 
 async def test_transcode_no_filter_for_bogus_measurement(
