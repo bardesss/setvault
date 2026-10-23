@@ -67,6 +67,16 @@ docker exec -e ADMIN_EMAIL='you@example.com' -e ADMIN_PASSWORD='min-12-chars' \
 ```
 It's idempotent (promotes an existing user to admin; re-running is safe).
 
+**Locked out?** Reset the admin password from inside the container. With one admin, `--email` is optional (pass `--email you@example.com` if there are several). Print a one-hour reset link and open it in the browser:
+```bash
+docker exec -it setvault python -m setvault_web.reset_password --link
+```
+Or set a new password directly. It is read from `NEW_PASSWORD` or prompted for, so it never hits the command line:
+```bash
+docker exec -it setvault python -m setvault_web.reset_password
+```
+Either way, existing sessions are signed out and the reset is written to the audit log.
+
 ### Quick start with Docker Compose
 
 Prefer a declarative file you can version and re-apply? Same bundled image, via Compose:
