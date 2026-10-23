@@ -113,10 +113,12 @@ def _settings_out(config) -> SettingsOut:
 
 
 def _ensure_writable_dir(path: str) -> None:
-    """Create ``path`` if missing and prove it's writable (a probe file), else
-    422. The web and worker processes run as the same uid."""
+    """Create ``path`` (owner-only) if missing and prove it's writable (a
+    probe file), else 422. The web and worker processes run as the same uid."""
+    from setvault_core.jobs.backup import ensure_backup_dir
+
     try:
-        os.makedirs(path, exist_ok=True)
+        ensure_backup_dir(path)
         with tempfile.NamedTemporaryFile(dir=path, prefix=".write-test-"):
             pass
     except OSError as exc:

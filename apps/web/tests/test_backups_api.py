@@ -5,6 +5,7 @@ the worker job is never run here (``Queue.enqueue`` is stubbed).
 """
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 
 import pytest
@@ -51,6 +52,8 @@ async def _audit(action: str):
 async def test_list_shape(authed_admin_client, backup_dir):
     (backup_dir / NAME).write_bytes(b"x" * 10)
     (backup_dir / "setvault-20261022-033000.sql.gz").write_bytes(b"y" * 5)
+    day_old = datetime.now(UTC).timestamp() - 86400
+    os.utime(backup_dir / "setvault-20261022-033000.sql.gz", (day_old, day_old))
     (backup_dir / "notes.txt").write_text("not a backup")
     (backup_dir / f"{NAME}.tmp").write_bytes(b"in progress")
 
@@ -87,6 +90,9 @@ def test_dir_persistent(monkeypatch):
     assert backups.dir_persistent("/data") is True
     assert backups.dir_persistent("/database/backups") is False
     assert backups.dir_persistent("/srv/backups") is False
+    # ".." is resolved before the /data check.
+    assert backups.dir_persistent("/data/../tmp/x") is False
+    assert backups.dir_persistent("/data/./backups/") is True
     mounts = {"/srv/backups"}
     monkeypatch.setattr(backups.os.path, "ismount",
                         lambda p: str(p).replace("\\", "/") in mounts)
@@ -160,7 +166,6 @@ def test_backup_file_rejects_traversal_names(tmp_path):
     """The name check itself, for names a router might hand through."""
     from fastapi import HTTPException
     from setvault_web.api import backups
-    from setvault_web.config import Settings
 
     class Cfg:
         backup_dir = str(tmp_path / "b")
@@ -169,8 +174,28 @@ def test_backup_file_rejects_traversal_names(tmp_path):
     (tmp_path / "secret").write_text("x")
     for name in ("../secret", "..\\secret", f"../b/{NAME}", "/etc/passwd"):
         with pytest.raises(HTTPException) as exc:
-            backups._backup_file(name, Cfg(), Settings())
+            backups._backup_file(name, Cfg())
         assert exc.value.status_code == 404
+
+
+async def test_delete_of_a_vanished_file_is_404(
+    authed_admin_client, backup_dir, monkeypatch,
+):
+    """A prune between the name check and the delete gives 404, not 500."""
+    from setvault_web.api import backups
+
+    (backup_dir / NAME).write_bytes(b"x")
+    real = backups._backup_file
+
+    def vanishing(name, cfg):
+        path = real(name, cfg)
+        path.unlink()
+        return path
+
+    monkeypatch.setattr(backups, "_backup_file", vanishing)
+    r = await authed_admin_client.delete(f"/api/admin/backups/{NAME}")
+    assert r.status_code == 404, r.text
+    assert await _audit("backup.deleted") == []
 
 
 async def test_download_missing_file_404(authed_admin_client, backup_dir):
@@ -230,6 +255,12 @@ async def test_backup_settings_defaults_and_round_trip(authed_admin_client, back
     assert got["backup_keep"] == 365
     assert got["backup_dir"] == str(target)
     assert target.is_dir()  # created on save
+
+    # Stored normalised (no "..").
+    r = await c.put("/api/admin/settings", json={
+        "backup_dir": str(backup_dir / "x" / ".." / "nested" / "dir")})
+    assert r.status_code == 200, r.text
+    assert r.json()["backup_dir"] == str(target)
 
     # Leaving backup_dir out keeps it; an explicit null clears it.
     r = await c.put("/api/admin/settings", json={"backup_keep": 1})

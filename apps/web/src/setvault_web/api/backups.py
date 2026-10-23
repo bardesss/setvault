@@ -1,7 +1,7 @@
 """Admin -> Backups API (P2a A5): the scheduled database backups.
 
 The files are written by the worker (``setvault_core.jobs.backup``) into the
-backup dir: ``SystemConfig.backup_dir``, else ``SETVAULT_BACKUP_PATH``. Only
+backup dir (``effective_dir``, the same as the worker's). Only
 names matching ``setvault-YYYYMMDD-HHMMSS.sql.gz`` are ever listed, served or
 deleted, so a request can't reach any other file. The full DB + media export
 stays at ``GET /api/admin/backup``.
@@ -19,6 +19,7 @@ from setvault_core.jobs.backup import (
     BACKUP_JOB_FUNC,
     BACKUP_JOB_TIMEOUT,
     BACKUP_NAME_RE,
+    effective_dir,
     list_backups,
 )
 from setvault_core.models.identity import User
@@ -27,7 +28,6 @@ from setvault_core.services.audit import log as audit_log
 from setvault_core.services.system_config import get_config
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from setvault_web.config import Settings, get_settings
 from setvault_web.deps import current_user, db_session, require_admin
 
 router = APIRouter(prefix="/api/admin/backups", tags=["admin"])
@@ -35,15 +35,12 @@ router = APIRouter(prefix="/api/admin/backups", tags=["admin"])
 _DATA = Path("/data")
 
 
-def _backup_dir(cfg: SystemConfig, settings: Settings) -> Path:
-    return Path(cfg.backup_dir or settings.backup_path)
-
-
 def dir_persistent(path: str | Path) -> bool:
     """True when the dir survives a container recreate: it's under the
     bundled ``/data`` volume, or it (or a parent) is a mount point. The
-    filesystem root is always a mount and doesn't count."""
-    p = Path(path)
+    filesystem root is always a mount and doesn't count. ``..`` is resolved
+    first, so ``/data/../tmp`` is not under ``/data``."""
+    p = Path(os.path.normpath(path))
     if p == _DATA or _DATA in p.parents:
         return True
     while p != p.parent:
@@ -57,11 +54,11 @@ def _tz_name() -> str:
     return os.environ.get("TZ") or datetime.now().astimezone().tzname() or "UTC"
 
 
-def _backup_file(name: str, cfg: SystemConfig, settings: Settings) -> Path:
+def _backup_file(name: str, cfg: SystemConfig) -> Path:
     """The named backup file, or 404 (bad name or missing)."""
     if not BACKUP_NAME_RE.fullmatch(name):
         raise HTTPException(status_code=404, detail="not found")
-    path = _backup_dir(cfg, settings) / name
+    path = effective_dir(cfg) / name
     if not path.is_file():
         raise HTTPException(status_code=404, detail="not found")
     return path
@@ -70,11 +67,10 @@ def _backup_file(name: str, cfg: SystemConfig, settings: Settings) -> Path:
 @router.get("")
 async def list_backup_files(
     session: Annotated[AsyncSession, Depends(db_session)],
-    settings: Annotated[Settings, Depends(get_settings)],
     _: Annotated[object, Depends(require_admin)],
 ):
     cfg = await get_config(session)
-    directory = _backup_dir(cfg, settings)
+    directory = effective_dir(cfg)
     files = []
     for p in list_backups(directory):
         try:
@@ -126,10 +122,9 @@ async def run_backup_now(
 async def download_backup_file(
     name: str,
     session: Annotated[AsyncSession, Depends(db_session)],
-    settings: Annotated[Settings, Depends(get_settings)],
     _: Annotated[object, Depends(require_admin)],
 ):
-    path = _backup_file(name, await get_config(session), settings)
+    path = _backup_file(name, await get_config(session))
     return FileResponse(
         path,
         media_type="application/gzip",
@@ -143,13 +138,12 @@ async def download_backup_file(
 async def delete_backup_file(
     name: str,
     session: Annotated[AsyncSession, Depends(db_session)],
-    settings: Annotated[Settings, Depends(get_settings)],
     admin: Annotated[User, Depends(current_user)],
     _: Annotated[object, Depends(require_admin)],
 ) -> Response:
-    path = _backup_file(name, await get_config(session), settings)
-    size = path.stat().st_size
-    try:
+    path = _backup_file(name, await get_config(session))
+    try:  # a concurrent prune may remove it meanwhile
+        size = path.stat().st_size
         path.unlink()
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="not found") from exc

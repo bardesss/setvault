@@ -8,7 +8,10 @@ backup is written under ``tmp_path``.
 from __future__ import annotations
 
 import gzip
+import os
+import stat
 import sys
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -70,8 +73,11 @@ def _fake_pg_dump(monkeypatch, code: str) -> None:
 
 
 def _touch_backups(directory, *names):
-    for n in names:
+    """Old backups, each a day older than the next (mtime follows arg order)."""
+    base = time.time() - 30 * 86400
+    for i, n in enumerate(names):
         (directory / n).write_bytes(b"old")
+        os.utime(directory / n, (base + i * 86400, base + i * 86400))
 
 
 # --------------------------------------------------------------------------- #
@@ -292,3 +298,80 @@ async def test_tick_runs_when_due_and_not_again_after_success(cfg_state, monkeyp
     await _set(last_backup_status="failed")
     assert await backup.backup_tick() == {"status": "ok"}
     assert ran == [False, False]
+
+
+async def test_prunes_oldest_by_mtime_not_name(cfg_state, monkeypatch):
+    """After a TZ change a newer file can carry an earlier name; mtime wins."""
+    _fake_pg_dump(monkeypatch, "import sys; sys.stdout.buffer.write(b'x')")
+    # Name order is the reverse of the age order.
+    _touch_backups(
+        cfg_state,
+        "setvault-20200103-000000.sql.gz",  # oldest
+        "setvault-20200102-000000.sql.gz",
+        "setvault-20200101-000000.sql.gz",  # newest of the old ones
+    )
+    await _set(backup_keep=2)
+
+    result = await backup.perform_backup()
+
+    assert result["status"] == "ok", result
+    assert sorted(result["pruned"]) == [
+        "setvault-20200102-000000.sql.gz", "setvault-20200103-000000.sql.gz",
+    ]
+    assert (cfg_state / "setvault-20200101-000000.sql.gz").is_file()
+
+
+async def test_refuses_to_overwrite_an_existing_backup(cfg_state, monkeypatch):
+    _fake_pg_dump(monkeypatch, "import sys; sys.stdout.buffer.write(b'new')")
+    now = datetime.now().astimezone().replace(microsecond=0)
+    _freeze(monkeypatch, now)
+    name = f"setvault-{now:%Y%m%d-%H%M%S}.sql.gz"
+    (cfg_state / name).write_bytes(b"first run")
+
+    result = await backup.perform_backup()
+
+    assert result["status"] == "failed"
+    assert result["error"] == f"backup file {name} already exists"
+    assert (cfg_state / name).read_bytes() == b"first run"
+    assert sorted(p.name for p in cfg_state.iterdir()) == [name]
+
+
+def test_publish_never_replaces(tmp_path):
+    tmp, final = tmp_path / "a.tmp", tmp_path / "a"
+    tmp.write_bytes(b"new")
+    final.write_bytes(b"old")
+    with pytest.raises(RuntimeError, match="already exists"):
+        backup._publish(tmp, final)
+    assert final.read_bytes() == b"old"
+    final.unlink()
+    backup._publish(tmp, final)
+    assert final.read_bytes() == b"new" and not tmp.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+async def test_backup_dir_and_file_are_owner_only(cfg_state, monkeypatch):
+    _fake_pg_dump(monkeypatch, "import sys; sys.stdout.buffer.write(b'x')")
+    os.chmod(cfg_state, 0o755)  # noqa: S103 — an existing, too-open dir is tightened
+    result = await backup.perform_backup()
+    assert result["status"] == "ok", result
+    assert stat.S_IMODE(cfg_state.stat().st_mode) == 0o700
+    assert stat.S_IMODE((cfg_state / result["file"]).stat().st_mode) == 0o600
+    fresh = backup.ensure_backup_dir(cfg_state / "new" / "dir")
+    assert stat.S_IMODE(fresh.stat().st_mode) == 0o700
+
+
+async def test_failure_notifies_once_per_local_day(cfg_state, monkeypatch, admin_user):
+    _fake_pg_dump(monkeypatch, "import sys; sys.exit(1)")
+    day1 = datetime.now().astimezone().replace(hour=4, minute=0, second=0, microsecond=0)
+
+    _freeze(monkeypatch, day1)
+    assert (await backup.perform_backup())["status"] == "failed"
+    _freeze(monkeypatch, day1 + timedelta(hours=1))  # the next hourly retry
+    assert (await backup.perform_backup())["status"] == "failed"
+    assert len(await _backup_notifications(admin_user.id)) == 1
+
+    _freeze(monkeypatch, day1 + timedelta(days=1))  # still failing the next day
+    assert (await backup.perform_backup())["status"] == "failed"
+    assert len(await _backup_notifications(admin_user.id)) == 2
+    cfg = await _config()
+    assert cfg.last_backup_status == "failed"

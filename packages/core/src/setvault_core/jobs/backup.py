@@ -63,14 +63,32 @@ def is_due(
     return last_backup_at_local is None or last_backup_at_local.date() != now_local.date()
 
 
+def ensure_backup_dir(directory: str | Path) -> Path:
+    """Create the backup dir owner-only (0700): a dump holds password hashes
+    and tokens. An existing dir this process owns is tightened to 0700 too."""
+    directory = Path(directory)
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name == "posix" and directory.stat().st_uid == os.geteuid():
+        os.chmod(directory, 0o700)
+    return directory
+
+
+def _mtime(p: Path) -> float:
+    try:
+        return p.stat().st_mtime
+    except OSError:  # removed meanwhile
+        return 0.0
+
+
 def list_backups(directory: Path) -> list[Path]:
-    """Backup files in ``directory``, newest first (the name sorts by time)."""
+    """Backup files in ``directory``, newest first by mtime (not by name: a
+    TZ change shifts the timestamps in names)."""
     try:
         entries = list(directory.iterdir())
     except FileNotFoundError:
         return []
     files = [p for p in entries if BACKUP_NAME_RE.fullmatch(p.name) and p.is_file()]
-    return sorted(files, key=lambda p: p.name, reverse=True)
+    return sorted(files, key=lambda p: (_mtime(p), p.name), reverse=True)
 
 
 def _human(n: int) -> str:
@@ -82,12 +100,29 @@ def _human(n: int) -> str:
     return f"{size:.1f} TB"
 
 
-def _dump_to(path: Path, database_url: str) -> int:
-    """Stream ``pg_dump`` through gzip into ``path``; returns the file size."""
-    with gzip.open(path, "wb") as out:
+_NEW_FILE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+
+
+def _dump_to(fd: int, database_url: str) -> None:
+    """Stream ``pg_dump`` through gzip into the open file ``fd`` (closed after)."""
+    with os.fdopen(fd, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb") as out:
         for chunk in pg_dump.stream_pg_dump(database_url, check=True):
             out.write(chunk)
-    return path.stat().st_size
+
+
+def _publish(tmp: Path, final: Path) -> None:
+    """Give the finished ``tmp`` its final name, never replacing a file."""
+    try:
+        os.link(tmp, final)
+    except FileExistsError:
+        raise RuntimeError(f"backup file {final.name} already exists") from None
+    except OSError:
+        # No hard links on this filesystem: check, then rename.
+        if final.exists():
+            raise RuntimeError(f"backup file {final.name} already exists") from None
+        os.replace(tmp, final)
+        return
+    tmp.unlink()
 
 
 def _prune(directory: Path, keep: int) -> list[str]:
@@ -106,7 +141,7 @@ def _write(directory: Path, last_bytes: int | None, keep: int, database_url: str
     """Space check, dump, rename, prune. Raises on failure."""
     if not database_url:
         raise RuntimeError("DATABASE_URL is not set")
-    directory.mkdir(parents=True, exist_ok=True)
+    ensure_backup_dir(directory)
     free = shutil.disk_usage(directory).free
     if last_bytes and last_bytes * 2 > free:
         raise RuntimeError(
@@ -114,13 +149,21 @@ def _write(directory: Path, last_bytes: int | None, keep: int, database_url: str
         )
     name = f"setvault-{datetime.now().astimezone():%Y%m%d-%H%M%S}.sql.gz"
     final = directory / name
+    if final.exists():
+        raise RuntimeError(f"backup file {name} already exists")
     tmp = directory / f"{name}.tmp"
+    # O_EXCL: never write into another run's tmp; 0600: owner-only from the start.
     try:
-        size = _dump_to(tmp, database_url)
-        os.replace(tmp, final)
+        fd = os.open(tmp, _NEW_FILE_FLAGS, 0o600)
+    except FileExistsError:
+        raise RuntimeError(f"backup file {tmp.name} already exists") from None
+    try:
+        _dump_to(fd, database_url)
+        _publish(tmp, final)
     except BaseException:
-        tmp.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)  # ours: created above
         raise
+    size = final.stat().st_size
     return {"file": name, "bytes": size, "pruned": _prune(directory, keep)}
 
 
@@ -151,10 +194,19 @@ async def perform_backup(force: bool = False) -> dict:
         logger.exception("backup: failed: %s", error)
         async with session_factory()() as s:
             cfg = await get_config(s)
-            cfg.last_backup_at = datetime.now(UTC)
+            # The hourly retry keeps failing all day: notify on the day's
+            # first failure only (local day, like the schedule).
+            now_local = datetime.now().astimezone()
+            failed_today = (
+                cfg.last_backup_status == "failed"
+                and cfg.last_backup_at is not None
+                and cfg.last_backup_at.astimezone(now_local.tzinfo).date() == now_local.date()
+            )
+            cfg.last_backup_at = now_local.astimezone(UTC)
             cfg.last_backup_status = "failed"
             cfg.last_backup_error = error
-            await notify_backup_failed(s, error)
+            if not failed_today:
+                await notify_backup_failed(s, error)
             await s.commit()
         return {"status": "failed", "file": None, "bytes": None, "pruned": [], "error": error}
 

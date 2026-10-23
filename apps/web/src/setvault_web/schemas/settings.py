@@ -56,9 +56,12 @@ class SettingsIn(BaseModel):
     @field_validator("backup_dir")
     @classmethod
     def _backup_dir_is_absolute(cls, v: str | None) -> str | None:
-        if v is not None and not os.path.isabs(v):
+        if v is None:
+            return None
+        if not os.path.isabs(v):
             raise ValueError("must be an absolute path")
-        return v
+        # Stored without ".." or duplicate separators.
+        return os.path.normpath(v)
 
     @field_validator("quality_tiers_order")
     @classmethod
