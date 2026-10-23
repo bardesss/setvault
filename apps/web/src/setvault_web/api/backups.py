@@ -20,7 +20,7 @@ from setvault_core.jobs.backup import (
     BACKUP_JOB_TIMEOUT,
     BACKUP_NAME_RE,
     effective_dir,
-    list_backups,
+    scan_backups,
 )
 from setvault_core.models.identity import User
 from setvault_core.models.system_config import SystemConfig
@@ -72,7 +72,8 @@ async def list_backup_files(
     cfg = await get_config(session)
     directory = effective_dir(cfg)
     files = []
-    for p in list_backups(directory):
+    found, dir_error = scan_backups(directory)
+    for p in found:
         try:
             st = p.stat()
         except OSError:  # pruned meanwhile
@@ -85,6 +86,8 @@ async def list_backup_files(
     return {
         "dir": str(directory),
         "dir_persistent": dir_persistent(directory),
+        # Why the dir couldn't be listed (e.g. "Permission denied"), else None.
+        "dir_error": dir_error,
         "tz": _tz_name(),
         "files": files,
         "last": {

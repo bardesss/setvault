@@ -233,6 +233,7 @@
       "status_failed": "Last backup failed {when}: {error}",
       "tz": "Times are in the {tz} time zone.",
       "not_persistent": "Warning: {dir} is not on a mounted volume, so this folder is lost when the container is recreated.",
+      "dir_unreadable": "Can't read the backup folder {dir}: {error}",
       "settings_title": "Schedule",
       "enabled": "Run a backup every day",
       "time": "At (HH:MM, {tz})",

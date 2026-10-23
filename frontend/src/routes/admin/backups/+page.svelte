@@ -211,7 +211,13 @@
       {$_("admin.backups.run_now")}
     </button>
   </div>
-  {#if backups.files.length === 0}
+  {#if backups.dir_error}
+    <p class="warn" role="alert" data-testid="backup-dir-error">
+      {$_("admin.backups.dir_unreadable", {
+        values: { dir: backups.dir, error: backups.dir_error },
+      })}
+    </p>
+  {:else if backups.files.length === 0}
     <p class="hint" data-testid="backup-empty">{$_("admin.backups.empty")}</p>
   {:else}
     <AdminTable

@@ -80,6 +80,20 @@ async def test_list_missing_dir_is_empty(authed_admin_client, backup_dir):
     r = await authed_admin_client.get("/api/admin/backups")
     assert r.status_code == 200, r.text
     assert r.json()["files"] == []
+    assert r.json()["dir_error"] is None
+
+
+async def test_list_unreadable_dir_reports_error(authed_admin_client, backup_dir, monkeypatch):
+    from pathlib import Path
+
+    def _denied(self):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "iterdir", _denied)
+    r = await authed_admin_client.get("/api/admin/backups")
+    assert r.status_code == 200, r.text
+    assert r.json()["files"] == []
+    assert r.json()["dir_error"] == "Permission denied"
 
 
 def test_dir_persistent(monkeypatch):

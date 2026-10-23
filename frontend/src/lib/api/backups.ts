@@ -16,6 +16,8 @@ export interface BackupLast {
 export interface BackupList {
   dir: string;
   dir_persistent: boolean;
+  /** Why the backup dir couldn't be listed (e.g. "Permission denied"). */
+  dir_error: string | null;
   tz: string;
   files: BackupFile[];
   last: BackupLast;

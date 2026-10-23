@@ -14,6 +14,7 @@ import sys
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from setvault_core.db import session_factory
@@ -351,13 +352,38 @@ def test_publish_never_replaces(tmp_path):
 @pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
 async def test_backup_dir_and_file_are_owner_only(cfg_state, monkeypatch):
     _fake_pg_dump(monkeypatch, "import sys; sys.stdout.buffer.write(b'x')")
-    os.chmod(cfg_state, 0o755)  # noqa: S103 — an existing, too-open dir is tightened
+    os.chmod(cfg_state, 0o755)  # noqa: S103 — an existing, user-chosen dir keeps its mode
     result = await backup.perform_backup()
     assert result["status"] == "ok", result
-    assert stat.S_IMODE(cfg_state.stat().st_mode) == 0o700
+    assert stat.S_IMODE(cfg_state.stat().st_mode) == 0o755
     assert stat.S_IMODE((cfg_state / result["file"]).stat().st_mode) == 0o600
     fresh = backup.ensure_backup_dir(cfg_state / "new" / "dir")
     assert stat.S_IMODE(fresh.stat().st_mode) == 0o700
+
+
+def test_ensure_backup_dir_only_tightens_a_dir_it_creates(tmp_path, monkeypatch):
+    chmods: list[Path] = []
+    monkeypatch.setattr(backup.os, "chmod", lambda p, mode: chmods.append(Path(p)))
+    backup.ensure_backup_dir(tmp_path)  # exists already
+    assert chmods == []
+    new = backup.ensure_backup_dir(tmp_path / "a" / "b")
+    assert new.is_dir()
+    assert chmods == ([tmp_path / "a" / "b"] if os.name == "posix" else [])
+    (tmp_path / "file").write_bytes(b"")
+    with pytest.raises(FileExistsError):
+        backup.ensure_backup_dir(tmp_path / "file")
+
+
+def test_list_backups_unreadable_dir(tmp_path, monkeypatch):
+    def _denied(self):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "iterdir", _denied)
+    files, error = backup.scan_backups(tmp_path)
+    assert files == [] and error == "Permission denied"
+    assert backup.list_backups(tmp_path) == []
+    monkeypatch.undo()
+    assert backup.scan_backups(tmp_path / "missing") == ([], None)
 
 
 async def test_failure_notifies_once_per_local_day(cfg_state, monkeypatch, admin_user):

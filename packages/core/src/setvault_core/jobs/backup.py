@@ -64,12 +64,18 @@ def is_due(
 
 
 def ensure_backup_dir(directory: str | Path) -> Path:
-    """Create the backup dir owner-only (0700): a dump holds password hashes
-    and tokens. An existing dir this process owns is tightened to 0700 too."""
+    """Create the backup dir owner-only (0700) when it's missing. An existing
+    dir keeps its mode (it may be a user-chosen share); the dumps themselves
+    are written 0600, since they hold password hashes and tokens."""
     directory = Path(directory)
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if os.name == "posix" and directory.stat().st_uid == os.geteuid():
-        os.chmod(directory, 0o700)
+    try:
+        directory.mkdir(mode=0o700, parents=True)
+    except FileExistsError:
+        if not directory.is_dir():
+            raise
+        return directory
+    if os.name == "posix":
+        os.chmod(directory, 0o700)  # mkdir's mode is subject to the umask
     return directory
 
 
@@ -80,15 +86,23 @@ def _mtime(p: Path) -> float:
         return 0.0
 
 
-def list_backups(directory: Path) -> list[Path]:
+def scan_backups(directory: Path) -> tuple[list[Path], str | None]:
     """Backup files in ``directory``, newest first by mtime (not by name: a
-    TZ change shifts the timestamps in names)."""
+    TZ change shifts the timestamps in names), plus why the dir couldn't be
+    read (``None`` when it could, or doesn't exist yet)."""
     try:
         entries = list(directory.iterdir())
     except FileNotFoundError:
-        return []
+        return [], None
+    except OSError as exc:  # e.g. not readable by this uid
+        return [], exc.strerror or str(exc)
     files = [p for p in entries if BACKUP_NAME_RE.fullmatch(p.name) and p.is_file()]
-    return sorted(files, key=lambda p: (_mtime(p), p.name), reverse=True)
+    return sorted(files, key=lambda p: (_mtime(p), p.name), reverse=True), None
+
+
+def list_backups(directory: Path) -> list[Path]:
+    """``scan_backups`` without the error: an unreadable dir lists empty."""
+    return scan_backups(directory)[0]
 
 
 def _human(n: int) -> str:
