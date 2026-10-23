@@ -1,4 +1,16 @@
 {
+  "common": {
+    "close": "Close",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "dismiss": "Dismiss"
+  },
+  "picker": {
+    "create": "Create \"{name}\"",
+    "move_up": "Move up",
+    "move_down": "Move down",
+    "remove": "Remove {name}"
+  },
   "auth": {
     "login": {
       "heading": "Sign in",
