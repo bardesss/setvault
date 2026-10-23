@@ -52,6 +52,8 @@
     merged?: number;
     skipped?: number;
     errors?: number;
+    event?: string;
+    error?: string;
   };
 
   function getPayload(n: InAppNotification): NotifPayload {
@@ -73,6 +75,10 @@
       return;
     }
     if (n.kind === "maintenance") {
+      if (getPayload(n).event === "backup.failed") {
+        location.href = "/admin/backups";
+        return;
+      }
       // Skipped pairs wait on the Duplicates page.
       location.href = (getPayload(n).skipped ?? 0) > 0 ? "/admin/duplicates" : "/admin/quality";
       return;
@@ -105,6 +111,10 @@
             <button class="item" on:click={() => clickItem(n)}>
               {#if n.kind === "discovery"}
                 <span>{$_("notifications.discovery_summary")} {payload.monitor_label ?? ""}</span>
+              {:else if n.kind === "maintenance" && payload.event === "backup.failed"}
+                <span>
+                  {$_("notifications.backup_failed", { values: { error: payload.error ?? "" } })}
+                </span>
               {:else if n.kind === "maintenance"}
                 <span>
                   {$_("notifications.maintenance_summary", {

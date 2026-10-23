@@ -27,6 +27,7 @@
     { href: "/admin/jobs", label: "Jobs" },
     { href: "/admin/tasks", label: "Tasks" },
     { href: "/admin/webhooks", label: "Webhooks" },
+    { href: "/admin/backups", label: "Backups" },
     { href: "/admin/health", label: "Health" },
     { href: "/admin/system", label: "System" },
   ];

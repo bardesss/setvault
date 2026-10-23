@@ -11,6 +11,12 @@ export interface AdminSettings {
   upgrade_search_schedule: "daily" | "weekly" | "off";
   /** Target in LUFS (-30 to -5); null means loudness matching is off. */
   loudness_target_lufs: number | null;
+  backup_enabled: boolean;
+  /** "HH:MM" in the container's time zone. */
+  backup_time: string;
+  backup_keep: number;
+  /** null means the server default (SETVAULT_BACKUP_PATH). */
+  backup_dir: string | null;
 }
 
 /** Queue the library-wide loudness re-gain job (admin only). */

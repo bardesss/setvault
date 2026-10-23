@@ -222,6 +222,40 @@
       "run_backfill": "Run the backfill on the Quality tab",
       "empty": "Every set meets the quality cutoff.",
       "empty_pending": "No set can be searched yet."
+    },
+    "backups": {
+      "title": "Backups",
+      "status_label": "Last backup",
+      "never": "No backup has run yet.",
+      "status_ok": "Last backup {when}, {size}.",
+      "status_failed": "Last backup failed {when}: {error}",
+      "tz": "Times are in the {tz} time zone.",
+      "not_persistent": "Warning: {dir} is not on a mounted volume, so this folder is lost when the container is recreated.",
+      "settings_title": "Schedule",
+      "enabled": "Run a backup every day",
+      "time": "At (HH:MM, {tz})",
+      "keep": "Keep the newest",
+      "keep_suffix": "backups",
+      "dir": "Backup folder",
+      "dir_hint": "Leave empty to use {dir}. Must be an absolute path the server can write to.",
+      "save": "Save",
+      "saved": "Backup settings saved",
+      "run_now": "Back up now",
+      "started": "Backup started",
+      "files_title": "Backup files",
+      "empty": "No backup files yet.",
+      "col_name": "File",
+      "col_date": "Created",
+      "col_size": "Size",
+      "col_actions": "Actions",
+      "download": "Download",
+      "delete": "Delete",
+      "delete_title": "Delete backup",
+      "delete_message": "Delete {name}? This cannot be undone.",
+      "deleted": "Backup deleted",
+      "full_export": "Full export",
+      "full_export_hint": "A .tar archive with the Postgres dump and every media file. Scheduled backups contain the database only, not media or the secrets key.",
+      "system_link": "Scheduled backups and restore are on the Backups tab."
     }
   },
   "sources": {
@@ -304,7 +338,8 @@
     "discovery_summary": "New discoveries for",
     "set_upgraded_generic": "A set in your library was upgraded",
     "set_upgraded": "Upgraded {title}: {from} → {to}",
-    "maintenance_summary": "Library backfill finished: {fingerprinted} fingerprinted, {measured} measured, {merged} duplicates merged, {skipped} left for review, {errors} failed"
+    "maintenance_summary": "Library backfill finished: {fingerprinted} fingerprinted, {measured} measured, {merged} duplicates merged, {skipped} left for review, {errors} failed",
+    "backup_failed": "Backup failed: {error}"
   },
   "monitors": {
     "admin_title": "Monitors",
