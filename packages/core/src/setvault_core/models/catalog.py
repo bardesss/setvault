@@ -144,6 +144,8 @@ class LiveSet(Base, UuidPkMixin, TimestampMixin):
     waveform_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     thumb_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     normalized_lufs: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Gain (dB) applied at stream time to reach the loudness target.
+    stream_gain_db: Mapped[float | None] = mapped_column(Float, nullable=True)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     uploaded_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True

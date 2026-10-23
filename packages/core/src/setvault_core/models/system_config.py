@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func, text, true
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+    true,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -63,6 +74,26 @@ class SystemConfig(Base):
     upgrade_search_schedule: Mapped[str] = mapped_column(
         String(8), nullable=False, default="weekly", server_default="weekly",
     )
+    loudness_target_lufs: Mapped[float | None] = mapped_column(
+        Float, nullable=True, default=-14.0, server_default=text("-14.0"),
+    )
+    backup_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true(),
+    )
+    backup_time: Mapped[str] = mapped_column(
+        String(5), nullable=False, default="03:30", server_default="03:30",
+    )
+    backup_keep: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=14, server_default=text("14"),
+    )
+    # null = use the SETVAULT_BACKUP_PATH env default
+    backup_dir: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    last_backup_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    last_backup_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    last_backup_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_backup_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

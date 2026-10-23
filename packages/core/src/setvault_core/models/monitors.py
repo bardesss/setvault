@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -23,6 +24,7 @@ class Monitor(Base, UuidPkMixin, TimestampMixin):
     """A saved search ("query") or pinned source entity ("entity") polled for new content."""
 
     __tablename__ = "monitor"
+    __table_args__ = (Index("ix_monitors_catalog", "catalog_kind", "catalog_id"),)
 
     kind: Mapped[str] = mapped_column(String(16), nullable=False)  # query | entity
     query_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -36,6 +38,9 @@ class Monitor(Base, UuidPkMixin, TimestampMixin):
     last_checked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Optional link to a catalog entity (e.g. an artist) the monitor belongs to.
+    catalog_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    catalog_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
 
 class MonitorDiscovery(Base, UuidPkMixin):
