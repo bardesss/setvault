@@ -178,26 +178,34 @@ _MONITOR_DT_COLS = {"last_checked_at", "created_at", "updated_at"}
 async def _repoint_monitors(s, kind, survivor_id, loser_id) -> dict:
     """Move monitors linked to the loser onto the survivor. An owner who
     already monitors the survivor keeps that one; their loser monitor is
-    deleted (with its discoveries) and snapshotted so unmerge can restore it."""
+    deleted (with its discoveries) and snapshotted so unmerge can restore it.
+    The kept monitor is enabled if either was, so a merge never silently
+    stops monitoring; its previous ``enabled`` is recorded for unmerge."""
     linked = (await s.execute(
         select(Monitor).where(Monitor.catalog_kind == kind,
                               Monitor.catalog_id.in_([survivor_id, loser_id]))
         .order_by(Monitor.created_at, Monitor.id)
     )).scalars().all()
-    owners = {m.owner_user_id for m in linked if m.catalog_id == survivor_id}
-    moved, deleted = [], []
+    kept = {m.owner_user_id: m for m in linked if m.catalog_id == survivor_id}
+    moved, deleted, survivor_enabled = [], [], {}
     for m in linked:
         if m.catalog_id != loser_id:
             continue
-        if m.owner_user_id in owners:
+        survivor_monitor = kept.get(m.owner_user_id)
+        if survivor_monitor is not None:
+            if m.enabled and not survivor_monitor.enabled:
+                survivor_enabled.setdefault(str(survivor_monitor.id), survivor_monitor.enabled)
+                survivor_monitor.enabled = True
             deleted.append({c.key: getattr(m, c.key) for c in Monitor.__table__.columns})
             await s.delete(m)
         else:
-            owners.add(m.owner_user_id)
+            kept[m.owner_user_id] = m
             m.catalog_id = survivor_id
             moved.append(str(m.id))
     await s.flush()
-    return to_jsonable_python({"moved": moved, "deleted": deleted})
+    return to_jsonable_python(
+        {"moved": moved, "deleted": deleted, "survivor_enabled": survivor_enabled}
+    )
 
 
 async def _restore_monitors(session, manifest: dict, loser_id: uuid.UUID) -> None:
@@ -209,6 +217,11 @@ async def _restore_monitors(session, manifest: dict, loser_id: uuid.UUID) -> Non
             .where(Monitor.id.in_([uuid.UUID(i) for i in record["moved"]]),
                    Monitor.catalog_id == survivor_id)
             .values(catalog_id=loser_id)
+        )
+    # Kept monitors the merge switched on go back to how they were.
+    for monitor_id, enabled in (record.get("survivor_enabled") or {}).items():
+        await session.execute(
+            update(Monitor).where(Monitor.id == uuid.UUID(monitor_id)).values(enabled=enabled)
         )
     for snapshot in record.get("deleted", []):
         values = {}

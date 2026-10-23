@@ -448,7 +448,7 @@ async def test_merge_repoints_monitor_to_survivor(session, kind):
 
 async def test_merge_drops_loser_monitor_when_survivor_has_one(session):
     s = session
-    both, only_loser = await _user(s), await _user(s)
+    both, only_loser, revive = await _user(s), await _user(s), await _user(s)
     survivor, loser = _entity("artist", "Keep"), _entity("artist", "Lose")
     s.add_all([survivor, loser])
     await s.flush()
@@ -456,15 +456,23 @@ async def test_merge_drops_loser_monitor_when_survivor_has_one(session):
     drop = _monitor(both, "artist", loser.id, query="Lose")
     drop.per_poll_cap, drop.enabled = 9, False
     move = _monitor(only_loser, "artist", loser.id, query="Lose")
-    s.add_all([keep, drop, move])
+    # A paused survivor monitor plus an active loser one: monitoring must go on.
+    paused = _monitor(revive, "artist", survivor.id, query="Keep")
+    paused.enabled = False
+    active = _monitor(revive, "artist", loser.id, query="Lose")
+    s.add_all([keep, drop, move, paused, active])
     await s.commit()
     sid, lid = survivor.id, loser.id
     keep_id, drop_id, move_id = keep.id, drop.id, move.id
+    paused_id, active_id = paused.id, active.id
 
     await merge_entities(s, kind="artist", survivor_id=sid, loser_id=lid, actor_id=both)
     await s.commit()
     s.expire_all()
     assert await s.get(Monitor, drop_id) is None
+    assert await s.get(Monitor, active_id) is None
+    assert (await s.get(Monitor, paused_id)).enabled is True
+    assert (await s.get(Monitor, keep_id)).enabled is True  # a paused loser changes nothing
     assert (await s.get(Monitor, keep_id)).catalog_id == sid
     assert (await s.get(Monitor, move_id)).catalog_id == sid
     linked = (await s.execute(select(Monitor).where(
@@ -483,6 +491,8 @@ async def test_merge_drops_loser_monitor_when_survivor_has_one(session):
     assert (restored.per_poll_cap, restored.enabled) == (9, False)
     assert (await s.get(Monitor, move_id)).catalog_id == lid
     assert (await s.get(Monitor, keep_id)).catalog_id == sid
+    assert (await s.get(Monitor, paused_id)).enabled is False  # back as it was
+    assert (await s.get(Monitor, active_id)).enabled is True
 
 
 async def test_rename_keeps_monitor_query(session):
