@@ -25,6 +25,15 @@
   let pendingDelete: MediaRoot | null = null;
   let busyId: string | null = null;
 
+  // Only "ok" reads as healthy; every other status draws the eye.
+  const HEALTH_CLASS: Record<string, string> = {
+    ok: "badge-resolved",
+    near_full: "badge-raw",
+    readonly: "badge-raw",
+    unreachable: "badge-bad",
+    unknown: "badge-neutral",
+  };
+
   function formatBytes(n: number | null): string {
     if (n === null) return $_("admin.storage.unlimited");
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -128,8 +137,12 @@
         <td>{formatBytes(r.max_bytes)}</td>
         <td>{r.set_count}</td>
         <td>
-          <span class="badge badge-neutral" data-testid="root-health">
-            {r.last_health_status ?? "unknown"}
+          <span
+            class="badge {HEALTH_CLASS[r.last_health_status ?? 'unknown']}"
+            data-testid="root-health"
+            data-status={r.last_health_status ?? "unknown"}
+          >
+            {$_(`admin.storage.health.${r.last_health_status ?? "unknown"}`)}
           </span>
         </td>
         <td class="cell-actions">
@@ -196,6 +209,11 @@
 />
 
 <style>
+  .badge-bad {
+    color: var(--accent-error);
+    border-color: var(--accent-error);
+    background: var(--bg-elevated);
+  }
   .head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
   .head h2 { margin: 0; }
 </style>

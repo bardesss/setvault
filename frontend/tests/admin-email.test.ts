@@ -23,6 +23,8 @@ test("email tab: save settings, password set indicator, dry-run test send", asyn
   // The tab manages the first SMTP connector. Never touch one this test did not create.
   test.skip((await smtpConnectors(page)).length > 0, "an SMTP connector already exists");
 
+  // Only ever delete the connector this test created, never another worker's.
+  let ownId: string | null = null;
   try {
     await page.goto("/admin/email");
     // The first hit of a route compiles it on the dev server.
@@ -33,7 +35,11 @@ test("email tab: save settings, password set indicator, dry-run test send", asyn
     await page.getByLabel("Port", { exact: true }).fill("2525");
     await page.getByLabel("Security").selectOption("ssl");
     await page.getByLabel("From address").fill("noreply@t13.test");
-    await page.getByRole("button", { name: "Save" }).click();
+    const [created] = await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith("/api/connectors") && r.request().method() === "POST"),
+      page.getByRole("button", { name: "Save" }).click(),
+    ]);
+    ownId = ((await created.json()) as { id: string }).id;
     await expect(page.getByText("Email settings saved")).toBeVisible();
 
     await page.reload();
@@ -56,8 +62,8 @@ test("email tab: save settings, password set indicator, dry-run test send", asyn
     await page.getByRole("button", { name: "Send test email" }).click();
     await expect(page.getByText("Dry run OK")).toBeVisible();
   } finally {
-    for (const c of await smtpConnectors(page)) {
-      await page.request.delete(`/api/connectors/${c.id}`, {
+    if (ownId) {
+      await page.request.delete(`/api/connectors/${ownId}`, {
         headers: { "X-CSRF-Token": await csrf(page) },
       });
     }

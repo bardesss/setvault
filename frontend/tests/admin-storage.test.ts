@@ -61,7 +61,6 @@ test("storage tab: add a root with a template preview, edit, check, re-apply dia
     await dialog.getByRole("button", { name: "Save" }).click();
     const row = page.getByTestId("root-row").filter({ hasText: name });
     await expect(row).toBeVisible();
-    await expect(row.getByTestId("root-health")).not.toBeEmpty();
 
     // Edit: rename; the host path is read-only.
     await row.getByRole("button", { name: "Edit" }).click();
@@ -78,7 +77,7 @@ test("storage tab: add a root with a template preview, edit, check, re-apply dia
       renamedRow.getByRole("button", { name: "Check now" }).click(),
     ]);
     expect(probe.ok()).toBe(true);
-    await expect(renamedRow.getByTestId("root-health")).toHaveText(/^(ok|near_full)$/);
+    await expect(renamedRow.getByTestId("root-health")).toHaveAttribute("data-status", /^(ok|near_full)$/);
 
     // Re-apply asks first and names the set count; cancelling queues nothing.
     await renamedRow.getByRole("button", { name: "Re-apply template" }).click();

@@ -290,13 +290,20 @@
       "path_fixed": "The path cannot be changed here. Use the move-root action to relocate files.",
       "f_enabled": "Enabled",
       "f_default": "Default for new ingests",
-      "f_quota": "Quota (GB, empty = unlimited)",
-      "quota_invalid": "Quota must be a number of GB, or empty for unlimited.",
+      "f_quota": "Quota (GiB, empty = unlimited)",
+      "quota_invalid": "Quota must be a number of GiB, or empty for unlimited.",
       "f_template": "Naming template",
       "template_hint": "Tokens: '{Artist}' '{Party}' '{Series}' '{Venue}' '{Date}' '{Year}' '{Slug}' '{Type}' '{SetId}'. Must end in '{Ext}'. Empty keeps the default layout.",
       "preview_title": "Preview",
       "no_unique_token": "This template has no '{Slug}' or '{SetId}', so two sets could end up with the same file name.",
-      "save": "Save"
+      "save": "Save",
+      "health": {
+        "ok": "OK",
+        "unreachable": "Unreachable",
+        "readonly": "Read-only",
+        "near_full": "Nearly full",
+        "unknown": "Unknown"
+      }
     },
     "email": {
       "title": "Email",
