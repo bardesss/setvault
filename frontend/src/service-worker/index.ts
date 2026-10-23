@@ -90,8 +90,14 @@ async function audioCacheFirst(request: Request): Promise<Response> {
       // media element with net::ERR_FAILED. Pass partial responses straight
       // through; the explicit "cache this set offline" full GET (200) still caches.
       if (response.status === 200) {
-        await cache.put(request, response.clone());
-        await enforceAudioCap();
+        // A storage failure must not turn a good network response into an
+        // "offline" fallback to an older copy.
+        try {
+          await cache.put(request, response.clone());
+          await enforceAudioCap();
+        } catch {
+          // quota or cache error: serve the fresh response uncached
+        }
       }
       return response;
     },

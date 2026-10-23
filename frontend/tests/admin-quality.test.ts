@@ -93,14 +93,28 @@ test("quality tab sets, clears and re-applies the loudness target", async ({ pag
 
     await page.getByTestId("loudness-target").fill("");
     await expect(page.getByTestId("loudness-off")).toHaveText("Off");
+    const cleared = page.waitForResponse(
+      (r) => r.url().endsWith("/api/admin/settings") && r.request().method() === "PUT",
+    );
     await page.getByTestId("loudness-save").click();
+    expect((await cleared).ok()).toBe(true);
     await page.reload();
     await expect(page.getByTestId("loudness-target")).toHaveValue("");
     await expect(page.getByTestId("loudness-off")).toHaveText("Off");
 
+    // Stubbed: don't re-encode the shared seed library in CI.
+    let regainPosts = 0;
+    await page.route(/\/api\/admin\/maintenance\/regain$/, (r) => {
+      regainPosts += 1;
+      return r.fulfill({
+        status: 202, contentType: "application/json",
+        body: JSON.stringify({ job_id: "00000000-0000-0000-0000-000000000009" }),
+      });
+    });
     await page.getByRole("button", { name: "Re-apply to library" }).click();
     await page.getByRole("button", { name: "Re-apply", exact: true }).click();
     await expect(page.getByText("Re-apply queued.")).toBeVisible();
+    expect(regainPosts).toBe(1);
   } finally {
     await page.request.put("/api/admin/settings", {
       data: { loudness_target_lufs: original },
