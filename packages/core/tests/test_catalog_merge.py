@@ -14,6 +14,7 @@ from setvault_core.models.catalog import (
     Venue,
 )
 from setvault_core.models.identity import User
+from setvault_core.models.monitors import Monitor
 from setvault_core.models.tracklist import Label, Release, ReleaseTrack, Track, TracklistEntry
 from setvault_core.services.catalog_merge import merge_entities, unmerge_entity
 from setvault_core.services.passwords import hash_password
@@ -398,3 +399,108 @@ async def test_unmerge_tolerates_deleted_label_and_release(session):
     assert (await s.execute(
         select(ReleaseTrack).where(ReleaseTrack.track_id == dup_id)
     )).scalars().all() == []
+
+
+def _entity(kind: str, name: str):
+    slug = f"{kind}-{uuid.uuid4().hex[:8]}"
+    if kind == "venue":
+        return Venue(name=name, slug=slug, kind="club")
+    return {"artist": Artist, "party": Party}[kind](name=name, slug=slug)
+
+
+async def _user(s) -> uuid.UUID:
+    u = User(email=f"u-{uuid.uuid4().hex[:6]}@x.test", username=f"u{uuid.uuid4().hex[:6]}",
+             display_name="u", password_hash=hash_password("aaaaaaaa"))
+    s.add(u)
+    await s.flush()
+    return u.id
+
+
+def _monitor(owner, kind, entity_id, query="q") -> Monitor:
+    return Monitor(owner_user_id=owner, kind="query", query_text=query,
+                   catalog_kind=kind, catalog_id=entity_id)
+
+
+@pytest.mark.parametrize("kind", ["artist", "party", "venue"])
+async def test_merge_repoints_monitor_to_survivor(session, kind):
+    s = session
+    uid = await _user(s)
+    survivor, loser = _entity(kind, "Keep"), _entity(kind, "Lose")
+    s.add_all([survivor, loser])
+    await s.flush()
+    m = _monitor(uid, kind, loser.id, query="Lose tuned")
+    s.add(m)
+    await s.commit()
+    sid, lid, mid = survivor.id, loser.id, m.id
+
+    await merge_entities(s, kind=kind, survivor_id=sid, loser_id=lid, actor_id=uid)
+    await s.commit()
+    s.expire_all()
+    moved = await s.get(Monitor, mid)
+    assert (moved.catalog_kind, moved.catalog_id) == (kind, sid)
+    assert moved.query_text == "Lose tuned"  # the user's query is kept
+
+    await unmerge_entity(s, kind=kind, loser_id=lid, actor_id=uid)
+    await s.commit()
+    s.expire_all()
+    assert (await s.get(Monitor, mid)).catalog_id == lid
+
+
+async def test_merge_drops_loser_monitor_when_survivor_has_one(session):
+    s = session
+    both, only_loser = await _user(s), await _user(s)
+    survivor, loser = _entity("artist", "Keep"), _entity("artist", "Lose")
+    s.add_all([survivor, loser])
+    await s.flush()
+    keep = _monitor(both, "artist", survivor.id, query="Keep")
+    drop = _monitor(both, "artist", loser.id, query="Lose")
+    drop.per_poll_cap, drop.enabled = 9, False
+    move = _monitor(only_loser, "artist", loser.id, query="Lose")
+    s.add_all([keep, drop, move])
+    await s.commit()
+    sid, lid = survivor.id, loser.id
+    keep_id, drop_id, move_id = keep.id, drop.id, move.id
+
+    await merge_entities(s, kind="artist", survivor_id=sid, loser_id=lid, actor_id=both)
+    await s.commit()
+    s.expire_all()
+    assert await s.get(Monitor, drop_id) is None
+    assert (await s.get(Monitor, keep_id)).catalog_id == sid
+    assert (await s.get(Monitor, move_id)).catalog_id == sid
+    linked = (await s.execute(select(Monitor).where(
+        Monitor.catalog_kind == "artist", Monitor.catalog_id == sid,
+        Monitor.owner_user_id == both,
+    ))).scalars().all()
+    assert [x.id for x in linked] == [keep_id]
+
+    # Unmerge brings the dropped monitor back as it was.
+    await unmerge_entity(s, kind="artist", loser_id=lid, actor_id=both)
+    await s.commit()
+    s.expire_all()
+    restored = await s.get(Monitor, drop_id)
+    assert restored is not None
+    assert (restored.owner_user_id, restored.catalog_id, restored.query_text) == (both, lid, "Lose")
+    assert (restored.per_poll_cap, restored.enabled) == (9, False)
+    assert (await s.get(Monitor, move_id)).catalog_id == lid
+    assert (await s.get(Monitor, keep_id)).catalog_id == sid
+
+
+async def test_rename_keeps_monitor_query(session):
+    """Renaming a monitored entity leaves the monitor's (maybe tuned) query alone."""
+    s = session
+    uid = await _user(s)
+    artist = _entity("artist", "Old Name")
+    s.add(artist)
+    await s.flush()
+    m = _monitor(uid, "artist", artist.id, query="Old Name live")
+    s.add(m)
+    await s.commit()
+
+    mid, aid = m.id, artist.id
+
+    artist.name = "New Name"
+    await s.commit()
+    s.expire_all()
+    m = await s.get(Monitor, mid)
+    assert m.query_text == "Old Name live"
+    assert m.catalog_id == aid

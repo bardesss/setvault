@@ -13,6 +13,7 @@ from setvault_core.schemas.catalog import (
     ArtistIn,
     ArtistOut,
     ArtistPatchIn,
+    EntityMonitorOut,
     PartyIn,
     PartyOut,
     PartyPatchIn,
@@ -34,13 +35,20 @@ from setvault_core.services.catalog import (
 from setvault_core.services.catalog import lookup as catalog_lookup
 from setvault_core.services.catalog_merge import merge_entities, unmerge_entity
 from setvault_core.services.enrichment import select_providers_for_capability
+from setvault_core.services.monitors import find_catalog_monitor
 from setvault_providers.base import Capability
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.config import get_settings
-from setvault_web.deps import current_user, db_session, parse_uuid, require_admin
+from setvault_web.deps import (
+    can_monitor,
+    current_user,
+    db_session,
+    parse_uuid,
+    require_admin,
+)
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -111,6 +119,19 @@ async def _create(session: AsyncSession, row, kind: str, body: BaseModel, user: 
         raise HTTPException(status_code=409, detail=f"{kind} slug already exists") from exc
 
 
+async def _monitor_state(
+    session: AsyncSession, user: User, kind: str, entity_id: uuid.UUID,
+) -> EntityMonitorOut | None:
+    """The user's monitor linked to this entity; ``None`` when there is none or
+    the user may not monitor."""
+    if not await can_monitor(session, user):
+        return None
+    m = await find_catalog_monitor(
+        session, owner_user_id=user.id, catalog_kind=kind, catalog_id=entity_id,
+    )
+    return EntityMonitorOut(id=str(m.id), enabled=m.enabled) if m is not None else None
+
+
 # -------- Lookup --------
 
 
@@ -160,7 +181,7 @@ async def create_artist(
 async def get_artist(
     slug: str,
     session: Annotated[AsyncSession, Depends(db_session)],
-    _: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
 ):
     row = (
         await session.execute(
@@ -169,7 +190,9 @@ async def get_artist(
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="artist not found")
-    return _artist_out(row)
+    out = _artist_out(row)
+    out.monitor = await _monitor_state(session, user, "artist", row.id)
+    return out
 
 
 # -------- Venues --------
@@ -198,7 +221,7 @@ async def create_venue(
 async def get_venue(
     slug: str,
     session: Annotated[AsyncSession, Depends(db_session)],
-    _: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
 ):
     row = (
         await session.execute(
@@ -207,7 +230,9 @@ async def get_venue(
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="venue not found")
-    return _venue_out(row)
+    out = _venue_out(row)
+    out.monitor = await _monitor_state(session, user, "venue", row.id)
+    return out
 
 
 # -------- Series --------
@@ -278,7 +303,7 @@ async def create_party(
 async def get_party(
     slug: str,
     session: Annotated[AsyncSession, Depends(db_session)],
-    _: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
 ):
     row = (
         await session.execute(
@@ -287,7 +312,9 @@ async def get_party(
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="party not found")
-    return _party_out(row)
+    out = _party_out(row)
+    out.monitor = await _monitor_state(session, user, "party", row.id)
+    return out
 
 
 # -------- Helpers --------

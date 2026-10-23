@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+CatalogKind = Literal["artist", "party", "venue"]
+PerPollCap = Annotated[int, Field(ge=1, le=50)]
+QueryText = Annotated[str, Field(max_length=255)]
 
 
 class MonitorCreate(BaseModel):
     kind: str  # query | entity
-    query_text: str | None = None
-    source_kind: str | None = None
-    external_id: str | None = None
-    per_poll_cap: int = 5
+    query_text: QueryText | None = None
+    source_kind: str | None = Field(default=None, max_length=32)
+    external_id: str | None = Field(default=None, max_length=255)
+    per_poll_cap: PerPollCap = 5
+    # Optional link to the catalog entity this (query) monitor watches.
+    catalog_kind: CatalogKind | None = None
+    catalog_id: str | None = None
 
     @model_validator(mode="after")
     def _check(self) -> MonitorCreate:
@@ -22,6 +30,10 @@ class MonitorCreate(BaseModel):
                 raise ValueError("entity monitor requires source_kind and external_id")
         else:
             raise ValueError("kind must be 'query' or 'entity'")
+        if (self.catalog_kind is None) != (self.catalog_id is None):
+            raise ValueError("catalog_kind and catalog_id go together")
+        if self.catalog_kind is not None and self.kind != "query":
+            raise ValueError("only query monitors can link to a catalog entity")
         return self
 
 
@@ -36,6 +48,11 @@ class MonitorOut(BaseModel):
     per_poll_cap: int
     last_checked_at: datetime | None
     created_at: datetime
+    catalog_kind: str | None = None
+    catalog_id: str | None = None
+    # Resolved from the linked entity; null when unlinked or the entity is gone.
+    catalog_name: str | None = None
+    catalog_slug: str | None = None
 
 
 class MonitorsListOut(BaseModel):
@@ -43,7 +60,20 @@ class MonitorsListOut(BaseModel):
 
 
 class MonitorUpdate(BaseModel):
-    enabled: bool
+    """Edit in place. Every field is optional; ``kind`` can't change. Send
+    ``source_kind: null`` for all sources."""
+
+    enabled: bool | None = None
+    query_text: QueryText | None = None
+    source_kind: str | None = Field(default=None, max_length=32)
+    per_poll_cap: PerPollCap | None = None
+
+    @model_validator(mode="after")
+    def _check(self) -> MonitorUpdate:
+        for name in ("enabled", "per_poll_cap"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} can't be null")
+        return self
 
 
 class DiscoveryOut(BaseModel):
@@ -64,3 +94,5 @@ class DiscoveryOut(BaseModel):
 
 class DiscoveriesListOut(BaseModel):
     items: list[DiscoveryOut]
+    # The caller's pending_review count, whatever the status filter.
+    pending_count: int = 0

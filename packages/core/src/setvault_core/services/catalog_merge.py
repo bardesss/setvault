@@ -15,6 +15,8 @@ from setvault_core.models.catalog import (
     Series,
     Venue,
 )
+from setvault_core.models.identity import User
+from setvault_core.models.monitors import Monitor
 from setvault_core.models.tracklist import (
     Label,
     Release,
@@ -168,6 +170,61 @@ async def _repoint(s, kind, survivor_id, loser_id) -> dict:
     raise ValueError(f"unknown kind {kind}")
 
 
+_MONITORED = {"artist", "party", "venue"}
+_MONITOR_UUID_COLS = {"id", "owner_user_id", "catalog_id"}
+_MONITOR_DT_COLS = {"last_checked_at", "created_at", "updated_at"}
+
+
+async def _repoint_monitors(s, kind, survivor_id, loser_id) -> dict:
+    """Move monitors linked to the loser onto the survivor. An owner who
+    already monitors the survivor keeps that one; their loser monitor is
+    deleted (with its discoveries) and snapshotted so unmerge can restore it."""
+    linked = (await s.execute(
+        select(Monitor).where(Monitor.catalog_kind == kind,
+                              Monitor.catalog_id.in_([survivor_id, loser_id]))
+        .order_by(Monitor.created_at, Monitor.id)
+    )).scalars().all()
+    owners = {m.owner_user_id for m in linked if m.catalog_id == survivor_id}
+    moved, deleted = [], []
+    for m in linked:
+        if m.catalog_id != loser_id:
+            continue
+        if m.owner_user_id in owners:
+            deleted.append({c.key: getattr(m, c.key) for c in Monitor.__table__.columns})
+            await s.delete(m)
+        else:
+            owners.add(m.owner_user_id)
+            m.catalog_id = survivor_id
+            moved.append(str(m.id))
+    await s.flush()
+    return to_jsonable_python({"moved": moved, "deleted": deleted})
+
+
+async def _restore_monitors(session, manifest: dict, loser_id: uuid.UUID) -> None:
+    survivor_id = uuid.UUID(manifest["survivor_id"])
+    record = manifest.get("monitors") or {}
+    if record.get("moved"):
+        await session.execute(
+            update(Monitor)
+            .where(Monitor.id.in_([uuid.UUID(i) for i in record["moved"]]),
+                   Monitor.catalog_id == survivor_id)
+            .values(catalog_id=loser_id)
+        )
+    for snapshot in record.get("deleted", []):
+        values = {}
+        for col, v in snapshot.items():
+            if v is not None and col in _MONITOR_UUID_COLS:
+                v = uuid.UUID(v)
+            elif v is not None and col in _MONITOR_DT_COLS:
+                v = datetime.fromisoformat(v)
+            values[col] = v
+        # Skip when the owner has gone or the id is somehow back in use.
+        if (await session.get(User, values["owner_user_id"]) is None
+                or await session.get(Monitor, values["id"]) is not None):
+            continue
+        await session.execute(insert(Monitor).values(**values))
+
+
 def _empty(v) -> bool:
     return v is None or v == "" or v == [] or v == {}
 
@@ -189,6 +246,8 @@ async def merge_entities(
         raise ValueError("cannot merge a tombstoned entity")
 
     manifest = await _repoint(session, kind, survivor_id, loser_id)
+    if kind in _MONITORED:
+        manifest["monitors"] = await _repoint_monitors(session, kind, survivor_id, loser_id)
 
     gap_filled = []
     for field in _SCALAR[kind]:
@@ -261,6 +320,7 @@ async def unmerge_entity(
     # recreate join rows that were dropped on PK collision
     for ls_id, _aid in manifest.get("deleted_join", []):
         session.add(LiveSetArtist(live_set_id=uuid.UUID(ls_id), artist_id=loser_id))
+    await _restore_monitors(session, manifest, loser_id)
 
     loser.merged_into_id = None
     loser.merged_at = None
