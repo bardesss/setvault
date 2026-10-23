@@ -1,22 +1,32 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { loginAs } from "./helpers/auth";
 
+async function csrfHeaders(page: Page): Promise<Record<string, string>> {
+  const c = (await page.context().cookies()).find((x) => x.name === "csrf_token");
+  return c ? { "X-CSRF-Token": c.value } : {};
+}
+
 async function deleteMonitorsWhere(
-  request: APIRequestContext,
+  page: Page,
   match: (m: { id: string; query_text: string | null; external_id: string | null }) => boolean,
 ) {
+  const request = page.request;
+  const headers = await csrfHeaders(page);
   const res = await request.get("/api/monitors");
   if (!res.ok()) return;
   const { items } = await res.json();
   for (const m of items) {
-    if (match(m)) await request.delete(`/api/monitors/${m.id}`);
+    if (match(m)) await request.delete(`/api/monitors/${m.id}`, { headers });
   }
 }
 
 test("monitor button on an artist page toggles and persists", async ({ page }) => {
   await loginAs(page, page.request);
   const name = `E2E Monitor Artist ${Date.now()}`;
-  const created = await page.request.post("/api/catalog/artists", { data: { name } });
+  const created = await page.request.post("/api/catalog/artists", {
+    data: { name },
+    headers: await csrfHeaders(page),
+  });
   expect(created.ok()).toBeTruthy();
   const artist = await created.json();
 
@@ -31,7 +41,7 @@ test("monitor button on an artist page toggles and persists", async ({ page }) =
     await page.getByRole("button", { name: /Monitoring ✓/ }).click();
     await expect(page.getByRole("button", { name: "Monitor", exact: true })).toBeVisible();
   } finally {
-    await deleteMonitorsWhere(page.request, (m) => m.query_text === name);
+    await deleteMonitorsWhere(page, (m) => m.query_text === name);
   }
 });
 
@@ -60,7 +70,7 @@ test("admin monitors: entity monitor form and inline cap edit", async ({ page })
       page.getByRole("row", { name: new RegExp(extId) }).getByLabel(/per-poll cap/i),
     ).toHaveValue("10");
   } finally {
-    await deleteMonitorsWhere(page.request, (m) => m.external_id === extId);
+    await deleteMonitorsWhere(page, (m) => m.external_id === extId);
   }
 });
 
@@ -73,20 +83,7 @@ test("admin monitors: add a query monitor", async ({ page }) => {
     await page.getByRole("button", { name: /add monitor/i }).click();
     await expect(page.getByRole("row", { name: new RegExp(q) })).toBeVisible();
   } finally {
-    await deleteMonitorsWhere(page.request, (m) => m.query_text === q);
-  }
-});
-
-test("admin monitors: add a query monitor", async ({ page }) => {
-  await loginAs(page, page.request);
-  const q = `E2E Query ${Date.now()}`;
-  try {
-    await page.goto("/admin/monitors", { waitUntil: "networkidle" });
-    await page.getByPlaceholder(/artist, party, or venue/i).fill(q);
-    await page.getByRole("button", { name: /add monitor/i }).click();
-    await expect(page.getByRole("row", { name: new RegExp(q) })).toBeVisible();
-  } finally {
-    await deleteMonitorsWhere(page.request, (m) => m.query_text === q);
+    await deleteMonitorsWhere(page, (m) => m.query_text === q);
   }
 });
 

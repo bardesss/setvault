@@ -313,6 +313,7 @@
     "kind_query": "Query",
     "kind_entity": "Entity",
     "source_label": "Source",
+    "all_sources_option": "All sources",
     "source_pick": "Pick a source",
     "external_id": "External id",
     "help_youtube": "The channel id (starts with UC) or handle.",
