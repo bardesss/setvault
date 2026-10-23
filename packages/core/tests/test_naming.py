@@ -8,7 +8,12 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
-from setvault_core.services.naming import _safe_segment, render_filename
+from setvault_core.services.naming import (
+    _safe_segment,
+    render_filename,
+    template_has_unique_token,
+    validate_template,
+)
 
 
 class _ArtistRef:
@@ -129,3 +134,30 @@ def test_render_filename_no_artists_yet():
     out = render_filename("{Artist}/{Slug}{Ext}", live, ext=".opus")
     # Empty Artist segment collapses
     assert out == "test-set.opus"
+
+
+def test_validate_template_errors():
+    for bad in ("{Nope}.{Ext}", "{Slug}", "../{Slug}.{Ext}", "/abs/{Slug}.{Ext}",
+                "C:/x/{Slug}.{Ext}", "C:{Slug}.{Ext}", "\\\\server\\{Slug}.{Ext}"):
+        assert validate_template(bad), bad
+    assert validate_template("{Artist}/{Date} {Slug}.{Ext}") == []
+    assert validate_template("originals/{SetId}{Ext}") == []
+
+
+def test_validate_template_names_the_unknown_token():
+    errors = validate_template("{Nope}/{Slug}{Ext}")
+    assert any("{Nope}" in e for e in errors)
+
+
+def test_template_has_unique_token():
+    assert template_has_unique_token("{Artist}/{Slug}.{Ext}")
+    assert template_has_unique_token("{SetId}{Ext}")
+    assert not template_has_unique_token("{Artist}/{Date}.{Ext}")
+
+
+def test_render_filename_dot_before_ext_is_not_doubled():
+    """{Ext} carries its leading dot, so "{Slug}.{Ext}" and "{Slug}{Ext}"
+    render the same file name."""
+    live = _Live()
+    assert render_filename("{Artist}/{Slug}.{Ext}", live, ext=".opus") == "Carl-Cox/test-set.opus"
+    assert render_filename("{Artist}/{Slug}{Ext}", live, ext=".opus") == "Carl-Cox/test-set.opus"

@@ -9,7 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.db import init_engine, session_factory
-from setvault_core.models.catalog import LiveSet
+from setvault_core.jobs.apply_naming import enqueue_apply_naming
+from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.library_webhook import LibraryWebhook
 from setvault_core.progress import ProgressEvent, publish
 from setvault_core.services.activity import record
@@ -52,7 +53,13 @@ async def fan_out_webhooks(live: LiveSet, event: str) -> None:
 
 async def publish_live_set(s: AsyncSession, live: LiveSet) -> None:
     """Flip ``live`` to published and record the activity event. The caller
-    commits, then calls ``fan_out_webhooks(live, "set.published")``."""
+    commits, then calls ``fan_out_webhooks(live, "set.published")``.
+
+    When the set's media root has a naming template, the single-set rename
+    job is queued as well (P2a A4). It writes only ``audio_path`` and takes
+    the set's row lock, so it is safe whether it runs before or after the
+    caller's commit.
+    """
     live.status = "published"
     await record(
         s,
@@ -61,6 +68,9 @@ async def publish_live_set(s: AsyncSession, live: LiveSet) -> None:
         subject_id=live.id,
         user_id=live.uploaded_by,
     )
+    root = await s.get(MediaRoot, live.media_root_id)
+    if root is not None and root.naming_template:
+        enqueue_apply_naming(live.id)
 
 
 @dataclass(frozen=True)

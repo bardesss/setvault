@@ -27,6 +27,44 @@ if TYPE_CHECKING:
 
 _TOKEN_RE = re.compile(r"\{(?P<name>[A-Za-z]+)\}")
 
+TOKENS = frozenset({
+    "Artist", "Party", "Series", "Venue", "Date", "Year", "Slug", "Type", "SetId", "Ext",
+})
+_UNIQUE_TOKENS = ("{SetId}", "{Slug}")
+_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+
+
+def validate_template(template: str) -> list[str]:
+    """Problems with ``template`` as a naming template; empty when valid.
+
+    Rejects unknown tokens, a template that doesn't end in ``{Ext}``, ``..``
+    anywhere, and absolute paths (leading slash or backslash, or a drive
+    letter). Token values can't escape the root (``_safe_segment``), so these
+    checks on the literal text are enough.
+    """
+    errors: list[str] = []
+    unknown = sorted({
+        m.group("name") for m in _TOKEN_RE.finditer(template)
+        if m.group("name") not in TOKENS
+    })
+    for name in unknown:
+        errors.append(f"unknown token {{{name}}}")
+    literal = _TOKEN_RE.sub("", template)
+    if "{" in literal or "}" in literal:
+        errors.append("unbalanced or malformed braces")
+    if not template.endswith("{Ext}"):
+        errors.append("template must end in {Ext}")
+    if ".." in template:
+        errors.append("template must not contain ..")
+    if template.startswith(("/", "\\")) or _DRIVE_RE.match(template):
+        errors.append("template must be a relative path")
+    return errors
+
+
+def template_has_unique_token(template: str) -> bool:
+    """True when the template names each set uniquely ({SetId} or {Slug})."""
+    return any(tok in template for tok in _UNIQUE_TOKENS)
+
 # Characters not allowed in a single path segment. Slash also stripped from
 # token VALUES so they can't escape a path component.
 _UNSAFE_CHARS_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -90,12 +128,14 @@ def render_filename(template: str, live: LiveSet, *, ext: str) -> str:
     (forward-slash separated).
 
     ``ext`` is the source file's extension *including* the leading dot
-    (e.g. ``.opus``). Callers pass ``Path(src).suffix``.
+    (e.g. ``.opus``). Callers pass ``Path(src).suffix``. A literal dot right
+    before ``{Ext}`` is dropped, so ``{Slug}.{Ext}`` and ``{Slug}{Ext}`` both
+    render ``slug.opus``.
     """
     def replace(match: re.Match[str]) -> str:
         return _resolve_token(match.group("name"), live, ext)
 
-    out = _TOKEN_RE.sub(replace, template)
+    out = _TOKEN_RE.sub(replace, template.replace(".{Ext}", "{Ext}"))
     # Normalise path separators + collapse repeated slashes
     out = out.replace("\\", "/")
     out = re.sub(r"/{2,}", "/", out)
