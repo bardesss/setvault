@@ -11,6 +11,7 @@ from setvault_core.models.system import NotificationConnector
 from setvault_core.schemas.connector import (
     ConnectorCreateIn,
     ConnectorOut,
+    ConnectorPatchIn,
     SmtpConfigOut,
     TestSendIn,
     TestSendOut,
@@ -21,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.config import Settings, get_settings
-from setvault_web.deps import current_user, db_session, require_admin
+from setvault_web.deps import current_user, db_session, parse_uuid, require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -88,15 +89,99 @@ async def create_connector(
 
 @router.get("/{connector_id}", response_model=ConnectorOut)
 async def show_connector(
-    connector_id: uuid.UUID,
+    connector_id: str,
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(db_session)],
     _: Annotated[object, Depends(require_admin)],
 ):
-    row = await session.get(NotificationConnector, connector_id)
+    row = await session.get(NotificationConnector, parse_uuid(connector_id))
     if row is None:
         raise HTTPException(status_code=404, detail="not found")
     return _to_out(row, Crypter(settings.secret_key))
+
+
+def _audit_config(config: dict, fields) -> dict:
+    """Config fields for an audit row; the password is only ever ``password_set``."""
+    out = {f: config.get(f) for f in fields if f != "password"}
+    if "password" in fields:
+        out["password_set"] = bool(config.get("password"))
+    return out
+
+
+@router.patch("/{connector_id}", response_model=ConnectorOut)
+async def patch_connector(
+    connector_id: str,
+    body: ConnectorPatchIn,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+    admin: Annotated[User, Depends(current_user)],
+    _: Annotated[object, Depends(require_admin)],
+):
+    row = await session.get(NotificationConnector, parse_uuid(connector_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="not found")
+    crypter = Crypter(settings.secret_key)
+    old_config = json.loads(crypter.decrypt(row.encrypted_config).decode("utf-8"))
+    new_config = dict(old_config)
+
+    before: dict = {}
+    after: dict = {}
+    for field in ("name", "enabled"):
+        if field in body.model_fields_set:
+            before[field] = getattr(row, field)
+            after[field] = getattr(body, field)
+
+    if body.config is not None:
+        patch = {f: getattr(body.config, f) for f in body.config.model_fields_set}
+        # Blank password keeps the stored one; null clears it.
+        if patch.get("password") == "":
+            del patch["password"]
+        new_config.update(patch)
+        changed = [f for f in patch if new_config.get(f) != old_config.get(f)]
+        if changed:
+            before["config"] = _audit_config(old_config, changed)
+            after["config"] = _audit_config(new_config, changed)
+            # Whether a password exists is context for any config edit.
+            before["config"].setdefault("password_set", bool(old_config.get("password")))
+            after["config"].setdefault("password_set", bool(new_config.get("password")))
+
+    for field in ("name", "enabled"):
+        if field in after:
+            setattr(row, field, after[field])
+    row.encrypted_config = crypter.encrypt(json.dumps(new_config).encode("utf-8"))
+    await audit_log(
+        session,
+        actor_user_id=admin.id,
+        action="connector.edited",
+        target_type="NotificationConnector",
+        target_id=str(row.id),
+        before=before,
+        after=after,
+    )
+    await session.commit()
+    return _to_out(row, crypter)
+
+
+@router.delete("/{connector_id}", status_code=204)
+async def delete_connector(
+    connector_id: str,
+    session: Annotated[AsyncSession, Depends(db_session)],
+    admin: Annotated[User, Depends(current_user)],
+    _: Annotated[object, Depends(require_admin)],
+):
+    row = await session.get(NotificationConnector, parse_uuid(connector_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="not found")
+    await audit_log(
+        session,
+        actor_user_id=admin.id,
+        action="connector.deleted",
+        target_type="NotificationConnector",
+        target_id=str(row.id),
+        before={"kind": row.kind, "name": row.name},
+    )
+    await session.delete(row)
+    await session.commit()
 
 
 @router.post("/{connector_id}/test-send", response_model=TestSendOut)
