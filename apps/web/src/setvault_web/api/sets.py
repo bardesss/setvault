@@ -423,7 +423,7 @@ async def edit_set(
     if changed:
         await audit_log(
             session, actor_user_id=user.id, action="set.edited",
-            target_type="live_set", target_id=str(live.id),
+            target_type="LiveSet", target_id=str(live.id),
             before={k: before[k] for k in changed},
             after={k: after[k] for k in changed},
         )

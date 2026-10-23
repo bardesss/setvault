@@ -387,6 +387,7 @@ async def test_patch_writes_set_edited_audit(authed_admin_client, seeded_live_se
         ev = (await s.execute(
             select(AuditEvent).where(AuditEvent.action == "set.edited")
         )).scalars().one()
+    assert ev.target_type == "LiveSet"
     assert ev.target_id == seeded_live_set["id"]
     assert ev.before == {"title": "seeded set"}
     assert ev.after == {"title": "Edited"}
