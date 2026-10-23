@@ -6,6 +6,7 @@
   import Modal from "#lib/components/Modal.svelte";
   import ConfirmDialog from "#lib/components/ConfirmDialog.svelte";
   import { toast } from "#lib/stores/toast.ts";
+  import { formatDetail } from "#lib/api/errors.ts";
   import { ApiError } from "#lib/api/client.ts";
   import { patchSet } from "#lib/api/sets.ts";
   import { createArtist, createParty, createVenue, getParty } from "#lib/api/catalog.ts";
@@ -14,7 +15,6 @@
     SET_TYPES,
     diffPatch,
     formFromSet,
-    formatDetail,
     roleOptions,
     type EditForm,
   } from "#lib/set-edit.ts";

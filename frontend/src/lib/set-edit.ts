@@ -78,17 +78,3 @@ export function diffPatch(original: EditForm, current: EditForm): SetPatch {
   if (!sameList(original.tags, current.tags, (a, b) => a === b)) patch.tag_names = [...current.tags];
   return patch;
 }
-
-/** A readable message from an API error `detail` (a string, or FastAPI's validation list). */
-export function formatDetail(detail: unknown): string {
-  if (Array.isArray(detail)) {
-    return detail
-      .map((d: { loc?: unknown[]; msg?: string }) => {
-        const loc = Array.isArray(d.loc) ? d.loc.filter((p) => p !== "body") : [];
-        const field = loc.length > 0 ? `${loc[loc.length - 1]}: ` : "";
-        return `${field}${d.msg ?? ""}`;
-      })
-      .join("; ");
-  }
-  return typeof detail === "string" ? detail : String(detail);
-}

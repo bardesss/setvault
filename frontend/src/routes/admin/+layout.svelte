@@ -13,6 +13,7 @@
   const tabs = [
     { href: "/admin/users", label: "Users" },
     { href: "/admin/connectors", label: "Connectors" },
+    { href: "/admin/email", label: "Email" },
     { href: "/admin/providers", label: "Providers" },
     { href: "/admin/sources", label: "Sources" },
     { href: "/admin/monitors", label: "Monitors" },

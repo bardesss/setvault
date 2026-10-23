@@ -1,3 +1,5 @@
+import { formatDetail } from "./errors";
+
 const BASE = "";
 
 function getCookie(name: string): string | null {
@@ -36,7 +38,8 @@ export async function api<T = unknown>(
   if (!response.ok) {
     let detail = response.statusText;
     try {
-      detail = (await response.json()).detail ?? detail;
+      // detail may be a string, a string list or pydantic's {loc,msg} list.
+      detail = formatDetail((await response.json()).detail ?? detail);
     } catch {
       /* noop */
     }

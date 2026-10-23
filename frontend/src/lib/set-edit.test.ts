@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffPatch, formatDetail, formFromSet, roleOptions, type EditForm } from "./set-edit.ts";
+import { diffPatch, formFromSet, roleOptions, type EditForm } from "./set-edit.ts";
 import type { SetDetail } from "./api/sets.ts";
 
 const base = (): EditForm => ({
@@ -120,20 +120,5 @@ describe("roleOptions", () => {
 
   it("keeps any other existing role as an extra option", () => {
     expect(roleOptions("vs")).toEqual(["main", "b2b", "vs"]);
-  });
-});
-
-describe("formatDetail", () => {
-  it("passes a string through", () => {
-    expect(formatDetail("unknown venue_id")).toBe("unknown venue_id");
-  });
-
-  it("joins pydantic validation messages", () => {
-    expect(
-      formatDetail([
-        { loc: ["body", "title"], msg: "Value error, title must not be blank" },
-        { loc: ["body", "date"], msg: "Input should be a valid date" },
-      ]),
-    ).toBe("title: Value error, title must not be blank; date: Input should be a valid date");
   });
 });
