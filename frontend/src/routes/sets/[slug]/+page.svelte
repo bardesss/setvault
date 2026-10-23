@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { _ } from "svelte-i18n";
   import Player from "#lib/components/Player.svelte";
   import Tracklist from "#lib/components/Tracklist.svelte";
   import SidePanel from "#lib/components/SidePanel.svelte";
@@ -46,6 +47,9 @@
         {#key set.slug}
           <FavoriteButton slug={set.slug} initial={set.is_favorite} />
         {/key}
+        {#if $session}
+          <a class="btn" href={`/sets/${set.slug}/edit`}>{$_("set_edit.edit")}</a>
+        {/if}
         {#if isAdmin}
           <EmbedToggleAdmin slug={set.slug} allowed={set.embed_allowed} />
         {/if}

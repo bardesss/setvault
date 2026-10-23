@@ -409,5 +409,46 @@
       "history_merged_line": "Merged a duplicate copy ({from}) into this set on {date}",
       "history_merged_tracklist_kept": "Merged a duplicate copy ({from}) into this set on {date}; its tracklist stayed with the recycled copy"
     }
+  },
+  "set_edit": {
+    "edit": "Edit",
+    "page_title": "Edit {title}",
+    "heading": "Edit set",
+    "title": "Title",
+    "artists": "Artists",
+    "artists_placeholder": "Add an artist…",
+    "role_for": "Role for {name}",
+    "party": "Party",
+    "party_placeholder": "Search parties…",
+    "venue": "Venue",
+    "venue_placeholder": "Search venues…",
+    "series": "Series",
+    "edit_party": "Edit party",
+    "clear": "Clear",
+    "date": "Date",
+    "set_type": "Set type",
+    "type": {
+      "unknown": "Unknown",
+      "opener": "Opener",
+      "warmup": "Warm-up",
+      "headline": "Headline",
+      "closer": "Closer",
+      "b2b": "B2B"
+    },
+    "description": "Description",
+    "tags": "Tags",
+    "tags_placeholder": "Add a tag…",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Set saved",
+    "save_failed": "Could not save the set. Try again.",
+    "title_required": "The title can't be empty.",
+    "create_failed": "Could not create \"{name}\": {error}",
+    "new_party": "New party",
+    "party_name": "Name",
+    "create_party": "Create party",
+    "unsaved_title": "Discard changes?",
+    "unsaved_message": "You have unsaved changes. Leave this page and lose them?",
+    "discard": "Discard"
   }
 }

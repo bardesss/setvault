@@ -25,7 +25,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from setvault_core.models.catalog import LiveSet, LiveSetTag, MediaRoot, Tag, Venue
+from setvault_core.models.catalog import (
+    Artist,
+    LiveSet,
+    LiveSetArtist,
+    LiveSetTag,
+    MediaRoot,
+    Tag,
+    Venue,
+)
 from setvault_core.models.identity import User
 from setvault_core.services.passwords import hash_password
 from sqlalchemy import select, text
@@ -91,6 +99,15 @@ SEED_EXTRA_SETS = [
     ("e2e-bravo", "Bravo Session", date(2022, 6, 1), 2, True, False),
     ("e2e-charlie", "Charlie Closing", date(2020, 6, 1), 1, False, False),
 ]
+
+# The set the metadata-editor e2e test (tests/set-edit.test.ts) mutates; no
+# other test may use it. The slug avoids the "e2e-" prefix that the library
+# tests count. The test puts it back to this state itself before each run, so
+# the seed only creates it.
+EDIT_SET_SLUG = "edit-target"
+EDIT_SET_TITLE = "Edit Target"
+EDIT_ARTIST_SLUG = "e2e-resident"
+EDIT_ARTIST_NAME = "E2E Resident"
 
 
 class SeedAdminOut(BaseModel):
@@ -224,6 +241,36 @@ async def seed_e2e(session: Annotated[AsyncSession, Depends(db_session)]) -> See
         await session.flush()
         if tagged:
             session.add(LiveSetTag(live_set_id=extra.id, tag_id=tag.id))
+
+    # 5. The metadata editor's own set: one artist, at the seed venue.
+    resident = (
+        await session.execute(select(Artist).where(Artist.slug == EDIT_ARTIST_SLUG))
+    ).scalar_one_or_none()
+    if resident is None:
+        resident = Artist(name=EDIT_ARTIST_NAME, slug=EDIT_ARTIST_SLUG)
+        session.add(resident)
+        await session.flush()
+    edit_exists = (
+        await session.execute(select(LiveSet.id).where(LiveSet.slug == EDIT_SET_SLUG))
+    ).scalar_one_or_none()
+    if edit_exists is None:
+        edit_set = LiveSet(
+            id=uuid.uuid4(),
+            slug=EDIT_SET_SLUG,
+            title=EDIT_SET_TITLE,
+            media_root_id=media_root.id,
+            audio_path=f"originals/seed/{EDIT_SET_SLUG}.wav",
+            streaming_path=SEED_STREAMING_REL,
+            duration_seconds=1,
+            status="published",
+            source_type="upload",
+            uploaded_by=admin.id,
+            venue_id=venue.id,
+            created_at=now - timedelta(hours=4),
+        )
+        session.add(edit_set)
+        await session.flush()
+        session.add(LiveSetArtist(live_set_id=edit_set.id, artist_id=resident.id, position=0))
 
     await session.commit()
     return SeedOut(
