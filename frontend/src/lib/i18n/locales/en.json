@@ -199,6 +199,22 @@
         "queued": "Scanning for duplicates in the background…",
         "still_running": "The scan is still running. Check back later.",
         "failed": "Could not start the scan."
+      },
+      "loudness": {
+        "title": "Loudness",
+        "target": "Target loudness (LUFS)",
+        "off": "Off",
+        "set_target": "Set target",
+        "help": "Applies to new sets; use 'Re-apply to library' for existing ones. Leave empty to turn loudness matching off. Allowed range: -30 to -5 LUFS.",
+        "invalid": "Enter a number from -30 to -5, or leave it empty to turn this off.",
+        "reapply": "Re-apply to library",
+        "reapply_help": "Re-encodes every set whose stream gain no longer matches the current target. Re-measuring loudness (the maintenance action) does not change streams until you re-apply.",
+        "confirm_title": "Re-apply loudness to the library?",
+        "confirm_message": "Sets whose stream gain differs from the target are re-encoded in the background. Progress shows in Admin → Jobs.",
+        "confirm_label": "Re-apply",
+        "queued": "Re-apply queued. Follow it in Admin → Jobs.",
+        "failed": "Could not start the re-apply.",
+        "saved": "Loudness target saved."
       }
     },
     "wanted": {

@@ -9,6 +9,13 @@ export interface AdminSettings {
   quality_cutoff: string;
   auto_upgrades_enabled: boolean;
   upgrade_search_schedule: "daily" | "weekly" | "off";
+  /** Target in LUFS (-30 to -5); null means loudness matching is off. */
+  loudness_target_lufs: number | null;
+}
+
+/** Queue the library-wide loudness re-gain job (admin only). */
+export function regainLibrary(): Promise<{ job_id: string }> {
+  return api<{ job_id: string }>("/api/admin/maintenance/regain", { method: "POST" });
 }
 
 export function getSettings(): Promise<AdminSettings> {

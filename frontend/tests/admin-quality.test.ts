@@ -72,6 +72,43 @@ test("quality tab reorders tiers and saves the new order", async ({ page, reques
   });
 });
 
+test("quality tab sets, clears and re-applies the loudness target", async ({ page, request }) => {
+  await loginAs(page, request);
+  const csrf = (await page.context().cookies()).find((c) => c.name === "csrf_token")?.value ?? "";
+  const headers = { "X-CSRF-Token": csrf };
+  // Global setting, shared with the other CI worker: restore it afterwards.
+  const original = (await (await page.request.get("/api/admin/settings")).json())
+    .loudness_target_lufs as number | null;
+  try {
+    await page.request.put("/api/admin/settings", { data: { loudness_target_lufs: -14.0 }, headers });
+    await page.goto("/admin/quality");
+    const field = page.getByTestId("loudness-target");
+    await expect(field).toHaveValue("-14");
+
+    await field.fill("-16");
+    await page.getByTestId("loudness-save").click();
+    await expect(page.getByText("Loudness target saved.")).toBeVisible();
+    await page.reload();
+    await expect(page.getByTestId("loudness-target")).toHaveValue("-16");
+
+    await page.getByTestId("loudness-target").fill("");
+    await expect(page.getByTestId("loudness-off")).toHaveText("Off");
+    await page.getByTestId("loudness-save").click();
+    await page.reload();
+    await expect(page.getByTestId("loudness-target")).toHaveValue("");
+    await expect(page.getByTestId("loudness-off")).toHaveText("Off");
+
+    await page.getByRole("button", { name: "Re-apply to library" }).click();
+    await page.getByRole("button", { name: "Re-apply", exact: true }).click();
+    await expect(page.getByText("Re-apply queued.")).toBeVisible();
+  } finally {
+    await page.request.put("/api/admin/settings", {
+      data: { loudness_target_lufs: original },
+      headers,
+    });
+  }
+});
+
 test("quality tab says when a backfill is already running", async ({ page, request }) => {
   await loginAs(page, request);
   await page.route(/\/api\/admin\/maintenance\/quality-backfill$/, (r) => {
