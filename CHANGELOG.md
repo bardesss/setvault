@@ -4,6 +4,48 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0](https://github.com/bardesss/setvault/compare/v0.19.1...v0.20.0) (2026-10-22)
+
+
+### Features
+
+* **api:** favourite sets ([c730776](https://github.com/bardesss/setvault/commit/c73077634795a822179fdc8bb1fad5d08bbcb434))
+* **api:** filter, sort and page the set list; add list facets ([93a9355](https://github.com/bardesss/setvault/commit/93a93556c047295e5a3b47320e53183eb4916dbe))
+* **providers:** enrich artists from MusicBrainz and Discogs ([48589f9](https://github.com/bardesss/setvault/commit/48589f9534ed05dd4db461d8b89cb98da7820136))
+* **web:** favourite button, favourites page and nav link ([6f637ef](https://github.com/bardesss/setvault/commit/6f637ef0e41d6db1439c31db274249bc5dbd201e))
+* **worker:** record each background job run for Admin → Jobs ([c603a66](https://github.com/bardesss/setvault/commit/c603a663bddc40d6a617abadc4d6fb3b5ec4d049))
+
+
+### Bug Fixes
+
+* absolute feed and email links; copy works on plain HTTP ([6be6af6](https://github.com/bardesss/setvault/commit/6be6af65a4352b4581d7c39f938e3dd2d3d8eaf9))
+* **api:** party patch validates venue/series; i18n key only in en.json ([14062f6](https://github.com/bardesss/setvault/commit/14062f6345c3009668cb93fdc963fd8723c48715))
+* **api:** tracklist imports accept once; malformed ids and tag/artist edits never 500 ([9895f6b](https://github.com/bardesss/setvault/commit/9895f6bb98f86ff82974133b2dbcb7bc38ff4e31))
+* bulk move-root moves set files and commits per set ([2f7849b](https://github.com/bardesss/setvault/commit/2f7849bfa93af0ce98537690492eeb9e7a18fcde))
+* **catalog:** dedup key tolerates a name starting with a combining mark ([de57abf](https://github.com/bardesss/setvault/commit/de57abfcd520aad68a48bb57b5767806385078ea))
+* **catalog:** enrichment resolves merged artists to survivors; safer unmerge and dedup keys ([1ae8c23](https://github.com/bardesss/setvault/commit/1ae8c230b98aba26e7d9b928fd4d324a42eba578))
+* **catalog:** safe audit payloads, merge dedupes tracks, unicode-aware dedup and unique slugs ([f0cc65f](https://github.com/bardesss/setvault/commit/f0cc65f16638ff631d84e8d14579eb1b5954876b))
+* discovery rips survive, failed polls are recorded, rate-limit edits keep source health ([f0b1cc8](https://github.com/bardesss/setvault/commit/f0b1cc83107143817173a9abe08f649d1f6b6664))
+* **docker:** clearer secrets errors; repair keeps unmatched files with their folder ([e9ae799](https://github.com/bardesss/setvault/commit/e9ae799973d0b3d02e20c32953ab5f31bda08bb5))
+* keepalive pagehide save, MusicBrainz 1 req/s throttle, sets URL param hardening ([b515c04](https://github.com/bardesss/setvault/commit/b515c0424229371b993caddba6eb49ca4f3b61c4))
+* only save playback state while playing; continue-listening ignores unplayed sets ([247f5aa](https://github.com/bardesss/setvault/commit/247f5aa8e621dc3f9c37bfd8e19b37d7e282a13c))
+* P1 functional fixes ([9bafec8](https://github.com/bardesss/setvault/commit/9bafec880f65067c01a85b83c217ec857b0e8fc1))
+* **pwa:** keep offline audio across updates and remember the size cap ([7581580](https://github.com/bardesss/setvault/commit/75815803f4eade0bed45d4944dddb4a273109029))
+* **quality:** wanted matches the scheduler, duplicate scan runs in the worker, swaps shift duplicate offsets ([172e7d1](https://github.com/bardesss/setvault/commit/172e7d1288e8f2cc7ca850c20162896a6c54b995))
+* **quality:** wanted page points to the backfill; post-cleanup scan is queued ([fbe3cea](https://github.com/bardesss/setvault/commit/fbe3cea09d14fe483bd45ab4d53197a27287f62e))
+* report the real version from package metadata ([f8ebc85](https://github.com/bardesss/setvault/commit/f8ebc85862df5c9d70b93634c11eb30f9ba17905))
+* **web:** align shortcut role lists with spec and resolve composed target ([a9ea411](https://github.com/bardesss/setvault/commit/a9ea411e5a778ad68f522c39566e405d1b707c91))
+* **web:** library pages beyond 50 sets and the filters work ([76e1a5e](https://github.com/bardesss/setvault/commit/76e1a5e3b3e3358e95579772d1313aaa70a92fa5))
+* **web:** player shortcuts ignore modified keys, form fields and focused controls ([ab1c537](https://github.com/bardesss/setvault/commit/ab1c53759d4afdee015b8f944ade382d084f18a1))
+* **web:** use bg-base for unread badge text for AA contrast ([6206c1b](https://github.com/bardesss/setvault/commit/6206c1bc4d8b9c06a02d1ed7fb62c58e356d9f11))
+* **web:** use defined theme tokens for panels, inputs and error text ([459c7de](https://github.com/bardesss/setvault/commit/459c7de3d82109e416ecfab1c36e7f1f64b809db))
+* **worker:** allowlist job payloads and never reuse a previous run's row ([7ac6e3a](https://github.com/bardesss/setvault/commit/7ac6e3a4bdfb16b8fa8089e4bf920dfa8c0144ee))
+
+
+### Performance
+
+* **web:** draw the waveform from precomputed peaks ([128091e](https://github.com/bardesss/setvault/commit/128091e7e015effc80fc6ad6836919b09fd4e4fc))
+
 ## [0.19.1](https://github.com/bardesss/setvault/compare/v0.19.0...v0.19.1) (2026-10-21)
 
 
