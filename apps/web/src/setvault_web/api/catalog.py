@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from setvault_core.models.catalog import Artist, LiveSet, LiveSetArtist, Party, Series, Venue
 from setvault_core.models.enrichment import ProviderConfig
@@ -25,7 +25,13 @@ from setvault_core.schemas.catalog import (
 )
 from setvault_core.services.artist_enrich import enrich_artist_entity
 from setvault_core.services.audit import log as audit_log
-from setvault_core.services.catalog import list_sets_for_entity, slugify, unique_slug
+from setvault_core.services.catalog import (
+    LookupKind,
+    list_sets_for_entity,
+    slugify,
+    unique_slug,
+)
+from setvault_core.services.catalog import lookup as catalog_lookup
 from setvault_core.services.catalog_merge import merge_entities, unmerge_entity
 from setvault_core.services.enrichment import select_providers_for_capability
 from setvault_providers.base import Capability
@@ -86,6 +92,49 @@ def _party_out(p: Party) -> PartyOut:
     )
 
 
+async def _create(session: AsyncSession, row, kind: str, body: BaseModel, user: User) -> None:
+    """Insert ``row`` with a ``{kind}.created`` audit row; 409 on a slug clash."""
+    session.add(row)
+    try:
+        await session.flush()
+        await audit_log(
+            session,
+            actor_user_id=user.id,
+            action=f"{kind}.created",
+            target_type=type(row).__name__,
+            target_id=str(row.id),
+            after={**body.model_dump(mode="json"), "slug": row.slug},
+        )
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=f"{kind} slug already exists") from exc
+
+
+# -------- Lookup --------
+
+
+class LookupOut(BaseModel):
+    id: str
+    name: str
+    slug: str
+    hint: str | None
+
+
+# Registered before the "/{kind}/{slug}" routes.
+@router.get("/lookup", response_model=list[LookupOut])
+async def lookup_entities(
+    kind: LookupKind,
+    session: Annotated[AsyncSession, Depends(db_session)],
+    _: Annotated[object, Depends(current_user)],
+    q: Annotated[str, Query(max_length=200)] = "",
+    limit: Annotated[int, Query(ge=1)] = 10,
+):
+    """Typeahead for the set editor: ``limit`` is capped at 25."""
+    rows = await catalog_lookup(session, kind, q, limit)
+    return [LookupOut(id=r.id, name=r.name, slug=r.slug, hint=r.hint) for r in rows]
+
+
 # -------- Artists --------
 
 
@@ -93,7 +142,7 @@ def _party_out(p: Party) -> PartyOut:
 async def create_artist(
     body: ArtistIn,
     session: Annotated[AsyncSession, Depends(db_session)],
-    _: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
 ):
     row = Artist(
         name=body.name,
@@ -103,12 +152,7 @@ async def create_artist(
         aliases=list(body.aliases),
         image_url=body.image_url,
     )
-    session.add(row)
-    try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
-        raise HTTPException(status_code=409, detail="artist slug already exists") from exc
+    await _create(session, row, "artist", body, user)
     return _artist_out(row)
 
 
@@ -135,7 +179,7 @@ async def get_artist(
 async def create_venue(
     body: VenueIn,
     session: Annotated[AsyncSession, Depends(db_session)],
-    _: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
 ):
     row = Venue(
         name=body.name,
@@ -146,12 +190,7 @@ async def create_venue(
         capacity=body.capacity,
         website=body.website,
     )
-    session.add(row)
-    try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
-        raise HTTPException(status_code=409, detail="venue slug already exists") from exc
+    await _create(session, row, "venue", body, user)
     return _venue_out(row)
 
 
@@ -178,7 +217,7 @@ async def get_venue(
 async def create_series(
     body: SeriesIn,
     session: Annotated[AsyncSession, Depends(db_session)],
-    _: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
 ):
     row = Series(
         name=body.name,
@@ -186,12 +225,7 @@ async def create_series(
         description=body.description,
         image_url=body.image_url,
     )
-    session.add(row)
-    try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
-        raise HTTPException(status_code=409, detail="series slug already exists") from exc
+    await _create(session, row, "series", body, user)
     return _series_out(row)
 
 
@@ -218,7 +252,7 @@ async def get_series(
 async def create_party(
     body: PartyIn,
     session: Annotated[AsyncSession, Depends(db_session)],
-    _: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
 ):
     bad = {"status_code": 422, "detail": "invalid id"}
     venue_uuid = parse_uuid(body.venue_id, **bad) if body.venue_id else None
@@ -235,12 +269,7 @@ async def create_party(
         date=body.date,
         description=body.description,
     )
-    session.add(row)
-    try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
-        raise HTTPException(status_code=409, detail="party slug already exists") from exc
+    await _create(session, row, "party", body, user)
     await session.refresh(row, attribute_names=["venue", "series"])
     return _party_out(row)
 

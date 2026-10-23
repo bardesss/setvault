@@ -292,3 +292,113 @@ async def test_tag_too_long_422(authed_admin_client, seeded_live_set):
     slug = seeded_live_set["slug"]
     r = await authed_admin_client.patch(f"/api/sets/{slug}", json={"tag_names": ["x" * 81]})
     assert r.status_code == 422
+
+
+# ---- P2a Task 3: PATCH roles, clearing, audit, naming ----------------------
+
+
+async def test_patch_sets_artist_roles(authed_admin_client, seeded_live_set):
+    slug = seeded_live_set["slug"]
+    a = await _mk_artist(authed_admin_client, "Roles A")
+    b = await _mk_artist(authed_admin_client, "Roles B")
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={
+        "artists": [{"id": a, "role": "main"}, {"id": b, "role": "b2b"}],
+    })
+    assert r.status_code == 200, r.text
+    assert [(x["id"], x["role"]) for x in r.json()["artists"]] == [(a, "main"), (b, "b2b")]
+    # artists wins over artist_ids; an omitted role defaults to main.
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={
+        "artist_ids": [a], "artists": [{"id": b}, {"id": a, "role": "guest"}],
+    })
+    assert r.status_code == 200, r.text
+    assert [(x["id"], x["role"]) for x in r.json()["artists"]] == [(b, "main"), (a, "guest")]
+    # artist_ids alone keeps the stored roles.
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={"artist_ids": [a, b]})
+    assert [(x["id"], x["role"]) for x in r.json()["artists"]] == [(a, "guest"), (b, "main")]
+
+
+async def test_patch_null_clears_and_omitted_keeps(authed_admin_client, seeded_live_set):
+    slug = seeded_live_set["slug"]
+    venue = (await authed_admin_client.post(
+        "/api/catalog/venues", json={"name": "Clear Venue", "kind": "club"})).json()
+    party = (await authed_admin_client.post(
+        "/api/catalog/parties", json={"name": "Clear Party"})).json()
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={
+        "venue_id": venue["id"], "party_id": party["id"],
+        "date": "2024-05-01", "description": "keep me",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["venue"]["id"] == venue["id"]
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={"venue_id": None, "date": None})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["venue"] is None
+    assert body["date"] is None
+    assert body["party"]["id"] == party["id"]
+    assert body["description"] == "keep me"
+    r = await authed_admin_client.patch(
+        f"/api/sets/{slug}", json={"party_id": None, "description": None})
+    assert r.json()["party"] is None and r.json()["description"] is None
+
+
+async def test_patch_blank_title_422(authed_admin_client, seeded_live_set):
+    slug = seeded_live_set["slug"]
+    for body in ({"title": "  "}, {"title": None}):
+        r = await authed_admin_client.patch(f"/api/sets/{slug}", json=body)
+        assert r.status_code == 422, (body, r.text)
+
+
+async def test_patch_bad_role_422(authed_admin_client, seeded_live_set):
+    slug = seeded_live_set["slug"]
+    a = await _mk_artist(authed_admin_client, "Bad Role")
+    r = await authed_admin_client.patch(
+        f"/api/sets/{slug}", json={"artists": [{"id": a, "role": "B2B!"}]})
+    assert r.status_code == 422
+
+
+async def test_patch_writes_set_edited_audit(authed_admin_client, seeded_live_set):
+    from setvault_core.models.system import AuditEvent
+
+    slug = seeded_live_set["slug"]
+    r = await authed_admin_client.patch(
+        f"/api/sets/{slug}", json={"title": "Edited", "description": None})
+    assert r.status_code == 200, r.text
+    async with session_factory()() as s:
+        ev = (await s.execute(
+            select(AuditEvent).where(AuditEvent.action == "set.edited")
+        )).scalars().one()
+    assert ev.target_id == seeded_live_set["id"]
+    assert ev.before == {"title": "seeded set"}
+    assert ev.after == {"title": "Edited"}
+    # A PATCH that changes nothing writes no row.
+    await authed_admin_client.patch(f"/api/sets/{slug}", json={"title": "Edited"})
+    async with session_factory()() as s:
+        n = len((await s.execute(
+            select(AuditEvent).where(AuditEvent.action == "set.edited")
+        )).scalars().all())
+    assert n == 1
+
+
+async def test_patch_enqueues_naming_when_used_field_changes(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    import setvault_web.api.sets as sets_api
+
+    calls = []
+    monkeypatch.setattr(sets_api, "enqueue_apply_naming", lambda sid: calls.append(sid))
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, _uuid.UUID(seeded_live_set["id"]))
+        root = await s.get(MediaRoot, live.media_root_id)
+        root.naming_template = "{Artist}/{Slug}{Ext}"
+        await s.commit()
+    slug = seeded_live_set["slug"]
+    a = await _mk_artist(authed_admin_client, "Naming A")
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={"description": "x"})
+    assert r.status_code == 200
+    assert calls == []
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={"artist_ids": [a]})
+    assert r.status_code == 200
+    assert calls == [_uuid.UUID(seeded_live_set["id"])]
+    # A date change does not touch a template without {Date}/{Year}.
+    await authed_admin_client.patch(f"/api/sets/{slug}", json={"date": "2024-01-01"})
+    assert len(calls) == 1

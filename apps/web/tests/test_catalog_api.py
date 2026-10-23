@@ -1,3 +1,6 @@
+import pytest
+
+
 async def test_create_and_get_artist(authed_admin_client):
     r = await authed_admin_client.post("/api/catalog/artists",
                                        json={"name": "Charlotte de Witte", "country": "BE"})
@@ -81,3 +84,25 @@ async def test_slug_suffix_counts_merged_tombstones(authed_admin_client):
     b = await authed_admin_client.post("/api/catalog/artists", json={"name": "Tomb Stone"})
     assert b.status_code == 201
     assert b.json()["slug"] == "tomb-stone-2"
+
+
+@pytest.mark.parametrize("kind,path,body", [
+    ("artist", "artists", {"name": "Audit Artist"}),
+    ("venue", "venues", {"name": "Audit Venue", "kind": "club"}),
+    ("series", "series", {"name": "Audit Series"}),
+    ("party", "parties", {"name": "Audit Party"}),
+])
+async def test_create_writes_created_audit(authed_admin_client, kind, path, body):
+    from setvault_core.db import session_factory
+    from setvault_core.models.system import AuditEvent
+    from sqlalchemy import select
+
+    r = await authed_admin_client.post(f"/api/catalog/{path}", json=body)
+    assert r.status_code == 201, r.text
+    async with session_factory()() as s:
+        ev = (await s.execute(
+            select(AuditEvent).where(AuditEvent.action == f"{kind}.created")
+        )).scalars().one()
+    assert ev.target_id == r.json()["id"]
+    assert ev.after["name"] == body["name"]
+    assert ev.actor_user_id is not None

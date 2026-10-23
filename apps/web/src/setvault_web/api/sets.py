@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from setvault_core.jobs.apply_naming import enqueue_apply_naming
 from setvault_core.models.catalog import (
     Artist,
     LiveSet,
@@ -36,6 +37,7 @@ from setvault_core.schemas.sets import (
     VenueRefOut,
 )
 from setvault_core.services.audio_quality import quality_label
+from setvault_core.services.audit import log as audit_log
 from setvault_core.services.favorites import is_favorite
 from setvault_core.services.notifications import event_labels, source_name
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
@@ -378,35 +380,93 @@ async def edit_set(
     ).scalar_one_or_none()
     if live is None:
         raise HTTPException(status_code=404, detail="not found")
-    if body.title is not None:
+    patch = body.model_dump(exclude_unset=True)
+    before = await _edit_snapshot(session, live)
+
+    if "title" in patch:
         live.title = body.title
-    if body.date is not None:
+    if "date" in patch:
         live.date = body.date
     if body.set_type is not None:
         live.set_type = body.set_type
-    if body.party_id is not None:
-        party_id = parse_uuid(body.party_id, status_code=422, detail="invalid party_id")
-        if await session.get(Party, party_id) is None:
-            raise HTTPException(status_code=422, detail="unknown party_id")
-        live.party_id = party_id
-    if body.venue_id is not None:
-        venue_id = parse_uuid(body.venue_id, status_code=422, detail="invalid venue_id")
-        if await session.get(Venue, venue_id) is None:
-            raise HTTPException(status_code=422, detail="unknown venue_id")
-        live.venue_id = venue_id
-    if body.description is not None:
+    if "party_id" in patch:
+        live.party_id = await _ref_id(session, Party, body.party_id, "party_id")
+    if "venue_id" in patch:
+        live.venue_id = await _ref_id(session, Venue, body.venue_id, "venue_id")
+    if "description" in patch:
         live.description = body.description
     if body.upgrades_enabled is not None:
         live.upgrades_enabled = body.upgrades_enabled
-    if body.artist_ids is not None:
-        try:
+    try:
+        if body.artists is not None:
+            roles: dict[str, str] = {}
+            for a in body.artists:
+                roles.setdefault(a.id, a.role)
+            await replace_artists(session, live, [a.id for a in body.artists], roles)
+        elif body.artist_ids is not None:
             await replace_artists(session, live, body.artist_ids)
-        except UnknownArtistError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except UnknownArtistError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if body.tag_names is not None:
         await replace_tags(session, live, body.tag_names)
+
+    await session.flush()
+    after = await _edit_snapshot(session, live)
+    changed = [k for k in before if before[k] != after[k]]
+    if changed:
+        await audit_log(
+            session, actor_user_id=user.id, action="set.edited",
+            target_type="live_set", target_id=str(live.id),
+            before={k: before[k] for k in changed},
+            after={k: after[k] for k in changed},
+        )
+    root = await session.get(MediaRoot, live.media_root_id)
+    template = root.naming_template if root is not None else None
     await session.commit()
+    # Relationships (party, venue) still hold the pre-edit objects.
+    await session.refresh(live)
+    if (
+        template and live.status == "published"
+        and any(tok in template for k in changed for tok in _NAMING_TOKENS.get(k, ()))
+    ):
+        enqueue_apply_naming(live.id)
     return await show_set(slug, session, user)
+
+
+# Edit fields whose value a naming-template token renders. The title only
+# feeds {Slug} through the slug, which an edit never changes.
+_NAMING_TOKENS: dict[str, tuple[str, ...]] = {
+    "artists": ("{Artist}",),
+    "party_id": ("{Party}", "{Series}"),
+    "venue_id": ("{Venue}",),
+    "date": ("{Date}", "{Year}"),
+    "set_type": ("{Type}",),
+}
+
+
+async def _ref_id(session: AsyncSession, model, raw: str | None, field: str) -> uuid.UUID | None:
+    """``raw`` as the id of an existing ``model`` row; None stays None (clears)."""
+    if raw is None:
+        return None
+    ref = parse_uuid(raw, status_code=422, detail=f"invalid {field}")
+    if await session.get(model, ref) is None:
+        raise HTTPException(status_code=422, detail=f"unknown {field}")
+    return ref
+
+
+async def _edit_snapshot(session: AsyncSession, live: LiveSet) -> dict[str, object]:
+    """The editable fields of ``live`` in API shape, for the set.edited audit."""
+    return {
+        "title": live.title,
+        "date": live.date.isoformat() if live.date else None,
+        "set_type": live.set_type,
+        "party_id": str(live.party_id) if live.party_id else None,
+        "venue_id": str(live.venue_id) if live.venue_id else None,
+        "description": live.description,
+        "upgrades_enabled": live.upgrades_enabled,
+        "artists": [{"id": str(a.artist_id), "role": a.role} for a in live.artists],
+        "tags": await _tag_names_for(session, live.id),
+    }
 
 
 class EmbedToggleIn(BaseModel):
