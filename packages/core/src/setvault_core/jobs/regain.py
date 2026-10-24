@@ -29,7 +29,11 @@ REGAIN_JOB_TIMEOUT = "6h"
 
 
 async def regain_library() -> dict:
-    """Returns ``{"checked": N, "regained": N, "failed": N}``."""
+    """Returns ``{"checked": N, "regained": N, "discarded": N, "failed": N}``.
+
+    ``discarded``: the transcode committed no stream (the set was recycled,
+    an upgrade swapped its stream, or its audio kept moving while encoding).
+    """
     if "DATABASE_URL" in os.environ:
         init_engine(os.environ["DATABASE_URL"])
 
@@ -49,19 +53,23 @@ async def regain_library() -> dict:
         str(sid) for sid, lufs, applied in rows
         if abs(gain_for(lufs, target) - (applied or 0.0)) > REGAIN_THRESHOLD_DB
     ]
-    regained = failed = 0
+    regained = discarded = failed = 0
     for live_set_id in due:
         try:
-            await transcode_audio(live_set_id)
+            outcome = await transcode_audio(live_set_id)
         except Exception:
             # One unreadable original (moved root, deleted file) must not stop
             # the rest of the library.
             logger.exception("regain: re-transcode failed for %s", live_set_id)
             failed += 1
         else:
-            regained += 1
-    logger.info("regain: %d checked, %d re-gained, %d failed", len(rows), regained, failed)
-    return {"checked": len(rows), "regained": regained, "failed": failed}
+            if outcome == "done":
+                regained += 1
+            else:
+                discarded += 1
+    logger.info("regain: %d checked, %d re-gained, %d discarded, %d failed",
+                len(rows), regained, discarded, failed)
+    return {"checked": len(rows), "regained": regained, "discarded": discarded, "failed": failed}
 
 
 def run_regain_library() -> dict:

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import shutil
 import subprocess
 import uuid
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ from setvault_core.jobs import transcode
 from setvault_core.jobs.transcode import transcode_audio
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
+from setvault_core.services.set_upgrade import _AUDIO_FIELDS
 from setvault_core.services.system_config import get_config
 from sqlalchemy import select
 
@@ -243,7 +245,7 @@ async def _swap_audio(target_id: uuid.UUID, arrival_id: uuid.UUID) -> None:
             .with_for_update(of=LiveSet)
         )).scalars().all()
         target, arrival = sorted(rows, key=lambda r: r.id != target_id)
-        for f in ("audio_path", "streaming_path", "normalized_lufs", "stream_gain_db"):
+        for f in _AUDIO_FIELDS:
             old = getattr(target, f)
             setattr(target, f, getattr(arrival, f))
             setattr(arrival, f, old)
@@ -252,19 +254,37 @@ async def _swap_audio(target_id: uuid.UUID, arrival_id: uuid.UUID) -> None:
 
 
 def _ffmpeg_with_side_effect(monkeypatch, side_effect) -> list[list[str]]:
-    """Fake ffmpeg that runs ``side_effect()`` (a coroutine factory) on the
-    test's event loop while the encode is in flight, then writes the output."""
+    """Fake ffmpeg that writes its output, then runs ``side_effect(n)`` (n is
+    the 1-based call number; returns a coroutine or None) on the test's event
+    loop while the encode is still in flight."""
     loop = asyncio.get_running_loop()
     calls: list[list[str]] = []
 
     def _run(args, **kwargs):
         calls.append(list(args))
         Path(args[-1]).write_bytes(b"opus")
-        asyncio.run_coroutine_threadsafe(side_effect(), loop).result(timeout=30)
+        coro = side_effect(len(calls))
+        if coro is not None:
+            asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=30)
         return subprocess.CompletedProcess(args, 0, b"", b"")
 
     monkeypatch.setattr(subprocess, "run", _run)
     return calls
+
+
+def _first_call(make_coro):
+    return lambda n: make_coro() if n == 1 else None
+
+
+def _src(args: list[str]) -> str:
+    return args[args.index("-i") + 1]
+
+
+async def _rename_audio(set_id: uuid.UUID, new_rel: str) -> None:
+    """What apply_naming_to_set commits: only audio_path changes."""
+    async with session_factory()() as s:
+        (await s.get(LiveSet, set_id)).audio_path = new_rel
+        await s.commit()
 
 
 async def test_transcode_racing_upgrade_swap_discards_its_stream(
@@ -274,9 +294,11 @@ async def test_transcode_racing_upgrade_swap_discards_its_stream(
     must not overwrite the recycled row's stream nor revert the target."""
     await loudness_target(-14.0)
     target_id, arrival_id = await _seed_upgrade_pair(tmp_path)
-    calls = _ffmpeg_with_side_effect(monkeypatch, lambda: _swap_audio(target_id, arrival_id))
+    calls = _ffmpeg_with_side_effect(
+        monkeypatch, _first_call(lambda: _swap_audio(target_id, arrival_id)),
+    )
 
-    await transcode_audio(str(target_id))  # no exception escapes
+    assert await transcode_audio(str(target_id)) == "discarded"  # no exception escapes
 
     assert len(calls) == 1
     # The recycled row (now naming stream/<target-id>.opus) keeps its bytes.
@@ -294,30 +316,156 @@ async def test_transcode_racing_upgrade_swap_discards_its_stream(
     assert on_disk == referenced  # no orphan, no temp file
 
 
-async def test_transcode_audio_replaced_mid_encode_keeps_row(
+async def test_transcode_audio_renamed_mid_encode_reencodes(
     tmp_path: Path, monkeypatch, loudness_target,
 ):
-    """The row's audio changes (separate commit) during the encode: the
-    stream encoded from the old audio is discarded."""
+    """A rename (audio_path only) lands during a re-transcode: the stream is
+    encoded again from the new path and swapped in."""
     await loudness_target(-14.0)
     target_id, _ = await _seed_upgrade_pair(tmp_path)
+    calls = _ffmpeg_with_side_effect(
+        monkeypatch, _first_call(lambda: _rename_audio(target_id, "renamed.flac")),
+    )
 
-    async def _replace() -> None:
-        async with session_factory()() as s:
-            row = await s.get(LiveSet, target_id)
-            row.audio_path = "replaced.flac"
-            await s.commit()
+    assert await transcode_audio(str(target_id)) == "done"
 
-    _ffmpeg_with_side_effect(monkeypatch, _replace)
-
-    await transcode_audio(str(target_id))
-
-    assert (tmp_path / f"stream/{target_id}.opus").read_bytes() == b"target-old"
+    assert [_src(c) for c in calls] == [str(tmp_path / "old.flac"), str(tmp_path / "renamed.flac")]
+    assert (tmp_path / f"stream/{target_id}.opus").read_bytes() == b"opus"
     async with session_factory()() as s:
         row = await s.get(LiveSet, target_id)
         assert row.streaming_path == f"stream/{target_id}.opus"
         assert row.stream_gain_db == -6.0
     assert not [p for p in (tmp_path / "stream").iterdir() if p.name.endswith(".tmp")]
+
+
+async def test_transcode_first_encode_survives_rename(
+    tmp_path: Path, monkeypatch, loudness_target,
+):
+    """A new set (no stream yet) renamed mid-encode still ends with a
+    committed stream, from the new path."""
+    await loudness_target(-14.0)
+    sid = await _seed_set(tmp_path, normalized_lufs=-8.0)
+    calls = _ffmpeg_with_side_effect(
+        monkeypatch, _first_call(lambda: _rename_audio(sid, "originals/renamed.flac")),
+    )
+
+    assert await transcode_audio(str(sid)) == "done"
+
+    assert _src(calls[-1]) == str(tmp_path / "originals/renamed.flac")
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.streaming_path == f"stream/{sid}.opus"
+        assert row.stream_gain_db == -6.0
+    assert [p.name for p in (tmp_path / "stream").iterdir()] == [f"{sid}.opus"]
+
+
+async def test_transcode_first_encode_survives_move_root(
+    tmp_path: Path, monkeypatch, loudness_target,
+):
+    """Move-root lands mid-encode (files moved, media_root_id changed): the
+    stream is encoded again and written on the new root only."""
+    await loudness_target(-14.0)
+    old_host, new_host = tmp_path / "old", tmp_path / "new"
+    old_host.mkdir()
+    new_host.mkdir()
+    sid = await _seed_set(old_host, normalized_lufs=-8.0)
+    (old_host / "audio.flac").write_bytes(b"flac")
+    async with session_factory()() as s:
+        new_root = MediaRoot(name=f"r{uuid.uuid4().hex[:6]}", host_path=str(new_host),
+                             enabled=True, default_for_ingest=False)
+        s.add(new_root)
+        await s.commit()
+        new_root_id = new_root.id
+
+    async def _move_root() -> None:
+        shutil.move(old_host / "audio.flac", new_host / "audio.flac")
+        async with session_factory()() as s:
+            (await s.get(LiveSet, sid)).media_root_id = new_root_id
+            await s.commit()
+
+    calls = _ffmpeg_with_side_effect(monkeypatch, _first_call(_move_root))
+
+    assert await transcode_audio(str(sid)) == "done"
+
+    assert [_src(c) for c in calls] == [
+        str(old_host / "audio.flac"), str(new_host / "audio.flac"),
+    ]
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.media_root_id == new_root_id
+        assert row.streaming_path == f"stream/{sid}.opus"
+    assert (new_host / f"stream/{sid}.opus").read_bytes() == b"opus"
+    assert list((old_host / "stream").iterdir()) == []  # no orphan, no temp file
+
+
+async def test_transcode_gives_up_when_audio_keeps_moving(
+    tmp_path: Path, monkeypatch, loudness_target,
+):
+    await loudness_target(-14.0)
+    sid = await _seed_set(tmp_path, normalized_lufs=-8.0)
+    calls = _ffmpeg_with_side_effect(
+        monkeypatch, lambda n: _rename_audio(sid, f"moved-{n}.flac"),
+    )
+
+    assert await transcode_audio(str(sid)) == "discarded"
+
+    assert len(calls) == transcode.MAX_ATTEMPTS
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, sid)).streaming_path is None
+    assert list((tmp_path / "stream").iterdir()) == []
+
+
+async def test_transcode_skips_recycled_set(tmp_path: Path, monkeypatch, loudness_target):
+    """A recycled set needs no new stream (purge may be removing its files)."""
+    await loudness_target(-14.0)
+    sid = await _seed_set(tmp_path, normalized_lufs=-8.0)
+    async with session_factory()() as s:
+        (await s.get(LiveSet, sid)).deleted_at = datetime.now(UTC)
+        await s.commit()
+    calls = _fake_ffmpeg(monkeypatch)
+
+    assert await transcode_audio(str(sid)) == "discarded"
+
+    assert calls == []
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, sid)).streaming_path is None
+
+
+async def test_transcode_set_recycled_mid_encode_discards(
+    tmp_path: Path, monkeypatch, loudness_target,
+):
+    await loudness_target(-14.0)
+    sid = await _seed_set(tmp_path, normalized_lufs=-8.0)
+
+    async def _recycle() -> None:
+        async with session_factory()() as s:
+            (await s.get(LiveSet, sid)).deleted_at = datetime.now(UTC)
+            await s.commit()
+
+    _ffmpeg_with_side_effect(monkeypatch, _first_call(_recycle))
+
+    assert await transcode_audio(str(sid)) == "discarded"
+
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, sid)).streaming_path is None
+    assert list((tmp_path / "stream").iterdir()) == []
+
+
+def _force_fresh_stream_name(monkeypatch, tmp_path: Path, sid: uuid.UUID) -> None:
+    """The set streams from stream/previous.opus and the transcode writes a
+    fresh name, so the post-commit cleanup has a previous file to remove."""
+    async def _fresh(s, live):
+        return f"stream/{live.id}-fresh.opus"
+
+    monkeypatch.setattr(transcode, "_stream_rel", _fresh)
+    (tmp_path / "stream").mkdir()
+    (tmp_path / "stream/previous.opus").write_bytes(b"previous")
+
+
+async def _set_previous_stream(sid: uuid.UUID) -> None:
+    async with session_factory()() as s:
+        (await s.get(LiveSet, sid)).streaming_path = "stream/previous.opus"
+        await s.commit()
 
 
 async def test_transcode_old_stream_unlink_error_is_logged(
@@ -327,16 +475,8 @@ async def test_transcode_old_stream_unlink_error_is_logged(
     warning: the new stream is already committed."""
     await loudness_target(-14.0)
     sid = await _seed_set(tmp_path, normalized_lufs=-8.0)
-    async with session_factory()() as s:
-        (await s.get(LiveSet, sid)).streaming_path = "stream/previous.opus"
-        await s.commit()
-    (tmp_path / "stream").mkdir()
-    (tmp_path / "stream/previous.opus").write_bytes(b"previous")
-
-    async def _fresh(s, live):
-        return f"stream/{live.id}-fresh.opus"
-
-    monkeypatch.setattr(transcode, "_stream_rel", _fresh)
+    await _set_previous_stream(sid)
+    _force_fresh_stream_name(monkeypatch, tmp_path, sid)
     real_unlink = Path.unlink
 
     def _unlink(self, missing_ok=False):
@@ -348,12 +488,36 @@ async def test_transcode_old_stream_unlink_error_is_logged(
     _fake_ffmpeg(monkeypatch)
 
     with caplog.at_level(logging.WARNING, logger=transcode.__name__):
-        await transcode_audio(str(sid))
+        assert await transcode_audio(str(sid)) == "done"
 
     async with session_factory()() as s:
         assert (await s.get(LiveSet, sid)).streaming_path == f"stream/{sid}-fresh.opus"
     assert (tmp_path / f"stream/{sid}-fresh.opus").read_bytes() == b"opus"
     assert any("previous.opus" in r.getMessage() for r in caplog.records)
+
+
+async def test_transcode_cleanup_db_error_is_logged(
+    tmp_path: Path, monkeypatch, loudness_target, caplog,
+):
+    """The post-commit path_in_use query failing must not fail the job."""
+    await loudness_target(-14.0)
+    sid = await _seed_set(tmp_path, normalized_lufs=-8.0)
+    await _set_previous_stream(sid)
+    _force_fresh_stream_name(monkeypatch, tmp_path, sid)
+
+    async def _broken(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(transcode, "path_in_use", _broken)
+    _fake_ffmpeg(monkeypatch)
+
+    with caplog.at_level(logging.ERROR, logger=transcode.__name__):
+        assert await transcode_audio(str(sid)) == "done"
+
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, sid)).streaming_path == f"stream/{sid}-fresh.opus"
+    assert (tmp_path / "stream/previous.opus").exists()
+    assert any("cleanup" in r.getMessage() for r in caplog.records)
 
 
 async def test_transcode_no_filter_for_bogus_measurement(

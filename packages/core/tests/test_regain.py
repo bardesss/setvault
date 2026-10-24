@@ -47,20 +47,26 @@ async def _seed(tmp_path: Path, rows: dict[str, dict]) -> dict[str, uuid.UUID]:
         return ids
 
 
-def _fake_transcode(monkeypatch, fail: set[uuid.UUID] = frozenset()) -> list[uuid.UUID]:
+def _fake_transcode(
+    monkeypatch, fail: set[uuid.UUID] = frozenset(), discard: set[uuid.UUID] = frozenset(),
+) -> list[uuid.UUID]:
     """Stand-in for transcode_audio: records the call and stores the gain the
-    real transcode would apply at the -14 target."""
+    real transcode would apply at the -14 target (or commits nothing and
+    reports "discarded")."""
     calls: list[uuid.UUID] = []
 
-    async def _transcode(live_set_id: str) -> None:
+    async def _transcode(live_set_id: str) -> str:
         sid = uuid.UUID(live_set_id)
         calls.append(sid)
         if sid in fail:
             raise RuntimeError("ffmpeg failed")
+        if sid in discard:
+            return "discarded"
         async with session_factory()() as s:
             live = await s.get(LiveSet, sid)
             live.stream_gain_db = gain_for(live.normalized_lufs, -14.0)
             await s.commit()
+        return "done"
 
     monkeypatch.setattr(regain, "transcode_audio", _transcode)
     return calls
@@ -80,7 +86,7 @@ async def test_regain_only_sets_past_threshold(tmp_path: Path, monkeypatch):
 
     result = await regain.regain_library()
 
-    assert result == {"checked": 5, "regained": 2, "failed": 0}
+    assert result == {"checked": 5, "regained": 2, "discarded": 0, "failed": 0}
     assert sorted(calls) == sorted([ids["never"], ids["stale"]])
 
 
@@ -90,10 +96,14 @@ async def test_regain_second_run_does_nothing(tmp_path: Path, monkeypatch):
         "b": {"normalized_lufs": -24.0, "stream_gain_db": 0.0},
     })
     _fake_transcode(monkeypatch)
-    assert await regain.regain_library() == {"checked": 2, "regained": 2, "failed": 0}
+    assert await regain.regain_library() == {
+        "checked": 2, "regained": 2, "discarded": 0, "failed": 0,
+    }
 
     calls = _fake_transcode(monkeypatch)
-    assert await regain.regain_library() == {"checked": 2, "regained": 0, "failed": 0}
+    assert await regain.regain_library() == {
+        "checked": 2, "regained": 0, "discarded": 0, "failed": 0,
+    }
     assert calls == []
 
 
@@ -106,8 +116,23 @@ async def test_regain_failure_counts_and_continues(tmp_path: Path, monkeypatch):
 
     result = await regain.regain_library()
 
-    assert result == {"checked": 2, "regained": 1, "failed": 1}
+    assert result == {"checked": 2, "regained": 1, "discarded": 0, "failed": 1}
     assert sorted(calls) == sorted(ids.values())
     async with session_factory()() as s:
         assert (await s.get(LiveSet, ids["good"])).stream_gain_db == -6.0
         assert (await s.get(LiveSet, ids["bad"])).stream_gain_db is None
+
+
+async def test_regain_counts_discarded_transcodes(tmp_path: Path, monkeypatch):
+    """A transcode that commits no stream (e.g. an upgrade swapped the set
+    meanwhile) is not counted as re-gained."""
+    ids = await _seed(tmp_path, {
+        "swapped": {"normalized_lufs": -8.0},
+        "good": {"normalized_lufs": -8.0},
+    })
+    calls = _fake_transcode(monkeypatch, discard={ids["swapped"]})
+
+    result = await regain.regain_library()
+
+    assert result == {"checked": 2, "regained": 1, "discarded": 1, "failed": 0}
+    assert sorted(calls) == sorted(ids.values())
