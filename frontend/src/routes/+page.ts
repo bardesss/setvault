@@ -24,6 +24,8 @@ export interface ActivityItem {
   at: string;
   title: string;
   href: string;
+  /** job_failed only: the raw job kind. */
+  job_kind?: string | null;
 }
 
 interface RecentSet {

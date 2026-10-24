@@ -53,6 +53,8 @@ class HomeActivityItem(BaseModel):
     at: datetime
     title: str
     href: str
+    # job_failed only: the raw job kind, so the client can label it.
+    job_kind: str | None = None
 
 
 HOME_ACTIVITY_LIMIT = 10
@@ -208,6 +210,7 @@ async def home_activity(
         items += [
             HomeActivityItem(
                 id=f"job_failed:{jid}", kind="job_failed", at=at, title=kind, href="/admin/jobs",
+                job_kind=kind,
             )
             for at, kind, jid in failed.all()
         ]

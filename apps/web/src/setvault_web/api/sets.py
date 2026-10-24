@@ -223,6 +223,7 @@ async def list_sets(
     year: Annotated[int | None, Query(ge=1, le=9999)] = None,
     venue_kind: Annotated[str | None, Query(max_length=32)] = None,
     track: Annotated[str | None, Query(max_length=64)] = None,
+    exclude: Annotated[str | None, Query(max_length=200)] = None,
     sort: Literal["recent", "date", "title", "duration"] = "date",
 ):
     conds = list(_published())
@@ -231,6 +232,10 @@ async def list_sets(
         conds.append(exists().where(
             TracklistEntry.live_set_id == LiveSet.id, TracklistEntry.track_id == track_id,
         ))
+        # Only meaningful with a track: "other sets with this track" leaves out
+        # the set the user came from.
+        if exclude:
+            conds.append(LiveSet.slug != exclude)
     if q:
         pattern = f"%{_like_escape(q.strip())}%"
         conds.append(or_(

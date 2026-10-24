@@ -2,6 +2,7 @@ import { error } from "@sveltejs/kit";
 import type { PageLoad } from "./$types";
 import type { SetFacets, SetSummary } from "#lib/api/sets.ts";
 import { setsQuery } from "#lib/api/sets.ts";
+import { isBadTrackFilter } from "#lib/trackFilter.ts";
 
 const DEFAULT_LIMIT = 50;
 const EMPTY_FACETS: SetFacets = { tags: [], years: [], venue_kinds: [] };
@@ -21,6 +22,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
     venue_kind: p.get("venue_kind") ?? "",
     sort: SORTS.includes(sortParam) ? sortParam : "recent",
     track: p.get("track") ?? "",
+    exclude: p.get("exclude") ?? "",
   };
   // Auth is enforced by the API: an unauthenticated /api/sets returns 401,
   // which propagates through the !response.ok guard below.
@@ -28,6 +30,12 @@ export const load: PageLoad = async ({ fetch, url }) => {
     fetch(`/api/sets${setsQuery({ ...filters, limit, offset: 0 })}`),
     fetch("/api/sets/facets"),
   ]);
+  // A malformed ?track= id is a 422: show an empty library (the page still
+  // offers the chip to clear it) instead of an error page.
+  if (isBadTrackFilter(response.status, filters.track)) {
+    const facets = facetsRes.ok ? ((await facetsRes.json()) as SetFacets) : EMPTY_FACETS;
+    return { sets: [] as SetSummary[], total: 0, facets, limit, filters };
+  }
   if (!response.ok) {
     throw error(response.status, "Failed to load library");
   }

@@ -85,6 +85,7 @@ async def test_activity_merges_and_orders(authed_admin_client, seeded_live_set):
         ("job_failed", "rip", "/admin/jobs"),
         ("set_published", "seeded set", f"/sets/{seeded_live_set['slug']}"),
     ]
+    assert [i["job_kind"] for i in body] == [None, "rip", None]
 
 
 async def test_activity_limit_10(authed_admin_client, seeded_live_set):

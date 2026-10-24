@@ -37,15 +37,29 @@ test("the other browse pages list their entities", async ({ page }) => {
 test("a resolved tracklist entry links to the library filtered by that track", async ({ page }) => {
   await page.goto("/sets/track-link");
   await page.getByRole("link", { name: "Other sets with this track" }).click();
-  await expect(page).toHaveURL(/\/sets\?track=[0-9a-f-]{36}$/);
+  await expect(page).toHaveURL(/\/sets\?track=[0-9a-f-]{36}&exclude=track-link$/);
 
   const chip = page.getByTestId("track-chip");
   await expect(chip).toContainText("Track: Browse Anthem — E2E Resident");
-  await expect(page.getByTestId("library-count")).toHaveText("Showing 1 of 1");
-  await expect(page.getByRole("link", { name: /Track Link Set/ })).toBeVisible();
+  // The set we came from is left out, and it is the only one with the track.
+  await expect(page.getByTestId("library-count")).toHaveText("Showing 0 of 0");
+  await expect(page.getByRole("link", { name: /Track Link Set/ })).toHaveCount(0);
 
   await chip.getByRole("button", { name: "Remove track filter" }).click();
   await expect(page).not.toHaveURL(/track=/);
   await expect(chip).toHaveCount(0);
-  await expect(page.getByTestId("library-count")).not.toHaveText("Showing 1 of 1");
+  await expect(page.getByTestId("library-count")).not.toHaveText("Showing 0 of 0");
+});
+
+test("a dead or malformed track filter still shows a chip that clears it", async ({ page }) => {
+  for (const id of ["0b9c1d2e-3f4a-4b5c-8d6e-7f8091a2b3c4", "not-a-uuid"]) {
+    await page.goto(`/sets?track=${id}`);
+    const chip = page.getByTestId("track-chip");
+    await expect(chip).toContainText("Track: unknown");
+    await expect(page.getByTestId("library-count")).toHaveText("Showing 0 of 0");
+    await chip.getByRole("button", { name: "Remove track filter" }).click();
+    await expect(page).not.toHaveURL(/track=/);
+    await expect(chip).toHaveCount(0);
+    await expect(page.getByTestId("library-count")).not.toHaveText("Showing 0 of 0");
+  }
 });

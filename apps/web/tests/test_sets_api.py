@@ -428,22 +428,24 @@ async def test_patch_enqueues_naming_when_used_field_changes(
 # ---- track filter -------------------------------------------------------------
 
 
-async def _track_on(slug: str, title: str = "Strings of Life"):
+async def _track_on(slug: str, title: str = "Strings of Life", track_id=None):
     """Create a Track and a TracklistEntry on set ``slug`` pointing at it."""
     from setvault_core.models.tracklist import Track, TracklistEntry
     async with session_factory()() as s:
         admin = (await s.execute(
             select(User).where(User.email == "admin@example.test"))).scalar_one()
         live = (await s.execute(select(LiveSet).where(LiveSet.slug == slug))).scalar_one()
-        track = Track(title=title)
-        s.add(track)
-        await s.flush()
+        if track_id is None:
+            track = Track(title=title)
+            s.add(track)
+            await s.flush()
+            track_id = track.id
         s.add(TracklistEntry(
-            live_set_id=live.id, position=0, start_seconds=0, track_id=track.id,
+            live_set_id=live.id, position=0, start_seconds=0, track_id=track_id,
             raw_label=title, created_by=admin.id,
         ))
         await s.commit()
-        return track.id
+        return track_id
 
 
 async def test_track_filter(authed_admin_client, library):
@@ -459,6 +461,22 @@ async def test_track_filter(authed_admin_client, library):
     assert r.json()["total"] == 1
     r = await authed_admin_client.get(f"/api/sets?track={track_id}&q=nomatch")
     assert r.json() == {"items": [], "total": 0}
+
+
+async def test_track_filter_exclude_drops_that_set(authed_admin_client, library):
+    a = await library("set a")
+    b = await library("set b")
+    track_id = await _track_on(a)
+    await _track_on(b, track_id=track_id)
+    r = await authed_admin_client.get(f"/api/sets?track={track_id}")
+    assert r.json()["total"] == 2
+    r = await authed_admin_client.get(f"/api/sets?track={track_id}&exclude={a}")
+    assert r.status_code == 200
+    assert r.json()["total"] == 1
+    assert [i["slug"] for i in r.json()["items"]] == [b]
+    # Without a track, exclude is ignored.
+    r = await authed_admin_client.get(f"/api/sets?exclude={a}")
+    assert a in [i["slug"] for i in r.json()["items"]]
 
 
 async def test_track_filter_bad_id_422(authed_admin_client):

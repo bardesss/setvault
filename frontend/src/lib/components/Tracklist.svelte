@@ -132,7 +132,7 @@
             <div class="tn">{entry.raw_label}</div>
             {#if entry.edit_notes}<div class="ta">{entry.edit_notes}</div>{/if}
             {#if entry.track_id}
-              <a class="other-sets" href={`/sets?track=${entry.track_id}`}>{$_("browse.other_sets_with_track")}</a>
+              <a class="other-sets" href={`/sets?track=${entry.track_id}&exclude=${encodeURIComponent(slug)}`}>{$_("browse.other_sets_with_track")}</a>
             {/if}
           </div>
           <span class="bpm-key"></span>

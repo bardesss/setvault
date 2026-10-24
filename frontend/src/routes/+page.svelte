@@ -6,6 +6,7 @@
   import RecentCard from "#lib/components/RecentCard.svelte";
   import { _, locale } from "svelte-i18n";
   import { fmtBytes, fmtAgo } from "#lib/format.ts";
+  import { jobKindLabel } from "#lib/jobKind.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;
@@ -139,7 +140,7 @@
             <span class="activity-icon" aria-hidden="true">{ACTIVITY_ICON[a.kind]}</span>
             <a href={a.href}>
               <span class="activity-kind">{$_(`home.activity.${a.kind}`)}</span>
-              {a.title}
+              {a.kind === "job_failed" && a.job_kind ? jobKindLabel(a.job_kind, $_) : a.title}
             </a>
             <time datetime={a.at} title={a.at}>{fmtAgo(a.at, $locale)}</time>
           </li>
