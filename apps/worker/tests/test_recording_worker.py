@@ -472,7 +472,7 @@ def test_real_perform_job_succeeds_with_db_down(e2e_redis):
 def test_entrypoint_runs_recording_worker(monkeypatch):
     import setvault_worker.entrypoint as ep
 
-    started: list[tuple] = []
+    started: list = []
 
     class _FakeWorker:
         def __init__(self, queues, connection, **kwargs):
@@ -484,10 +484,57 @@ def test_entrypoint_runs_recording_worker(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@h/db")
     monkeypatch.setenv("REDIS_URL", _REDIS_URL)
     monkeypatch.setattr(ep, "init_engine", lambda url: None)
-    monkeypatch.setattr(ep, "_bootstrap_scheduler", lambda redis: None)
+    monkeypatch.setattr(ep, "_bootstrap_scheduler", lambda redis: started.append("bootstrap"))
+    monkeypatch.setattr(ep, "_queue_size_backfill", lambda: started.append("size_backfill"))
     monkeypatch.setattr(ep, "RecordingWorker", _FakeWorker)
     ep.main()
     assert started == [
+        "bootstrap",
+        "size_backfill",
         (["default", "low"], {"database_url": "postgresql+asyncpg://u:p@h/db"}),
         {"with_scheduler": True},
     ]
+
+
+class _FakeSession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _fake_sessions(monkeypatch, ep) -> None:
+    monkeypatch.setattr(ep, "session_factory", lambda: _FakeSession)
+
+
+def test_queue_size_backfill_queues_when_needed(monkeypatch, caplog):
+    import logging
+
+    import setvault_worker.entrypoint as ep
+
+    seen: list = []
+
+    async def fake_enqueue(session):
+        seen.append(session)
+        return True
+
+    _fake_sessions(monkeypatch, ep)
+    monkeypatch.setattr(ep.size_backfill, "enqueue_if_needed", fake_enqueue)
+    with caplog.at_level(logging.INFO, logger=ep.__name__):
+        ep._queue_size_backfill()
+    assert len(seen) == 1 and isinstance(seen[0], _FakeSession)
+    assert "size backfill queued" in caplog.text
+
+
+def test_queue_size_backfill_failure_is_logged_not_raised(monkeypatch, caplog):
+    import setvault_worker.entrypoint as ep
+
+    async def boom(session):
+        raise RuntimeError("redis down")
+
+    _fake_sessions(monkeypatch, ep)
+    monkeypatch.setattr(ep.size_backfill, "enqueue_if_needed", boom)
+    ep._queue_size_backfill()  # must not raise
+    assert "queueing the size backfill failed" in caplog.text
+    assert "redis down" in caplog.text

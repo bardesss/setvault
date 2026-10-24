@@ -26,3 +26,14 @@ def test_p2a_columns_present():
         "last_backup_bytes",
     } <= set(SystemConfig.__table__.columns.keys())
     assert "stream_gain_db" in LiveSet.__table__.columns
+
+
+def test_set_size_columns_present():
+    from setvault_core.models.catalog import LiveSet
+    from sqlalchemy import BigInteger
+
+    cols = LiveSet.__table__.columns
+    for name in ("audio_bytes", "stream_bytes"):
+        assert name in cols
+        assert isinstance(cols[name].type, BigInteger)
+        assert cols[name].nullable

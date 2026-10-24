@@ -137,6 +137,37 @@ async def test_transcode_no_filter_when_target_off(tmp_path: Path, monkeypatch, 
         assert (await s.get(LiveSet, sid)).stream_gain_db == 0.0
 
 
+def _ffmpeg_writing(monkeypatch, payload: bytes) -> None:
+    def _run(args, **kwargs):
+        Path(args[-1]).write_bytes(payload)
+        return subprocess.CompletedProcess(args, 0, b"", b"")
+
+    monkeypatch.setattr(subprocess, "run", _run)
+
+
+async def test_transcode_records_stream_bytes(tmp_path: Path, monkeypatch, loudness_target):
+    await loudness_target(-14.0)
+    sid = await _seed_set(tmp_path, normalized_lufs=-8.0)
+    _ffmpeg_writing(monkeypatch, b"x" * 1234)
+
+    assert await transcode_audio(str(sid)) == "done"
+
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.streaming_path == f"stream/{sid}.opus"
+        assert row.stream_bytes == 1234
+
+    # A re-transcode rewrites the same stream file in place: the size follows.
+    _ffmpeg_writing(monkeypatch, b"y" * 77)
+    assert await transcode_audio(str(sid)) == "done"
+
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.streaming_path == f"stream/{sid}.opus"
+        assert (tmp_path / row.streaming_path).stat().st_size == 77
+        assert row.stream_bytes == 77
+
+
 async def _seed_swapped_pair(tmp_path: Path) -> tuple[uuid.UUID, uuid.UUID]:
     """A quality upgrade's aftermath: the target streams from the arrival's
     file and the recycled arrival row names ``stream/<target-id>.opus``."""

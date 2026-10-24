@@ -749,6 +749,26 @@ async def test_upgrade_swap_enqueues_naming_and_copies_gain(
         assert (await s.get(LiveSet, aid)).stream_gain_db == 0.0
 
 
+async def test_upgrade_swap_carries_sizes(tmp_path: Path, webhooks):
+    ids = await _seed(tmp_path)
+    tid, aid = ids["target"], ids["arrival"]
+    async with session_factory()() as s:
+        t = await s.get(LiveSet, tid)
+        a = await s.get(LiveSet, aid)
+        t.audio_bytes, t.stream_bytes = 9, 10
+        a.audio_bytes, a.stream_bytes = 900, 100
+        await s.commit()
+
+    async with session_factory()() as s:
+        await _apply(s, ids)
+
+    async with session_factory()() as s:
+        t = await s.get(LiveSet, tid)
+        a = await s.get(LiveSet, aid)
+        assert (t.audio_bytes, t.stream_bytes) == (900, 100)
+        assert (a.audio_bytes, a.stream_bytes) == (9, 10)
+
+
 async def test_upgrade_without_template_enqueues_nothing(tmp_path: Path, webhooks, monkeypatch):
     ids = await _seed(tmp_path)
     calls: list = []

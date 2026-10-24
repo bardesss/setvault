@@ -4,7 +4,8 @@ Boots an RQ worker (``RecordingWorker``, which records every run for
 Admin -> Jobs) on the `default` and `low` queues (in that priority order:
 upgrade searches and upgrade rips go on `low`, so they never hold up uploads)
 and registers the periodic jobs (e.g. MediaRoot health-checks) with
-rq-scheduler.
+rq-scheduler. At start it also queues the set size backfill while sets
+still lack a recorded size.
 
 Notes on API drift:
   * `rq>=2.0` removed `rq.Connection`; we pass `connection=` directly to
@@ -14,17 +15,21 @@ Notes on API drift:
 """
 from __future__ import annotations
 
+import logging
 import os
 from datetime import UTC, datetime
 
 from redis import Redis
 from rq import Queue
 from rq_scheduler import Scheduler
-from setvault_core.db import init_engine
+from setvault_core.db import init_engine, run_job, session_factory
+from setvault_core.jobs import size_backfill
 from setvault_core.jobs.backup import BACKUP_JOB_TIMEOUT
 from setvault_core.jobs.upgrade_search import UPGRADE_QUEUE, UPGRADE_SEARCH_JOB_TIMEOUT
 
 from setvault_worker.recording import RecordingWorker
+
+logger = logging.getLogger(__name__)
 
 _HOURLY = 60 * 60
 _DAILY = 24 * 60 * 60
@@ -77,11 +82,26 @@ def _bootstrap_scheduler(redis: Redis) -> None:
         )
 
 
+def _queue_size_backfill() -> None:
+    """Queue the one-off set size backfill while any set lacks a size. Best
+    effort: a failure is logged and the worker starts anyway."""
+    async def _check() -> bool:
+        async with session_factory()() as s:
+            return await size_backfill.enqueue_if_needed(s)
+
+    try:
+        if run_job(_check()):
+            logger.info("size backfill queued")
+    except Exception:
+        logger.exception("queueing the size backfill failed")
+
+
 def main() -> None:
     database_url = os.environ["DATABASE_URL"]
     init_engine(database_url)
     redis = Redis.from_url(os.environ["REDIS_URL"])
     _bootstrap_scheduler(redis)
+    _queue_size_backfill()
     queues = [Queue(name, connection=redis) for name in _QUEUE_ORDER]
     # Records each run in the jobs table (Admin -> Jobs).
     RecordingWorker(queues, connection=redis, database_url=database_url).work(

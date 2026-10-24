@@ -4,17 +4,11 @@
   import Kpi from "#lib/components/Kpi.svelte";
   import ContinueCard from "#lib/components/ContinueCard.svelte";
   import RecentCard from "#lib/components/RecentCard.svelte";
+  import { fmtBytes } from "#lib/format.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;
 
-  function fmtBytes(b: number): string {
-    if (b <= 0) return "—";
-    const gb = b / 1024 ** 3;
-    if (gb >= 1) return `${gb.toFixed(0)}G`;
-    const mb = b / 1024 ** 2;
-    return `${mb.toFixed(0)}M`;
-  }
   function fmtNumber(n: number): string {
     if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
     return n.toString();

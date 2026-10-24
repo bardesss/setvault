@@ -163,7 +163,15 @@ async def home_summary(
     tracks_resolved_recent_q = tracks_resolved_q.where(TracklistEntry.created_at >= since)
     tracks_unresolved_recent_q = tracks_unresolved_q.where(TracklistEntry.created_at >= since)
 
+    # Original plus stream, over the sets in the vault. Sets not measured yet
+    # (NULL, before the size backfill reaches them) count as 0.
+    audio_bytes_q = select(
+        func.coalesce(func.sum(LiveSet.audio_bytes), 0)
+        + func.coalesce(func.sum(LiveSet.stream_bytes), 0)
+    ).where(LiveSet.deleted_at.is_(None))
+
     sets_count = (await session.execute(sets_total_q)).scalar_one() or 0
+    audio_bytes = int((await session.execute(audio_bytes_q)).scalar_one() or 0)
     sets_delta = (await session.execute(sets_recent_q)).scalar_one() or 0
     tracks_resolved = (await session.execute(tracks_resolved_q)).scalar_one() or 0
     tracks_unresolved = (await session.execute(tracks_unresolved_q)).scalar_one() or 0
@@ -176,7 +184,7 @@ async def home_summary(
         sets_count=sets_count,
         tracks_resolved_count=tracks_resolved,
         tracks_needing_ids_count=tracks_unresolved,
-        audio_bytes=0,  # no file-size column exists on LiveSet yet
+        audio_bytes=audio_bytes,
         deltas_window_days=window_days,
         sets_delta=sets_delta,
         tracks_resolved_delta=tracks_resolved_delta,
