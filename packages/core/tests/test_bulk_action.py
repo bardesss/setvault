@@ -6,8 +6,10 @@ file handling and the per-item commit.
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import os
+import shutil
 import uuid
 from pathlib import Path
 
@@ -257,6 +259,51 @@ async def test_move_root_failure_cleans_partial_copies(tmp_path, monkeypatch):
     assert res["errors"] == 1
     assert (await _get(sid)).media_root_id == ra
     assert _tree(a) == before
+    assert _tree(b) == {}
+
+
+async def test_move_root_aborts_when_set_renamed_mid_copy(tmp_path, monkeypatch):
+    """A rename commits (separate session) while the files are being copied:
+    the set stays on the old root with its files, and the copies placed on
+    the target are removed."""
+    a, b = tmp_path / "A", tmp_path / "B"
+    ra, rb = await _root(a), await _root(b)
+    uid = await _user()
+    sid = await _set(ra, a, uid)
+    loop = asyncio.get_running_loop()
+    real = bulk_mod.place_audio_file
+    calls = {"n": 0}
+
+    async def _rename() -> None:
+        # What apply_naming_to_set commits: new name placed, row repointed
+        # (its unlink of the old name comes later, after its commit).
+        shutil.copyfile(a / FILES["audio_path"][0], a / "audio/renamed.flac")
+        async with session_factory()() as s:
+            (await s.get(LiveSet, sid)).audio_path = "audio/renamed.flac"
+            await s.commit()
+
+    def placing(src, dst):
+        calls["n"] += 1
+        result = real(src, dst)
+        if calls["n"] == 1:
+            asyncio.run_coroutine_threadsafe(_rename(), loop).result(timeout=30)
+        return result
+
+    monkeypatch.setattr(bulk_mod, "place_audio_file", placing)
+    expected_a = {**_tree(a), "audio/renamed.flac": FILES["audio_path"][1]}
+
+    res = await _move([sid], rb)
+
+    assert calls["n"] == len(FILES)
+    live = await _get(sid)
+    assert live.media_root_id == ra
+    assert live.audio_path == "audio/renamed.flac"
+    assert res["errors"] == 1
+    assert res["moved"] == []
+    assert res["failed"] == [
+        {"slug": live.slug, "reason": "set changed during the move (audio_path)"},
+    ]
+    assert _tree(a) == expected_a
     assert _tree(b) == {}
 
 

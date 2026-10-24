@@ -399,7 +399,7 @@ async def test_transcode_first_encode_survives_move_root(
 
 
 async def test_transcode_gives_up_when_audio_keeps_moving(
-    tmp_path: Path, monkeypatch, loudness_target,
+    tmp_path: Path, monkeypatch, loudness_target, caplog,
 ):
     await loudness_target(-14.0)
     sid = await _seed_set(tmp_path, normalized_lufs=-8.0)
@@ -407,9 +407,13 @@ async def test_transcode_gives_up_when_audio_keeps_moving(
         monkeypatch, lambda n: _rename_audio(sid, f"moved-{n}.flac"),
     )
 
-    assert await transcode_audio(str(sid)) == "discarded"
+    with caplog.at_level(logging.INFO, logger=transcode.__name__):
+        assert await transcode_audio(str(sid)) == "discarded"
 
     assert len(calls) == transcode.MAX_ATTEMPTS
+    messages = [r.getMessage() for r in caplog.records]
+    assert sum("re-encoding" in m for m in messages) == transcode.MAX_ATTEMPTS - 1
+    assert any("gave up" in m for m in messages)
     async with session_factory()() as s:
         assert (await s.get(LiveSet, sid)).streaming_path is None
     assert list((tmp_path / "stream").iterdir()) == []
@@ -518,6 +522,43 @@ async def test_transcode_cleanup_db_error_is_logged(
         assert (await s.get(LiveSet, sid)).streaming_path == f"stream/{sid}-fresh.opus"
     assert (tmp_path / "stream/previous.opus").exists()
     assert any("cleanup" in r.getMessage() for r in caplog.records)
+
+
+def test_enqueue_transcode_queues_with_timeout(monkeypatch):
+    import rq
+
+    enqueued: list[tuple] = []
+
+    class _Queue:
+        def __init__(self, name, connection):
+            self.name = name
+
+        def enqueue(self, func, *args, **kwargs):
+            enqueued.append((self.name, func, args, kwargs))
+
+    monkeypatch.setattr(rq, "Queue", _Queue)
+    sid = uuid.uuid4()
+
+    assert transcode.enqueue_transcode(sid) is True
+
+    assert enqueued == [(
+        "default", "setvault_core.jobs.transcode.transcode_audio_sync", (str(sid),),
+        {"job_timeout": transcode.TRANSCODE_JOB_TIMEOUT},
+    )]
+
+
+def test_enqueue_transcode_failure_is_logged(monkeypatch, caplog):
+    import rq
+
+    def _broken(*args, **kwargs):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(rq, "Queue", _broken)
+
+    with caplog.at_level(logging.ERROR, logger=transcode.__name__):
+        assert transcode.enqueue_transcode(uuid.uuid4()) is False
+
+    assert any("enqueue failed" in r.getMessage() for r in caplog.records)
 
 
 async def test_transcode_no_filter_for_bogus_measurement(

@@ -25,6 +25,8 @@ TranscodeOutcome = Literal["done", "discarded"]
 # Encodes per call: a rename or root move during an encode costs a re-encode,
 # bounded so a set whose audio keeps moving can't loop forever.
 MAX_ATTEMPTS = 3
+# RQ's default (180 s) is far too short for a multi-hour set.
+TRANSCODE_JOB_TIMEOUT = "1h"
 
 
 async def _stream_rel(s: AsyncSession, live: LiveSet) -> str:
@@ -202,12 +204,33 @@ async def transcode_audio(live_set_id: str) -> TranscodeOutcome:
             return "done"
         if result == "discarded":
             return "discarded"
-        logger.info("transcode %s: audio moved while encoding %s; re-encoding (attempt %d/%d)",
-                    live_set_id, snap.audio_path, attempt, MAX_ATTEMPTS)
+        if attempt < MAX_ATTEMPTS:
+            logger.info("transcode %s: audio moved while encoding %s; re-encoding "
+                        "(attempt %d/%d)", live_set_id, snap.audio_path,
+                        attempt + 1, MAX_ATTEMPTS)
     logger.warning("transcode %s: audio kept moving; gave up after %d encodes",
                    live_set_id, MAX_ATTEMPTS)
     return "discarded"
 
 
-def transcode_audio_sync(live_set_id: str) -> None:
-    run_job(transcode_audio(live_set_id))
+def transcode_audio_sync(live_set_id: str) -> str:
+    """RQ entry point."""
+    return run_job(transcode_audio(live_set_id))
+
+
+def enqueue_transcode(set_id: uuid.UUID) -> bool:
+    """Queue :func:`transcode_audio_sync` for ``set_id``. Never raises (the
+    caller's change is already committed); returns whether it was queued."""
+    try:
+        from redis import Redis
+        from rq import Queue
+
+        redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+        Queue("default", connection=redis).enqueue(
+            "setvault_core.jobs.transcode.transcode_audio_sync", str(set_id),
+            job_timeout=TRANSCODE_JOB_TIMEOUT,
+        )
+    except Exception:
+        logger.exception("transcode: enqueue failed for set %s", set_id)
+        return False
+    return True
