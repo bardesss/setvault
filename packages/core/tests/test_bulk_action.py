@@ -247,11 +247,11 @@ async def test_move_root_failure_cleans_partial_copies(tmp_path, monkeypatch):
     real = bulk_mod.place_audio_file
     calls = {"n": 0}
 
-    def flaky(src, dst):
+    def flaky(src, dst, **kw):
         calls["n"] += 1
         if calls["n"] == 3:
             raise OSError("disk full")
-        return real(src, dst)
+        return real(src, dst, **kw)
 
     monkeypatch.setattr(bulk_mod, "place_audio_file", flaky)
     res = await _move([sid], rb)
@@ -259,7 +259,7 @@ async def test_move_root_failure_cleans_partial_copies(tmp_path, monkeypatch):
     assert res["errors"] == 1
     assert (await _get(sid)).media_root_id == ra
     assert _tree(a) == before
-    assert _tree(b) == {}
+    assert list(b.iterdir()) == []  # no files, and the dirs this run made are gone
 
 
 async def test_move_root_aborts_when_set_renamed_mid_copy(tmp_path, monkeypatch):
@@ -282,9 +282,9 @@ async def test_move_root_aborts_when_set_renamed_mid_copy(tmp_path, monkeypatch)
             (await s.get(LiveSet, sid)).audio_path = "audio/renamed.flac"
             await s.commit()
 
-    def placing(src, dst):
+    def placing(src, dst, **kw):
         calls["n"] += 1
-        result = real(src, dst)
+        result = real(src, dst, **kw)
         if calls["n"] == 1:
             asyncio.run_coroutine_threadsafe(_rename(), loop).result(timeout=30)
         return result
@@ -304,7 +304,38 @@ async def test_move_root_aborts_when_set_renamed_mid_copy(tmp_path, monkeypatch)
         {"slug": live.slug, "reason": "set changed during the move (audio_path)"},
     ]
     assert _tree(a) == expected_a
-    assert _tree(b) == {}
+    assert list(b.iterdir()) == []
+
+
+async def test_move_root_never_replaces_destination_that_appears_mid_move(
+    tmp_path, monkeypatch,
+):
+    """A destination created after the existence checks (simulated by
+    lexists missing it) is left untouched: exclusive create refuses it, it
+    is never counted as placed, and only the dirs this run made are removed."""
+    a, b = tmp_path / "A", tmp_path / "B"
+    ra, rb = await _root(a), await _root(b)
+    uid = await _user()
+    sid = await _set(ra, a, uid)
+    clash = b / FILES["thumb_path"][0]
+    clash.parent.mkdir(parents=True)
+    clash.write_bytes(b"precious")
+    (b / "waveform").mkdir()  # pre-existing and empty: not ours to remove
+    before = _tree(a)
+    monkeypatch.setattr(bulk_mod.os.path, "lexists", lambda p: False)
+
+    res = await _move([sid], rb)
+
+    live = await _get(sid)
+    assert live.media_root_id == ra
+    assert res["errors"] == 1
+    assert res["failed"] == [
+        {"slug": live.slug, "reason": f"destination exists: {FILES['thumb_path'][0]}"},
+    ]
+    assert clash.read_bytes() == b"precious"
+    assert _tree(b) == {FILES["thumb_path"][0]: b"precious"}
+    assert sorted(p.name for p in b.iterdir()) == ["thumb", "waveform"]
+    assert _tree(a) == before
 
 
 async def test_move_root_size_mismatch_cleans_up(tmp_path, monkeypatch):
@@ -314,7 +345,7 @@ async def test_move_root_size_mismatch_cleans_up(tmp_path, monkeypatch):
     sid = await _set(ra, a, uid)
     before = _tree(a)
 
-    def truncating(src, dst):
+    def truncating(src, dst, **kw):
         Path(dst).parent.mkdir(parents=True, exist_ok=True)
         Path(dst).write_bytes(Path(src).read_bytes()[:-1])
         return "copied"
@@ -324,7 +355,7 @@ async def test_move_root_size_mismatch_cleans_up(tmp_path, monkeypatch):
     assert res["errors"] == 1
     assert (await _get(sid)).media_root_id == ra
     assert _tree(a) == before
-    assert _tree(b) == {}
+    assert list(b.iterdir()) == []
 
 
 async def test_bulk_commits_per_item(tmp_path, monkeypatch):
