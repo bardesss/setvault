@@ -254,11 +254,11 @@ async def _seed_upgrade_pair(tmp_path: Path) -> tuple[uuid.UUID, uuid.UUID]:
             LiveSet(id=target_id, slug=f"s-{uuid.uuid4().hex[:6]}", title="target",
                     audio_path="old.flac", status="published", normalized_lufs=-8.0,
                     streaming_path=f"stream/{target_id}.opus", stream_gain_db=-6.0,
-                    **common),
+                    stream_bytes=len(b"target-old"), **common),
             LiveSet(id=arrival_id, slug=f"s-{uuid.uuid4().hex[:6]}", title="arrival",
                     audio_path="new.flac", status="draft", normalized_lufs=-12.0,
                     streaming_path=f"stream/{arrival_id}.opus", stream_gain_db=-2.0,
-                    **common),
+                    stream_bytes=len(b"arrival"), **common),
         ])
         await s.commit()
     (tmp_path / "stream").mkdir()
@@ -341,6 +341,9 @@ async def test_transcode_racing_upgrade_swap_discards_its_stream(
         assert target.audio_path == "new.flac"
         assert target.streaming_path == f"stream/{arrival_id}.opus"  # not reverted
         assert target.stream_gain_db == -2.0
+        # The discarded encode records no size: each row keeps its own.
+        assert target.stream_bytes == len(b"arrival")
+        assert recycled.stream_bytes == len(b"target-old")
         assert recycled.streaming_path == f"stream/{target_id}.opus"
         referenced = {target.streaming_path, recycled.streaming_path}
     on_disk = {f"stream/{p.name}" for p in (tmp_path / "stream").iterdir()}

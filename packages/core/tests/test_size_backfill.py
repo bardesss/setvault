@@ -87,7 +87,11 @@ async def test_size_backfill_fills_and_counts_missing(tmp_path: Path, monkeypatc
 
 async def test_enqueue_if_needed_only_when_nulls(tmp_path: Path, monkeypatch):
     queued: list[bool] = []
-    monkeypatch.setattr(size_backfill, "_enqueue", lambda: queued.append(True))
+    def fake_enqueue(redis=None) -> bool:
+        queued.append(True)
+        return True
+
+    monkeypatch.setattr(size_backfill, "_enqueue", fake_enqueue)
 
     async def check() -> bool:
         async with session_factory()() as s:
@@ -119,19 +123,48 @@ async def test_enqueue_if_needed_only_when_nulls(tmp_path: Path, monkeypatch):
     assert queued == [True, True]
 
 
-def test_enqueue_queues_on_low_with_timeout(monkeypatch):
-    calls: list[tuple] = []
+@pytest.fixture
+def backfill_queue(monkeypatch):
+    """A private queue name and job id on the test Redis, removed afterwards."""
+    from rq import Queue
+    from rq.job import Job
 
-    class _FakeQueue:
-        def __init__(self, name, connection):
-            self.name = name
+    tag = uuid.uuid4().hex[:8]
+    monkeypatch.setattr(size_backfill, "SIZE_BACKFILL_QUEUE", f"test-size-{tag}")
+    monkeypatch.setattr(size_backfill, "JOB_ID", f"test-size-backfill-{tag}")
+    redis = size_backfill._redis()
+    yield redis
+    queue = Queue(size_backfill.SIZE_BACKFILL_QUEUE, connection=redis)
+    job = Job.fetch_many([size_backfill.JOB_ID], connection=redis)[0]
+    if job is not None:
+        job.delete()
+    queue.delete(delete_jobs=True)
 
-        def enqueue(self, func, **kwargs):
-            calls.append((self.name, func, kwargs))
 
-    import rq
+def test_enqueue_queues_once_on_low_with_timeout(backfill_queue):
+    from rq import Queue
+    from rq.job import Job
 
-    monkeypatch.setattr(rq, "Queue", _FakeQueue)
-    size_backfill._enqueue()
-    assert calls == [("low", "setvault_core.jobs.size_backfill.run_size_backfill",
-                      {"job_timeout": "1h"})]
+    redis = backfill_queue
+    assert size_backfill._enqueue(redis) is True
+    job = Job.fetch(size_backfill.JOB_ID, connection=redis)
+    assert job.func_name == "setvault_core.jobs.size_backfill.run_size_backfill"
+    assert job.timeout == 3600
+    assert job.origin == size_backfill.SIZE_BACKFILL_QUEUE
+
+    # Still queued (a worker restart before it ran): not queued again.
+    assert size_backfill._enqueue(redis) is False
+    queue = Queue(size_backfill.SIZE_BACKFILL_QUEUE, connection=redis)
+    assert queue.job_ids == [size_backfill.JOB_ID]
+
+    # Once it has finished, a later start may queue it again.
+    job.set_status("finished")
+    queue.remove(job)
+    assert size_backfill._enqueue(redis) is True
+    assert queue.job_ids == [size_backfill.JOB_ID]
+
+
+def test_default_redis_has_timeouts():
+    kwargs = size_backfill._redis().connection_pool.connection_kwargs
+    assert kwargs["socket_connect_timeout"] == size_backfill.REDIS_TIMEOUT_SECONDS
+    assert kwargs["socket_timeout"] == size_backfill.REDIS_TIMEOUT_SECONDS

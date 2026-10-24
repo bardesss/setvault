@@ -26,6 +26,10 @@ BATCH_SIZE = 200
 SIZE_BACKFILL_QUEUE = "low"
 SIZE_BACKFILL_TIMEOUT = "1h"
 JOB_FUNC = "setvault_core.jobs.size_backfill.run_size_backfill"
+# Fixed, so a backfill already queued or running is not queued again.
+JOB_ID = "size-backfill"
+_IN_FLIGHT = {"queued", "started", "deferred", "scheduled"}
+REDIS_TIMEOUT_SECONDS = 5
 # Each size column and the path column naming the file it measures.
 _PATH_COLUMNS = {"audio_bytes": LiveSet.audio_path, "stream_bytes": LiveSet.streaming_path}
 
@@ -117,21 +121,38 @@ def run_size_backfill() -> dict:
     return run_job(_run_size_backfill())
 
 
-def _enqueue() -> None:
+def _redis():
     from redis import Redis
-    from rq import Queue
 
-    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
-    Queue(SIZE_BACKFILL_QUEUE, connection=redis).enqueue(
-        JOB_FUNC, job_timeout=SIZE_BACKFILL_TIMEOUT,
+    # Bounded, so a caller at worker start can't hang on an unreachable Redis.
+    return Redis.from_url(
+        os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+        socket_connect_timeout=REDIS_TIMEOUT_SECONDS, socket_timeout=REDIS_TIMEOUT_SECONDS,
     )
 
 
-async def enqueue_if_needed(session: AsyncSession) -> bool:
+def _enqueue(redis=None) -> bool:
+    """Queue the backfill under a fixed job id; skipped (False) while that job
+    is still queued or running, so worker restarts don't stack runs."""
+    from rq import Queue
+    from rq.job import Job
+
+    redis = redis if redis is not None else _redis()
+    existing = Job.fetch_many([JOB_ID], connection=redis)[0]
+    if existing is not None and existing.get_status(refresh=True) in _IN_FLIGHT:
+        return False
+    Queue(SIZE_BACKFILL_QUEUE, connection=redis).enqueue(
+        JOB_FUNC, job_id=JOB_ID, job_timeout=SIZE_BACKFILL_TIMEOUT,
+    )
+    return True
+
+
+async def enqueue_if_needed(session: AsyncSession, redis=None) -> bool:
     """Queue :func:`run_size_backfill` when a set in the vault still lacks a
-    size; returns whether it was queued."""
+    size and no backfill is queued or running yet; returns whether it was
+    queued. ``redis``: a connection to reuse (default: a new one from
+    ``REDIS_URL``, with connect/read timeouts)."""
     needed = (await session.execute(select(exists().where(_needs_size())))).scalar_one()
     if not needed:
         return False
-    _enqueue()
-    return True
+    return _enqueue(redis)

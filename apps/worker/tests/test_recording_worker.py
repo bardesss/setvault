@@ -469,11 +469,10 @@ def test_real_perform_job_succeeds_with_db_down(e2e_redis):
 
 # --- entrypoint -------------------------------------------------------------
 
-def test_entrypoint_runs_recording_worker(monkeypatch):
-    import setvault_worker.entrypoint as ep
+_FAKE_DB_URL = "postgresql+asyncpg://u:p@h/db"  # never connected to: the checks are faked
 
-    started: list = []
 
+def _fake_worker(started: list):
     class _FakeWorker:
         def __init__(self, queues, connection, **kwargs):
             started.append(([q.name for q in queues], kwargs))
@@ -481,31 +480,27 @@ def test_entrypoint_runs_recording_worker(monkeypatch):
         def work(self, **kwargs):
             started.append(kwargs)
 
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@h/db")
+    return _FakeWorker
+
+
+def test_entrypoint_runs_recording_worker(monkeypatch):
+    import setvault_worker.entrypoint as ep
+
+    started: list = []
+    monkeypatch.setenv("DATABASE_URL", _FAKE_DB_URL)
     monkeypatch.setenv("REDIS_URL", _REDIS_URL)
     monkeypatch.setattr(ep, "init_engine", lambda url: None)
     monkeypatch.setattr(ep, "_bootstrap_scheduler", lambda redis: started.append("bootstrap"))
-    monkeypatch.setattr(ep, "_queue_size_backfill", lambda: started.append("size_backfill"))
-    monkeypatch.setattr(ep, "RecordingWorker", _FakeWorker)
+    monkeypatch.setattr(ep, "_queue_size_backfill",
+                        lambda url, redis: started.append(("size_backfill", url)))
+    monkeypatch.setattr(ep, "RecordingWorker", _fake_worker(started))
     ep.main()
     assert started == [
         "bootstrap",
-        "size_backfill",
-        (["default", "low"], {"database_url": "postgresql+asyncpg://u:p@h/db"}),
+        ("size_backfill", _FAKE_DB_URL),
+        (["default", "low"], {"database_url": _FAKE_DB_URL}),
         {"with_scheduler": True},
     ]
-
-
-class _FakeSession:
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-
-def _fake_sessions(monkeypatch, ep) -> None:
-    monkeypatch.setattr(ep, "session_factory", lambda: _FakeSession)
 
 
 def test_queue_size_backfill_queues_when_needed(monkeypatch, caplog):
@@ -514,27 +509,57 @@ def test_queue_size_backfill_queues_when_needed(monkeypatch, caplog):
     import setvault_worker.entrypoint as ep
 
     seen: list = []
+    redis = object()
 
-    async def fake_enqueue(session):
-        seen.append(session)
+    async def fake_enqueue(session, redis=None):
+        seen.append(redis)
         return True
 
-    _fake_sessions(monkeypatch, ep)
     monkeypatch.setattr(ep.size_backfill, "enqueue_if_needed", fake_enqueue)
     with caplog.at_level(logging.INFO, logger=ep.__name__):
-        ep._queue_size_backfill()
-    assert len(seen) == 1 and isinstance(seen[0], _FakeSession)
+        ep._queue_size_backfill(_FAKE_DB_URL, redis)
+    assert seen == [redis]  # the worker's own Redis connection is reused
     assert "size backfill queued" in caplog.text
 
 
 def test_queue_size_backfill_failure_is_logged_not_raised(monkeypatch, caplog):
     import setvault_worker.entrypoint as ep
 
-    async def boom(session):
+    async def boom(session, redis=None):
         raise RuntimeError("redis down")
 
-    _fake_sessions(monkeypatch, ep)
     monkeypatch.setattr(ep.size_backfill, "enqueue_if_needed", boom)
-    ep._queue_size_backfill()  # must not raise
+    ep._queue_size_backfill(_FAKE_DB_URL, object())  # must not raise
     assert "queueing the size backfill failed" in caplog.text
     assert "redis down" in caplog.text
+
+
+def test_hanging_size_backfill_check_does_not_hold_up_boot(monkeypatch, caplog):
+    import asyncio
+    import threading
+    import time
+
+    import setvault_worker.entrypoint as ep
+
+    release = threading.Event()
+
+    async def hang(session, redis=None):
+        await asyncio.to_thread(release.wait, 30)  # an unreachable DB or Redis
+        return False
+
+    started: list = []
+    monkeypatch.setattr(ep, "SIZE_BACKFILL_CHECK_SECONDS", 0.3)
+    monkeypatch.setattr(ep.size_backfill, "enqueue_if_needed", hang)
+    monkeypatch.setenv("DATABASE_URL", _FAKE_DB_URL)
+    monkeypatch.setenv("REDIS_URL", _REDIS_URL)
+    monkeypatch.setattr(ep, "init_engine", lambda url: None)
+    monkeypatch.setattr(ep, "_bootstrap_scheduler", lambda redis: None)
+    monkeypatch.setattr(ep, "RecordingWorker", _fake_worker(started))
+    try:
+        t0 = time.monotonic()
+        ep.main()
+        assert time.monotonic() - t0 < 2
+        assert started[-1] == {"with_scheduler": True}  # the worker started anyway
+        assert "starting the worker without waiting" in caplog.text
+    finally:
+        release.set()
