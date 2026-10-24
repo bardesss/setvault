@@ -33,8 +33,13 @@ _FIELDS = (
 
 
 @pytest.fixture
-async def cfg_state(tmp_path):
-    """Point the backup dir at tmp_path; restore every backup field after."""
+async def cfg_state(tmp_path, monkeypatch):
+    """Point the backup dir at tmp_path; restore every backup field after.
+
+    The job reads DATABASE_URL like the worker does; CI only sets
+    TEST_DATABASE_URL, so mirror it here."""
+    if not os.environ.get("DATABASE_URL"):
+        monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     async with session_factory()() as s:
         cfg = await get_config(s)
         saved = {f: getattr(cfg, f) for f in _FIELDS}
