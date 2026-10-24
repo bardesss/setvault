@@ -6,7 +6,7 @@
 
 **Self-hosted vault for DJ live sets.** Upload FLAC/WAV/MP3 or rip from
 YouTube / SoundCloud / Mixcloud / Internet Archive / Bandcamp, and get waveforms,
-loudness-normalized audio, time-coded tracklists, enriched metadata, comments,
+loudness-matched streams, time-coded tracklists, enriched metadata, comments,
 per-user RSS feeds, an embeddable player, and an installable PWA.
 
 > Think **Mixcloud × 1001tracklists × Plex** — but for DJ live sets.
@@ -17,7 +17,7 @@ per-user RSS feeds, an embeddable player, and an installable PWA.
 
 | Area | What you get |
 |---|---|
-| **Ingest** | Resumable multi-GB uploads (tus) · paste-URL rip · watch-folder auto-ingest · ffmpeg → Opus + R128 normalize · waveform peaks · chromaprint dedup |
+| **Ingest** | Resumable multi-GB uploads (tus) · paste-URL rip · watch-folder auto-ingest · ffmpeg → Opus, EBU R128 measured, static gain to a target loudness · waveform peaks · chromaprint dedup |
 | **Catalog** | LiveSets · Artists · Venues · Series · Parties · Tags · naming templates · Postgres FTS · recycle bin · bulk editor |
 | **Tracklists** | Per-set editor · reorder + time-shift · live add · paste-parse · 1001tracklists scrape · OCR |
 | **Enrichment** | Pluggable providers — MusicBrainz · Discogs · AcoustID — with per-row + bulk resolve |
@@ -66,6 +66,16 @@ docker exec -e ADMIN_EMAIL='you@example.com' -e ADMIN_PASSWORD='min-12-chars' \
   setvault python -m setvault_web.create_admin
 ```
 It's idempotent (promotes an existing user to admin; re-running is safe).
+
+**Locked out?** Reset the admin password from inside the container. With one admin, `--email` is optional (pass `--email you@example.com` if there are several). Print a one-hour reset link and open it in the browser:
+```bash
+docker exec -it setvault python -m setvault_web.reset_password --link
+```
+Or set a new password directly. It is read from `NEW_PASSWORD` or prompted for, so it never hits the command line:
+```bash
+docker exec -it setvault python -m setvault_web.reset_password
+```
+Either way, existing sessions are signed out and the reset is written to the audit log.
 
 ### Quick start with Docker Compose
 
@@ -158,6 +168,8 @@ External mode needs `BASE_URL` plus `DATABASE_URL`/`REDIS_URL`. The essentials:
 | `DATABASE_URL` / `REDIS_URL` | optional | Set to use external datastores; unset = bundled. |
 | `SETVAULT_VERSION` | optional | Image tag — **pin in production** (default floats on `latest`). |
 | `PUID` / `PGID` | optional | Container user/group for bind-mount permissions (default `1000`). |
+| `TZ` | optional | Time zone for the nightly backup time (default `UTC`). |
+| `SETVAULT_BACKUP_PATH` | optional | External compose: host folder for nightly DB backups (default `./.data/backups`). |
 
 `SETVAULT_DEV_SEED` enables a public test-only seed endpoint — **never set it in production**.
 See [CHANGELOG.md](CHANGELOG.md) / `.env.example` for the full list (paths, ports, advanced proxy flags).
@@ -208,6 +220,43 @@ fresh data dir, and restore (see below).
 >   `POSTGRES_USER` after first boot isn't supported: the database stays owned by the original role.
 
 ## 💾 Backup & restore
+
+### Scheduled database backups
+
+SetVault backs up its database every night (on by default, 03:30). Each backup is a gzipped
+`pg_dump` named `setvault-YYYYMMDD-HHMMSS.sql.gz`; the newest 14 are kept. Change the time,
+retention and folder under **Admin → Backups**, which also lists, downloads and deletes the files
+and has a "Back up now" button. A failed backup shows in red there and notifies the admins.
+
+- **Where:** `/data/backups` in bundled mode (inside the `/data` volume). With the external
+  compose files it's the `/srv/backups` mount, set by `SETVAULT_BACKUP_PATH` in `.env`
+  (default `./.data/backups`). A folder that is neither under `/data` nor a mount is lost when
+  the container is recreated; the Backups tab warns about that.
+- **When:** `backup_time` is in the container's time zone. Set `TZ` (e.g. `TZ=Europe/Amsterdam`);
+  the default is `UTC`. If the container was down at that time, the backup runs at the next
+  hourly check the same day.
+- **Space:** a backup refuses to start when the folder has less than twice the previous
+  backup's size free.
+- **What's not in it:** your media (it's large and already on your disk) and `.secrets` (the key
+  that decrypts saved connector passwords doesn't belong next to them; after a restore on a new
+  install, re-enter SMTP and connector passwords). Keep the backup folder on a **different disk**
+  if you want protection against losing the disk, and back up your media separately.
+
+### Restore from a scheduled backup
+
+The restore CLI loads a `.sql.gz` into the database (media is untouched). It is **destructive**
+and refuses to run without `--yes`:
+
+```bash
+# bundled: backups are already inside the container
+docker exec setvault python -m setvault_web.restore /data/backups/setvault-20261023-033000.sql.gz --yes
+# external compose: the backups mount is /srv/backups
+docker compose exec setvault python -m setvault_web.restore /srv/backups/setvault-20261023-033000.sql.gz --yes
+```
+
+Restart the container afterwards so every process picks up the restored data.
+
+### Full export (database + media)
 
 The admin backup endpoint streams a tarball of a fresh `pg_dump` + your media:
 

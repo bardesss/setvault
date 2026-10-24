@@ -4,10 +4,13 @@
   import { api, ApiError } from "#lib/api/client.ts";
   import {
     getSettings,
+    regainLibrary,
     updateSettings,
     type AdminSettings,
   } from "#lib/api/settings.ts";
   import { fmtLocalDateTime } from "#lib/wanted.ts";
+  import ConfirmDialog from "#lib/components/ConfirmDialog.svelte";
+  import { toast } from "#lib/stores/toast.ts";
 
   const TIER_LABELS: Record<string, string> = {
     lossless: "Lossless", high: "High", good: "Good", ok: "OK", low: "Low",
@@ -74,6 +77,8 @@
     try {
       settings = await getSettings();
       order = [...settings.quality_tiers_order];
+      const target = settings.loudness_target_lufs ?? null;
+      loudnessText = target === null ? "" : String(target);
     } catch (e) {
       error = msg(e, "Could not load quality settings.");
     } finally {
@@ -147,6 +152,54 @@
       error = msg(e, "Save failed.");
     } finally {
       busy = false;
+    }
+  }
+
+  // Loudness target. Text field so "empty" is a real value (null = off).
+  let loudnessText = "";
+  let loudnessBusy = false;
+  let loudnessError: string | null = null;
+  let confirmRegain = false;
+  let regainBusy = false;
+
+  function parseLoudness(text: string): number | null | undefined {
+    const t = text.trim();
+    if (t === "") return null;
+    const n = Number(t.replace(",", "."));
+    if (!Number.isFinite(n) || n < -30 || n > -5) return undefined;
+    return n;
+  }
+
+  async function saveLoudness() {
+    const value = parseLoudness(loudnessText);
+    if (value === undefined) {
+      loudnessError = $_("admin.quality.loudness.invalid");
+      return;
+    }
+    loudnessBusy = true;
+    loudnessError = null;
+    try {
+      const s = await updateSettings({ loudness_target_lufs: value });
+      settings = settings ? { ...settings, loudness_target_lufs: s.loudness_target_lufs } : s;
+      loudnessText = s.loudness_target_lufs === null ? "" : String(s.loudness_target_lufs);
+      toast.success($_("admin.quality.loudness.saved"));
+    } catch (e) {
+      loudnessError = msg(e, "Save failed.");
+    } finally {
+      loudnessBusy = false;
+    }
+  }
+
+  async function reapplyLoudness() {
+    confirmRegain = false;
+    regainBusy = true;
+    try {
+      await regainLibrary();
+      toast.success($_("admin.quality.loudness.queued"));
+    } catch (e) {
+      toast.error(msg(e, $_("admin.quality.loudness.failed")));
+    } finally {
+      regainBusy = false;
     }
   }
 
@@ -253,6 +306,45 @@
     </div>
 
     <div class="card">
+      <h3>{$_("admin.quality.loudness.title")}</h3>
+      <label class="row">
+        <span>{$_("admin.quality.loudness.target")}</span>
+        <input
+          type="text"
+          inputmode="decimal"
+          size="6"
+          data-testid="loudness-target"
+          bind:value={loudnessText}
+          disabled={loudnessBusy}
+          aria-describedby="loudness-help"
+        />
+        {#if loudnessText.trim() === ""}
+          <span class="muted" data-testid="loudness-off">{$_("admin.quality.loudness.off")}</span>
+        {/if}
+      </label>
+      <p class="muted" id="loudness-help">{$_("admin.quality.loudness.help")}</p>
+      {#if loudnessError}<p class="admin-msg is-error" role="alert">{loudnessError}</p>{/if}
+      <div class="row">
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          disabled={loudnessBusy}
+          data-testid="loudness-save"
+          on:click={saveLoudness}
+        >{$_("admin.quality.loudness.set_target")}</button>
+      </div>
+      <p class="muted">{$_("admin.quality.loudness.reapply_help")}</p>
+      <div class="row">
+        <button
+          type="button"
+          class="btn btn-sm"
+          disabled={regainBusy}
+          on:click={() => (confirmRegain = true)}
+        >{$_("admin.quality.loudness.reapply")}</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h3>Backfill</h3>
       <p class="muted">Fingerprint and measure the quality of sets added before upgrades existed.</p>
       {#if backfillLoading && !backfill}
@@ -309,6 +401,15 @@
     </div>
   {/if}
 </section>
+
+<ConfirmDialog
+  open={confirmRegain}
+  title={$_("admin.quality.loudness.confirm_title")}
+  message={$_("admin.quality.loudness.confirm_message")}
+  confirmLabel={$_("admin.quality.loudness.confirm_label")}
+  on:confirm={reapplyLoudness}
+  on:cancel={() => (confirmRegain = false)}
+/>
 
 <style>
   .quality { display: grid; gap: var(--sp-3); }

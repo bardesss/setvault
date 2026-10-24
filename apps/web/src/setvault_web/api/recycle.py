@@ -5,7 +5,8 @@ automatic cleanup; these endpoints give the admin per-row manual control:
 
   - **GET  /api/admin/recycle** — list soft-deleted sets newest-first.
   - **POST /api/admin/recycle/{slug}/restore** — clear ``deleted_at`` +
-    ``purge_after_at`` so the set re-appears in the library.
+    ``purge_after_at`` so the set re-appears in the library; a set that
+    has no stream yet (recycled before its first transcode) gets one queued.
   - **POST /api/admin/recycle/{slug}/purge-now** — immediate hard-delete
     (audio files removed + LiveSet row dropped + ``set.purged`` audit
     event), bypassing the grace window.
@@ -17,10 +18,11 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from setvault_core.jobs.transcode import enqueue_transcode
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
 from setvault_core.services.audit import log as audit_log
-from setvault_core.services.storage import path_in_use
+from setvault_core.services.storage import path_in_use, resolve_set_path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -89,8 +91,23 @@ async def restore_set(
         target_id=str(live.id),
         before=before,
     )
+    # A set recycled before (or during) its first transcode has no stream,
+    # and nothing else makes one: regain skips sets without a stream.
+    needs_stream = live.streaming_path is None and await _audio_exists(session, live)
     await session.commit()
+    if needs_stream:
+        enqueue_transcode(live.id)
     return _set_to_dict(live)
+
+
+async def _audio_exists(session: AsyncSession, live: LiveSet) -> bool:
+    root = await session.get(MediaRoot, live.media_root_id)
+    if root is None or not live.audio_path:
+        return False
+    try:
+        return resolve_set_path(root.host_path, live.audio_path).is_file()
+    except (ValueError, OSError):
+        return False
 
 
 def _try_unlink(path: Path) -> bool:

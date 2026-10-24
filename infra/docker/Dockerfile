@@ -32,7 +32,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 # Apt-installable deps (same on every arch).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg libmagic1 libchromaprint-tools tini ca-certificates curl xz-utils \
-      tesseract-ocr \
+      tesseract-ocr tzdata \
       libmad0 libid3tag0 libgd3 \
       libboost-program-options1.74.0 libboost-filesystem1.74.0 libboost-regex1.74.0 \
     && rm -rf /var/lib/apt/lists/*

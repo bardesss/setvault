@@ -14,8 +14,20 @@ class UnknownArtistError(ValueError):
 
 
 async def replace_artists(
-    session: AsyncSession, live: LiveSet, artist_ids: list[str]
+    session: AsyncSession,
+    live: LiveSet,
+    artist_ids: list[str],
+    roles: dict[str, str] | None = None,
 ) -> None:
+    """Replace ``live``'s artists with ``artist_ids``, in that order (repeats
+    dropped). ``roles`` maps an artist id to its role; an artist without an
+    entry keeps the role it already had on the set, or gets ``main``."""
+    explicit: dict[uuid.UUID, str] = {}
+    for raw, role in (roles or {}).items():
+        try:
+            explicit[uuid.UUID(raw)] = role
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise UnknownArtistError("invalid artist id") from exc
     ids: list[uuid.UUID] = []
     for raw in artist_ids:
         try:
@@ -31,13 +43,12 @@ async def replace_artists(
         missing = [str(i) for i in ids if i not in valid]
         if missing:
             raise UnknownArtistError(f"unknown or merged artist: {missing[0]}")
-    roles = {la.artist_id: la.role for la in live.artists}
+    kept = {la.artist_id: la.role for la in live.artists}
     live.artists.clear()
     await session.flush()
     for pos, aid in enumerate(ids):
-        live.artists.append(
-            LiveSetArtist(artist_id=aid, position=pos, role=roles.get(aid, "main"))
-        )
+        role = explicit.get(aid) or kept.get(aid, "main")
+        live.artists.append(LiveSetArtist(artist_id=aid, position=pos, role=role))
 
 
 async def replace_tags(

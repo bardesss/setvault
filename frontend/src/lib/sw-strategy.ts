@@ -15,6 +15,31 @@ export type Strategy =
 
 const AUDIO_RE = /^\/api\/sets\/[^/]+\/(stream|audio\.opus)(\?|$)/;
 
+/**
+ * What the audio strategy does for one request, as a decision order:
+ * exact cache match, then the network, then (only if the network failed) a
+ * match that ignores the query string. The stream URL carries `?v=<gain>`, so
+ * a re-gained set is a new resource online; an offline phone keeps playing its
+ * older copy instead of failing.
+ */
+export interface AudioIo<R> {
+  matchExact: () => Promise<R | undefined>;
+  matchIgnoringSearch: () => Promise<R | undefined>;
+  fetchNetwork: () => Promise<R>;
+}
+
+export async function resolveAudio<R>(io: AudioIo<R>): Promise<R> {
+  const exact = await io.matchExact();
+  if (exact) return exact;
+  try {
+    return await io.fetchNetwork();
+  } catch (err) {
+    const older = await io.matchIgnoringSearch();
+    if (older) return older;
+    throw err;
+  }
+}
+
 export function chooseStrategy(
   pathname: string,
   precacheUrls: ReadonlyArray<string> = [],

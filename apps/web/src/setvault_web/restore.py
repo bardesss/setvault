@@ -3,6 +3,11 @@
 Run as::
 
     python -m setvault_web.restore <backup.tar> --yes
+    python -m setvault_web.restore <setvault-YYYYMMDD-HHMMSS.sql.gz> --yes
+
+A ``.sql.gz`` is a scheduled backup (``setvault_core.jobs.backup``): a
+gzipped ``pg_dump`` that restores the database only. Anything else is read
+as the full backup tar.
 
 The backup tar (see ``setvault_web.api.backup``) contains:
 
@@ -29,12 +34,14 @@ and redacted in all log/console output.
 from __future__ import annotations
 
 import asyncio
+import gzip
 import os
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -195,6 +202,31 @@ def restore_from_tar(
     return {"media_files": copied}
 
 
+def restore_from_sql_gz(
+    gz_path: str | Path, database_url: str, *, confirm: bool,
+) -> None:
+    """Restore a scheduled ``.sql.gz`` backup: the database only. Gunzips to
+    a temp file, then loads it via ``psql``. Destructive — refuses to run
+    unless ``confirm`` is True. Raises :class:`RestoreError` on any failure."""
+    if not confirm:
+        raise RestoreError(
+            "restore is destructive and was not confirmed — pass --yes "
+            "(or set RESTORE_CONFIRM=1) to overwrite the database"
+        )
+    gz_path = Path(gz_path)
+    if not gz_path.is_file():
+        raise RestoreError(f"backup file not found: {gz_path}")
+    with tempfile.TemporaryDirectory(prefix="setvault-restore-") as tmp:
+        db_sql = Path(tmp) / "db.sql"
+        try:
+            with gzip.open(gz_path, "rb") as src, db_sql.open("wb") as dst:
+                shutil.copyfileobj(src, dst, 1024 * 1024)
+        except (OSError, EOFError, zlib.error) as exc:
+            raise RestoreError(f"{gz_path.name} is not a valid gzip file: {exc}") from exc
+        _restore_database(db_sql, database_url)
+    print("restore: complete — database restored (media untouched)")
+
+
 async def _load_media_roots(database_url: str) -> list[MediaRootSpec]:
     """Read MediaRoots from the (freshly restored) DB to know where media goes."""
     init_engine(database_url)
@@ -210,9 +242,12 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = argparse.ArgumentParser(
         prog="python -m setvault_web.restore",
-        description="Restore a SetVault backup tar (DB + media). DESTRUCTIVE.",
+        description=(
+            "Restore a SetVault backup: a full .tar (DB + media) or a scheduled "
+            ".sql.gz (DB only). DESTRUCTIVE."
+        ),
     )
-    parser.add_argument("tar_path", help="path to the backup .tar")
+    parser.add_argument("tar_path", help="path to the backup .tar or .sql.gz")
     parser.add_argument(
         "--yes",
         action="store_true",
@@ -238,6 +273,14 @@ def main(argv: list[str] | None = None) -> None:
     if not tar_path.is_file():
         print(f"error: backup file not found: {tar_path}", file=sys.stderr)
         raise SystemExit(1)
+
+    if tar_path.name.endswith(".sql.gz"):
+        try:
+            restore_from_sql_gz(tar_path, database_url, confirm=True)
+        except RestoreError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        return
 
     try:
         with tempfile.TemporaryDirectory(prefix="setvault-restore-") as tmp:

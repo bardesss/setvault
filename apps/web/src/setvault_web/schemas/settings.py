@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -17,6 +18,14 @@ class SettingsOut(BaseModel):
     quality_cutoff: str
     auto_upgrades_enabled: bool
     upgrade_search_schedule: Literal["daily", "weekly", "off"]
+    # None = loudness matching off.
+    loudness_target_lufs: float | None
+    backup_enabled: bool
+    # "HH:MM" in the container's time zone (TZ).
+    backup_time: str
+    backup_keep: int
+    # None = SETVAULT_BACKUP_PATH.
+    backup_dir: str | None
 
 
 class SettingsIn(BaseModel):
@@ -34,6 +43,25 @@ class SettingsIn(BaseModel):
     quality_cutoff: str | None = None
     auto_upgrades_enabled: bool | None = None
     upgrade_search_schedule: Literal["daily", "weekly", "off"] | None = None
+    # An explicit null turns loudness matching off; leaving the field out
+    # keeps the stored target (the PUT checks ``model_fields_set``).
+    loudness_target_lufs: float | None = Field(default=None, ge=-30.0, le=-5.0)
+    backup_enabled: bool | None = None
+    backup_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    backup_keep: int | None = Field(default=None, ge=1, le=365)
+    # An explicit null falls back to SETVAULT_BACKUP_PATH; leaving the field
+    # out keeps the stored dir. The PUT creates it and checks it's writable.
+    backup_dir: str | None = None
+
+    @field_validator("backup_dir")
+    @classmethod
+    def _backup_dir_is_absolute(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not os.path.isabs(v):
+            raise ValueError("must be an absolute path")
+        # Stored without ".." or duplicate separators.
+        return os.path.normpath(v)
 
     @field_validator("quality_tiers_order")
     @classmethod

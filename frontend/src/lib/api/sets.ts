@@ -54,7 +54,13 @@ export interface SetDetail extends Omit<SetSummary, "venue"> {
   waveform_url: string | null;
   normalized_lufs: number | null;
   venue: { id: string; name: string; slug: string; kind?: string | null } | null;
-  party: { id: string; name: string; slug: string } | null;
+  party: {
+    id: string;
+    name: string;
+    slug: string;
+    venue?: { id: string; name: string; slug: string } | null;
+    series?: { id: string; name: string; slug: string } | null;
+  } | null;
   embed_allowed: boolean;
   quality: { tier: string; label: string } | null;
   upgrades_enabled: boolean;
@@ -86,7 +92,22 @@ export const getFacets = () => api<SetFacets>("/api/sets/facets");
 
 export const getSet = (slug: string) => api<SetDetail>(`/api/sets/${slug}`);
 
-export const patchSet = (slug: string, patch: Partial<SetDetail>) =>
+/** PATCH body. Omitted keys are left alone; `null` clears party, venue, date
+ * and description. `artists` wins over `artist_ids`. */
+export interface SetPatch {
+  title?: string;
+  date?: string | null;
+  set_type?: string;
+  party_id?: string | null;
+  venue_id?: string | null;
+  description?: string | null;
+  artist_ids?: string[];
+  artists?: { id: string; role: string }[];
+  tag_names?: string[];
+  upgrades_enabled?: boolean;
+}
+
+export const patchSet = (slug: string, patch: SetPatch) =>
   api<SetDetail>(`/api/sets/${slug}`, {
     method: "PATCH",
     body: JSON.stringify(patch),

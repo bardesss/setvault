@@ -17,6 +17,13 @@ class ArtistIn(BaseModel):
     image_url: str | None = None
 
 
+class EntityMonitorOut(BaseModel):
+    """The current user's monitor linked to an entity (detail responses only)."""
+
+    id: str
+    enabled: bool
+
+
 class ArtistOut(BaseModel):
     id: str
     name: str
@@ -25,6 +32,7 @@ class ArtistOut(BaseModel):
     bio: str | None
     aliases: list[str]
     image_url: str | None
+    monitor: EntityMonitorOut | None = None
 
 
 class VenueIn(BaseModel):
@@ -39,6 +47,7 @@ class VenueIn(BaseModel):
 class VenueOut(VenueIn):
     id: str
     slug: str
+    monitor: EntityMonitorOut | None = None
 
 
 class SeriesIn(BaseModel):
@@ -68,6 +77,7 @@ class PartyOut(BaseModel):
     series: SeriesOut | None
     date: _date | None
     description: str | None
+    monitor: EntityMonitorOut | None = None
 
 
 class ArtistPatchIn(BaseModel):

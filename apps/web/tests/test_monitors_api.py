@@ -277,3 +277,226 @@ async def test_rip_discovery_status_ingested_only_after_enqueue(authed_admin_cli
     async with session_factory()() as s:
         d = await s.get(MonitorDiscovery, up_id)
         assert d.status == "ingested" and d.decided_at is not None
+
+
+async def _artist(client, name: str = "Linkable") -> dict:
+    r = await client.post("/api/catalog/artists", json={"name": name})
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def _linked(artist: dict, **extra) -> dict:
+    return {"kind": "query", "query_text": artist["name"], "catalog_kind": "artist",
+            "catalog_id": artist["id"], **extra}
+
+
+@pytest.mark.asyncio
+async def test_create_catalog_linked_monitor(authed_admin_client):
+    artist = await _artist(authed_admin_client)
+    r = await authed_admin_client.post("/api/monitors", json=_linked(artist))
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["catalog_kind"] == "artist"
+    assert body["catalog_id"] == artist["id"]
+    assert body["catalog_name"] == artist["name"]
+    assert body["catalog_slug"] == artist["slug"]
+
+    r = await authed_admin_client.get("/api/monitors")
+    listed = next(m for m in r.json()["items"] if m["id"] == body["id"])
+    assert listed["catalog_name"] == artist["name"]
+    assert listed["catalog_slug"] == artist["slug"]
+
+    # Unlinked monitors carry nulls.
+    r = await authed_admin_client.post("/api/monitors", json={"kind": "query", "query_text": "x"})
+    assert r.status_code == 201, r.text
+    assert r.json()["catalog_kind"] is None
+    assert r.json()["catalog_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_catalog_link_requires_both_fields_422(authed_admin_client):
+    artist = await _artist(authed_admin_client)
+    r = await authed_admin_client.post(
+        "/api/monitors", json={"kind": "query", "query_text": "x", "catalog_kind": "artist"})
+    assert r.status_code == 422, r.text
+    r = await authed_admin_client.post(
+        "/api/monitors", json={"kind": "query", "query_text": "x", "catalog_id": artist["id"]})
+    assert r.status_code == 422, r.text
+    r = await authed_admin_client.post(
+        "/api/monitors", json=_linked(artist, catalog_kind="series"))
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_catalog_link_unknown_malformed_or_merged_entity_422(authed_admin_client):
+    artist = await _artist(authed_admin_client)
+    for bad in ("not-a-uuid", str(uuid.uuid4())):
+        r = await authed_admin_client.post(
+            "/api/monitors", json=_linked(artist, catalog_id=bad))
+        assert r.status_code == 422, r.text
+    # A party id is not an artist.
+    r = await authed_admin_client.post("/api/catalog/parties", json={"name": "P"})
+    assert r.status_code == 201, r.text
+    r = await authed_admin_client.post(
+        "/api/monitors", json=_linked(artist, catalog_id=r.json()["id"]))
+    assert r.status_code == 422, r.text
+
+    survivor = await _artist(authed_admin_client, "Survivor")
+    r = await authed_admin_client.post(
+        f"/api/catalog/artists/{artist['id']}/merge", json={"survivor_id": survivor["id"]})
+    assert r.status_code == 200, r.text
+    r = await authed_admin_client.post("/api/monitors", json=_linked(artist))
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_catalog_link_on_entity_kind_422(authed_admin_client):
+    artist = await _artist(authed_admin_client)
+    r = await authed_admin_client.post("/api/monitors", json={
+        "kind": "entity", "source_kind": "youtube", "external_id": "UCx",
+        "catalog_kind": "artist", "catalog_id": artist["id"],
+    })
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_duplicate_catalog_monitor_reenables_existing(authed_admin_client):
+    artist = await _artist(authed_admin_client)
+    r = await authed_admin_client.post("/api/monitors", json=_linked(artist))
+    assert r.status_code == 201, r.text
+    mid = r.json()["id"]
+    r = await authed_admin_client.put(
+        f"/api/monitors/{mid}", json={"enabled": False, "query_text": "tuned"})
+    assert r.status_code == 200, r.text
+
+    r = await authed_admin_client.post("/api/monitors", json=_linked(artist))
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == mid
+    assert r.json()["enabled"] is True
+    assert r.json()["query_text"] == "tuned"  # the user's tuning survives
+    r = await authed_admin_client.get("/api/monitors")
+    assert [m["id"] for m in r.json()["items"] if m["catalog_id"] == artist["id"]] == [mid]
+
+
+@pytest.mark.asyncio
+async def test_put_edits_query_source_cap(authed_admin_client):
+    r = await authed_admin_client.post("/api/monitors", json={"kind": "query", "query_text": "a"})
+    mid = r.json()["id"]
+    r = await authed_admin_client.put(f"/api/monitors/{mid}", json={
+        "query_text": "  new query ", "source_kind": "youtube", "per_poll_cap": 12,
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (body["query_text"], body["source_kind"], body["per_poll_cap"]) == (
+        "new query", "youtube", 12)
+    assert body["enabled"] is True and body["kind"] == "query"
+
+    # source_kind null means all sources again; kind is not editable.
+    r = await authed_admin_client.put(
+        f"/api/monitors/{mid}", json={"source_kind": None, "kind": "entity"})
+    assert r.status_code == 200, r.text
+    assert r.json()["source_kind"] is None and r.json()["kind"] == "query"
+
+    # A query monitor can't lose its query.
+    r = await authed_admin_client.put(f"/api/monitors/{mid}", json={"query_text": "  "})
+    assert r.status_code == 422, r.text
+    r = await authed_admin_client.put(f"/api/monitors/{mid}", json={"enabled": None})
+    assert r.status_code == 422, r.text
+    r = await authed_admin_client.put(f"/api/monitors/{uuid.uuid4()}", json={"enabled": True})
+    assert r.status_code == 404, r.text
+    r = await authed_admin_client.put("/api/monitors/nope", json={"enabled": True})
+    assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
+async def test_put_cap_out_of_range_422(authed_admin_client):
+    r = await authed_admin_client.post("/api/monitors", json={"kind": "query", "query_text": "a"})
+    mid = r.json()["id"]
+    for cap in (0, 51):
+        r = await authed_admin_client.put(f"/api/monitors/{mid}", json={"per_poll_cap": cap})
+        assert r.status_code == 422, r.text
+        r = await authed_admin_client.post(
+            "/api/monitors", json={"kind": "query", "query_text": "a", "per_poll_cap": cap})
+        assert r.status_code == 422, r.text
+    for cap in (1, 50):
+        r = await authed_admin_client.put(f"/api/monitors/{mid}", json={"per_poll_cap": cap})
+        assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_monitor_audit_rows(authed_admin_client):
+    from setvault_core.models.system import AuditEvent
+    from sqlalchemy import select
+
+    r = await authed_admin_client.post("/api/monitors", json={"kind": "query", "query_text": "a"})
+    mid = r.json()["id"]
+    r = await authed_admin_client.put(
+        f"/api/monitors/{mid}", json={"per_poll_cap": 7, "query_text": "a"})
+    assert r.status_code == 200, r.text
+    r = await authed_admin_client.delete(f"/api/monitors/{mid}")
+    assert r.status_code == 204, r.text
+
+    init_engine(os.environ["TEST_DATABASE_URL"])
+    async with session_factory()() as s:
+        rows = (await s.execute(
+            select(AuditEvent).where(AuditEvent.target_id == mid)
+        )).scalars().all()
+    by_action = {e.action: e for e in rows}
+    assert len(rows) == 3
+    assert set(by_action) == {"monitor.created", "monitor.edited", "monitor.deleted"}
+    assert by_action["monitor.created"].after["query_text"] == "a"
+    # Only the changed field: query_text was resent unchanged.
+    assert by_action["monitor.edited"].before == {"per_poll_cap": 5}
+    assert by_action["monitor.edited"].after == {"per_poll_cap": 7}
+    assert by_action["monitor.deleted"].before["query_text"] == "a"
+    assert all(e.target_type == "Monitor" for e in rows)
+
+
+@pytest.mark.asyncio
+async def test_discoveries_pending_count(authed_admin_client):
+    from setvault_core.models.monitors import MonitorDiscovery
+
+    r = await authed_admin_client.post("/api/monitors", json={"kind": "query", "query_text": "q"})
+    mid = uuid.UUID(r.json()["id"])
+    init_engine(os.environ["TEST_DATABASE_URL"])
+    async with session_factory()() as s:
+        for status in ("pending_review", "pending_review", "dismissed", "auto_ingested"):
+            s.add(MonitorDiscovery(
+                monitor_id=mid, source_kind="youtube", external_id=uuid.uuid4().hex,
+                title="t", webpage_url="https://example.test/v", confidence="low",
+                status=status,
+            ))
+        await s.commit()
+
+    r = await authed_admin_client.get("/api/me/discoveries", params={"status": "dismissed"})
+    assert r.status_code == 200, r.text
+    assert len(r.json()["items"]) == 1
+    assert r.json()["pending_count"] == 2
+    r = await authed_admin_client.get("/api/me/discoveries")
+    assert len(r.json()["items"]) == 4
+    assert r.json()["pending_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_discoveries_repeated_status_filter(authed_admin_client):
+    from setvault_core.models.monitors import MonitorDiscovery
+
+    r = await authed_admin_client.post("/api/monitors", json={"kind": "query", "query_text": "q"})
+    mid = uuid.UUID(r.json()["id"])
+    init_engine(os.environ["TEST_DATABASE_URL"])
+    async with session_factory()() as s:
+        for status in ("ingested", "auto_ingested", "dismissed", "pending_review"):
+            s.add(MonitorDiscovery(
+                monitor_id=mid, source_kind="youtube", external_id=uuid.uuid4().hex,
+                title="t", webpage_url="https://example.test/v", confidence="low",
+                status=status,
+            ))
+        await s.commit()
+
+    r = await authed_admin_client.get(
+        "/api/me/discoveries", params=[("status", "ingested"), ("status", "auto_ingested")],
+    )
+    assert r.status_code == 200, r.text
+    assert {d["status"] for d in r.json()["items"]} == {"ingested", "auto_ingested"}
+    r = await authed_admin_client.get("/api/me/discoveries", params={"status": "dismissed"})
+    assert [d["status"] for d in r.json()["items"]] == ["dismissed"]

@@ -90,6 +90,84 @@ async def test_remeasure_loudness_enqueues_backfill(
     assert enqueued == ["setvault_core.jobs.loudness_backfill.run_remeasure_bogus_loudness"]
 
 
+async def test_settings_loudness_target_roundtrip_and_null_off(authed_admin_client):
+    c = authed_admin_client
+    before = (await c.get("/api/admin/settings")).json()["loudness_target_lufs"]
+    try:
+        r = await c.put("/api/admin/settings", json={"loudness_target_lufs": -16.5})
+        assert r.status_code == 200, r.text
+        assert r.json()["loudness_target_lufs"] == -16.5
+
+        # Leaving the field out keeps the target.
+        r = await c.put("/api/admin/settings", json={"quality_cutoff": "lossless"})
+        assert r.status_code == 200, r.text
+        assert (await c.get("/api/admin/settings")).json()["loudness_target_lufs"] == -16.5
+
+        # An explicit null turns loudness matching off.
+        r = await c.put("/api/admin/settings", json={"loudness_target_lufs": None})
+        assert r.status_code == 200, r.text
+        assert (await c.get("/api/admin/settings")).json()["loudness_target_lufs"] is None
+
+        for bad in (-30.1, -4.9, "loud"):
+            r = await c.put("/api/admin/settings", json={"loudness_target_lufs": bad})
+            assert r.status_code == 422, (bad, r.text)
+        for edge in (-30.0, -5.0):
+            r = await c.put("/api/admin/settings", json={"loudness_target_lufs": edge})
+            assert r.status_code == 200, (edge, r.text)
+    finally:
+        await c.put("/api/admin/settings", json={"loudness_target_lufs": before})
+
+
+async def test_regain_endpoint_admin_only_and_audited(client, seeded_admin, monkeypatch):
+    import rq
+    from setvault_core.db import session_factory
+    from setvault_core.models.identity import User
+    from setvault_core.models.system import AuditEvent
+    from setvault_core.services.passwords import hash_password
+    from sqlalchemy import select
+
+    enqueued: list[tuple[str, str, dict]] = []
+
+    class _Job:
+        id = "regain-job-1"
+
+    def _enqueue(self, func, **kwargs):
+        enqueued.append((self.name, func, kwargs))
+        return _Job()
+
+    monkeypatch.setattr(rq.Queue, "enqueue", _enqueue)
+
+    async def _login(email: str) -> None:
+        login = await client.post("/api/auth/login",
+                                  json={"email": email, "password": "hunter2hunter2"})
+        client.cookies = login.cookies
+        client.headers["X-CSRF-Token"] = login.cookies["csrf_token"]
+
+    r = await client.post("/api/admin/maintenance/regain")
+    assert r.status_code in (401, 403)
+    async with session_factory()() as s:
+        s.add(User(email="member-regain@x.test", username="member-regain", display_name="M",
+                   password_hash=hash_password("hunter2hunter2"), role="member"))
+        await s.commit()
+    await _login("member-regain@x.test")
+    assert (await client.post("/api/admin/maintenance/regain")).status_code == 403
+    assert enqueued == []
+
+    await _login("admin@example.test")
+    r = await client.post("/api/admin/maintenance/regain")
+    assert r.status_code == 202, r.text
+    assert r.json() == {"job_id": "regain-job-1"}
+    assert enqueued == [(
+        "low", "setvault_core.jobs.regain.run_regain_library", {"job_timeout": "6h"},
+    )]
+    async with session_factory()() as s:
+        rows = (await s.execute(
+            select(AuditEvent).where(AuditEvent.action == "maintenance.regain_started")
+        )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].after == {"job_id": "regain-job-1"}
+
+
 def _clear_scan_cache():
     from setvault_core.jobs import quality_backfill as qb
 

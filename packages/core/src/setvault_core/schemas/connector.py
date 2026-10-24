@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 
 from email_validator import EmailNotValidError, validate_email
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 
 def _validate_email_permissive(value: str) -> str:
@@ -29,6 +29,30 @@ class SmtpConfigIn(BaseModel):
     reply_to: PermissiveEmail | None = None
 
 
+class SmtpConfigPatchIn(BaseModel):
+    """Partial SMTP config. Absent fields keep their stored value.
+
+    ``username``/``reply_to`` accept an explicit null to clear them. A
+    ``password`` that is absent or ``""`` keeps the stored one; null clears it.
+    """
+
+    host: str | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
+    encryption: Literal["starttls", "ssl", "none"] | None = None
+    username: str | None = None
+    password: str | None = None
+    from_email: PermissiveEmail | None = None
+    from_name: str | None = None
+    reply_to: PermissiveEmail | None = None
+
+    @model_validator(mode="after")
+    def _required_fields_not_null(self) -> SmtpConfigPatchIn:
+        for name in ("host", "port", "encryption", "from_email", "from_name"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be null")
+        return self
+
+
 class SmtpConfigOut(BaseModel):
     host: str
     port: int
@@ -46,6 +70,19 @@ class ConnectorCreateIn(BaseModel):
     config: SmtpConfigIn
     scope_filter: dict = Field(default_factory=lambda: {"kinds": ["*"]})
     enabled: bool = True
+
+
+class ConnectorPatchIn(BaseModel):
+    name: str | None = None
+    enabled: bool | None = None
+    config: SmtpConfigPatchIn | None = None
+
+    @model_validator(mode="after")
+    def _no_null_name_or_enabled(self) -> ConnectorPatchIn:
+        for name in ("name", "enabled", "config"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be null")
+        return self
 
 
 class ConnectorOut(BaseModel):

@@ -13,6 +13,7 @@
   const tabs = [
     { href: "/admin/users", label: "Users" },
     { href: "/admin/connectors", label: "Connectors" },
+    { href: "/admin/email", label: "Email" },
     { href: "/admin/providers", label: "Providers" },
     { href: "/admin/sources", label: "Sources" },
     { href: "/admin/monitors", label: "Monitors" },
@@ -27,6 +28,7 @@
     { href: "/admin/jobs", label: "Jobs" },
     { href: "/admin/tasks", label: "Tasks" },
     { href: "/admin/webhooks", label: "Webhooks" },
+    { href: "/admin/backups", label: "Backups" },
     { href: "/admin/health", label: "Health" },
     { href: "/admin/system", label: "System" },
   ];

@@ -19,6 +19,11 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://setvault:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/setvault
       REDIS_URL: redis://redis:6379/0
+      # Scheduled backups run at backup_time in this zone.
+      TZ: ${TZ:-UTC}
+      # The in-container side of the backups mount below (the .env value of
+      # SETVAULT_BACKUP_PATH is the host side).
+      SETVAULT_BACKUP_PATH: /srv/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -28,11 +33,13 @@ services:
       - "${SETVAULT_HTTP_PORT:-1970}:1970"
     volumes:
       # All persistent state for the setvault container lives under these
-      # four host paths. Defaults drop everything under ./.data/setvault.
+      # five host paths. Defaults drop everything under ./.data/.
       - ${SETVAULT_MEDIA_PATH:-./.data/media}:/srv/media
       - ${SETVAULT_CACHE_PATH:-./.data/cache}:/srv/cache
       - ${SETVAULT_CONFIG_PATH:-./.data/config}:/srv/config
       - ${SETVAULT_WATCH_FOLDERS_PATH:-./.data/watch}:/srv/watch
+      # Nightly database backups. Put this on another disk to survive a disk loss.
+      - ${SETVAULT_BACKUP_PATH:-./.data/backups}:/srv/backups
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
 

@@ -154,8 +154,8 @@ async def test_run_rip_job_fingerprints_between_probe_and_transcode(
     job = await session.get(RipJob, job_id)
     await session.refresh(job)
     assert job.status == "ready", job.error_text
-    assert calls == ["probe_audio", "fingerprint_audio", "transcode_audio",
-                     "normalize_audio", "generate_waveform", "finish_arrival"]
+    assert calls == ["probe_audio", "fingerprint_audio", "normalize_audio",
+                     "transcode_audio", "generate_waveform", "finish_arrival"]
 
 
 @pytest.mark.asyncio
@@ -321,7 +321,8 @@ async def test_failed_rip_leaves_no_orphan_draft_or_files(session, monkeypatch, 
         raise RuntimeError("ffmpeg boom")
 
     monkeypatch.setattr("setvault_core.jobs.url_rip_job._download", _fake_download(src))
-    for mod, fn in [("probe", "probe_audio"), ("fingerprint", "fingerprint_audio")]:
+    for mod, fn in [("probe", "probe_audio"), ("fingerprint", "fingerprint_audio"),
+                    ("normalize", "normalize_audio")]:
         monkeypatch.setattr(f"setvault_core.jobs.{mod}.{fn}", _ok)
     monkeypatch.setattr("setvault_core.jobs.transcode.transcode_audio", _boom)
 
@@ -617,7 +618,7 @@ async def test_upgrade_rip_of_better_audio_upgrades_the_target(
 
     await _run_rip_job(session, job_id)
 
-    assert calls == ["transcode_audio", "normalize_audio", "generate_waveform"]
+    assert calls == ["normalize_audio", "transcode_audio", "generate_waveform"]
     async with session_factory()() as s:
         job = await s.get(RipJob, job_id)
         assert job.status == "ready", job.error_text

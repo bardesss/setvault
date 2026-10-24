@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from setvault_core.models.identity import User
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
 from setvault_core.schemas.monitors import (
@@ -17,9 +17,10 @@ from setvault_core.schemas.monitors import (
     MonitorUpdate,
 )
 from setvault_core.services import monitors as svc
+from setvault_core.services.audit import log as audit_log
 from setvault_core.services.rip_enqueue import enqueue_rip
 from setvault_core.services.url_rip import DuplicateRipError, submit_rip
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.api.images import build_proxied_image_url
@@ -36,7 +37,8 @@ def _owner_scope(user: User) -> uuid.UUID | None:
     return None if user.role == "admin" else user.id
 
 
-def _monitor_out(m: Monitor) -> MonitorOut:
+def _monitor_out(m: Monitor, refs: dict) -> MonitorOut:
+    name, slug = refs.get((m.catalog_kind, m.catalog_id), (None, None))
     return MonitorOut(
         id=str(m.id),
         kind=m.kind,
@@ -47,15 +49,51 @@ def _monitor_out(m: Monitor) -> MonitorOut:
         per_poll_cap=m.per_poll_cap,
         last_checked_at=m.last_checked_at,
         created_at=m.created_at,
+        catalog_kind=m.catalog_kind,
+        catalog_id=str(m.catalog_id) if m.catalog_id else None,
+        catalog_name=name,
+        catalog_slug=slug,
     )
+
+
+async def _monitors_out(session: AsyncSession, monitors: list[Monitor]) -> list[MonitorOut]:
+    refs = await svc.catalog_refs(session, monitors)
+    return [_monitor_out(m, refs) for m in monitors]
+
+
+async def _audit(session: AsyncSession, user: User, action: str, m_id, **kw) -> None:
+    await audit_log(session, actor_user_id=user.id, action=action,
+                    target_type="Monitor", target_id=str(m_id), **kw)
 
 
 @router.post("/api/monitors", response_model=MonitorOut, status_code=201)
 async def create_monitor(
     payload: MonitorCreate,
+    response: Response,
     user: Annotated[User, Depends(require_can_monitor)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
+    catalog_id = (parse_uuid(payload.catalog_id, status_code=422, detail="invalid catalog_id")
+                  if payload.catalog_id is not None else None)
+    if payload.catalog_kind is not None:
+        try:
+            await svc.check_catalog_link(session, payload.kind, payload.catalog_kind, catalog_id)
+        except svc.CatalogLinkError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # One linked monitor per (owner, entity): a repeat create re-enables it.
+        await svc.lock_catalog_link(session, user.id, payload.catalog_kind, catalog_id)
+        existing = await svc.find_catalog_monitor(
+            session, owner_user_id=user.id, catalog_kind=payload.catalog_kind,
+            catalog_id=catalog_id,
+        )
+        if existing is not None:
+            if not existing.enabled:
+                existing.enabled = True
+                await _audit(session, user, "monitor.edited", existing.id,
+                             before={"enabled": False}, after={"enabled": True})
+            await session.commit()
+            response.status_code = 200
+            return (await _monitors_out(session, [existing]))[0]
     try:
         m = await svc.create_monitor(
             session,
@@ -65,11 +103,14 @@ async def create_monitor(
             source_kind=payload.source_kind,
             external_id=payload.external_id,
             per_poll_cap=payload.per_poll_cap,
+            catalog_kind=payload.catalog_kind,
+            catalog_id=catalog_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await _audit(session, user, "monitor.created", m.id, after=svc.audit_fields(m))
     await session.commit()
-    return _monitor_out(m)
+    return (await _monitors_out(session, [m]))[0]
 
 
 @router.get("/api/monitors", response_model=MonitorsListOut)
@@ -78,7 +119,7 @@ async def list_monitors(
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
     rows = await svc.list_monitors(session, owner_user_id=_owner_scope(user))
-    return MonitorsListOut(items=[_monitor_out(m) for m in rows])
+    return MonitorsListOut(items=await _monitors_out(session, rows))
 
 
 @router.put("/api/monitors/{monitor_id}", response_model=MonitorOut)
@@ -88,13 +129,20 @@ async def update_monitor(
     user: Annotated[User, Depends(require_can_monitor)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
-    m = await svc.set_enabled(
-        session, parse_uuid(monitor_id), payload.enabled, owner_user_id=_owner_scope(user),
-    )
-    if m is None:
+    try:
+        result = await svc.update_monitor(
+            session, parse_uuid(monitor_id), payload.model_dump(exclude_unset=True),
+            owner_user_id=_owner_scope(user),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if result is None:
         raise HTTPException(status_code=404)
+    m, before, after = result
+    if after:
+        await _audit(session, user, "monitor.edited", m.id, before=before, after=after)
     await session.commit()
-    return _monitor_out(m)
+    return (await _monitors_out(session, [m]))[0]
 
 
 @router.delete("/api/monitors/{monitor_id}", status_code=204)
@@ -103,11 +151,11 @@ async def delete_monitor(
     user: Annotated[User, Depends(require_can_monitor)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
-    ok = await svc.delete_monitor(
-        session, parse_uuid(monitor_id), owner_user_id=_owner_scope(user),
-    )
-    if not ok:
+    mid = parse_uuid(monitor_id)
+    before = await svc.delete_monitor(session, mid, owner_user_id=_owner_scope(user))
+    if before is None:
         raise HTTPException(status_code=404)
+    await _audit(session, user, "monitor.deleted", mid, before=before)
     await session.commit()
 
 
@@ -148,18 +196,27 @@ async def _owned_discovery_or_404(
 async def list_discoveries(
     user: Annotated[User, Depends(require_can_monitor)],
     session: Annotated[AsyncSession, Depends(db_session)],
-    status: str | None = None,
+    status: Annotated[list[str] | None, Query()] = None,
 ):
     q = select(MonitorDiscovery).order_by(MonitorDiscovery.created_at.desc())
+    pending = select(func.count()).select_from(MonitorDiscovery).where(
+        MonitorDiscovery.status == "pending_review",
+    )
     scope = _owner_scope(user)
     if scope is not None:
         q = q.join(Monitor, Monitor.id == MonitorDiscovery.monitor_id).where(
             Monitor.owner_user_id == scope,
         )
+        pending = pending.join(Monitor, Monitor.id == MonitorDiscovery.monitor_id).where(
+            Monitor.owner_user_id == scope,
+        )
     if status:
-        q = q.where(MonitorDiscovery.status == status)
+        q = q.where(MonitorDiscovery.status.in_(status))
     rows = (await session.execute(q.limit(200))).scalars().all()
-    return DiscoveriesListOut(items=[_disc_out(d) for d in rows])
+    return DiscoveriesListOut(
+        items=[_disc_out(d) for d in rows],
+        pending_count=(await session.execute(pending)).scalar_one(),
+    )
 
 
 @router.post("/api/me/discoveries/{discovery_id}/rip", status_code=204)

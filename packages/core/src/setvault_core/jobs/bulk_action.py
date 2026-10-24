@@ -10,7 +10,9 @@ Three actions land for v0.1.0:
     ``MediaRoot.id``. ``params``: ``{"target_media_root_id": "<uuid>"}``.
     Moves the set's audio/stream/waveform/thumb files to the same relative
     paths under the target root (hardlink or size-verified copy, never
-    overwriting), commits, then unlinks the old names no other set uses.
+    overwriting), re-checks the row under lock (a set whose paths changed
+    meanwhile is skipped and its copies removed), commits, then unlinks the
+    old names no other set uses.
 
 Per-set failures are isolated (logged + counted; the rest of the batch
 proceeds) and every set is committed on its own. The summary dict is the job return value.
@@ -137,13 +139,34 @@ def _plan_move(old_host: str, target_host: str, rels: list[str]) -> list[tuple[s
     return plan
 
 
-def _place_all(plan: list[tuple[str, Path, Path]], placed: list[Path]) -> None:
+def _missing_dirs(directory: Path) -> list[Path]:
+    """``directory`` and its ancestors that don't exist yet, deepest first."""
+    missing: list[Path] = []
+    while not directory.exists() and directory.parent != directory:
+        missing.append(directory)
+        directory = directory.parent
+    return missing
+
+
+def _place_all(
+    plan: list[tuple[str, Path, Path]], placed: list[Path], created_dirs: list[Path],
+) -> None:
     """Place each file and verify its size (place_audio_file doesn't).
-    Appends every placed destination to ``placed`` so the caller can clean up."""
+    Appends every placed destination to ``placed``, and every directory
+    created for one to ``created_dirs``, so the caller can clean up."""
     for rel, src, dst in plan:
         if os.path.lexists(dst):
-            raise MoveRootError(f"destination appeared: {rel}")
-        place_audio_file(src, dst)
+            raise MoveRootError(f"destination exists: {rel}")
+        new_dirs = _missing_dirs(dst.parent)
+        try:
+            # Exclusive create: a dst that appears after the check above is
+            # never replaced (and so never ours to delete).
+            place_audio_file(src, dst, overwrite=False)
+        except FileExistsError as exc:
+            raise MoveRootError(f"destination exists: {rel}") from exc
+        finally:
+            # Deepest first overall: later files' dirs go to the front.
+            created_dirs[:0] = [d for d in new_dirs if d.is_dir()]
         placed.append(dst)
         if dst.stat().st_size != src.stat().st_size:
             raise MoveRootError(f"size mismatch after placing {rel}")
@@ -157,9 +180,10 @@ def _resolved_roots(roots: list[MediaRoot]) -> list[tuple[uuid.UUID, Path]]:
     return [(r.id, Path(r.host_path).resolve()) for r in roots]
 
 
-def _remove_placed(placed: list[Path]) -> None:
-    """Remove copies this job created. Each was verified absent before it was
-    placed, so it is ours to delete (for a hardlink the source keeps its name)."""
+def _remove_placed(placed: list[Path], created_dirs: list[Path]) -> None:
+    """Remove copies this job created. Each was placed by exclusive create,
+    so it is ours to delete (for a hardlink the source keeps its name). Then
+    remove the directories this job created, deepest first, if now empty."""
     for dst in reversed(placed):
         try:
             dst.unlink()
@@ -167,6 +191,11 @@ def _remove_placed(placed: list[Path]) -> None:
             pass
         except OSError as exc:
             logger.warning("bulk move_root: cleanup of %s failed: %s", dst, exc)
+    for directory in created_dirs:
+        try:
+            directory.rmdir()
+        except OSError:
+            pass  # not empty (someone else's file landed there) or gone
 
 
 async def _file_in_use_elsewhere(
@@ -207,12 +236,29 @@ async def _move_root_one(
     if old_root is None:
         raise MoveRootError("current media root not found")
     old_root_id, old_host = old_root.id, old_root.host_path
-    rels = list(dict.fromkeys(r for r in (getattr(live, c) for c in _PATH_COLUMNS) if r))
+    read = {c: getattr(live, c) for c in (*_PATH_COLUMNS, "media_root_id")}
+    rels = list(dict.fromkeys(r for r in (read[c] for c in _PATH_COLUMNS) if r))
     plan = _plan_move(old_host, target_host, rels)
 
     placed: list[Path] = []
+    created_dirs: list[Path] = []
     try:
-        await asyncio.to_thread(_place_all, plan, placed)
+        # Copy without a row lock, so a long copy doesn't block edits...
+        await asyncio.to_thread(_place_all, plan, placed, created_dirs)
+        # ...then re-check under lock: a rename, transcode or upgrade that
+        # committed meanwhile changed which files the row names, and the
+        # copies would be stale or incomplete.
+        locked = (await s.execute(
+            select(LiveSet).where(LiveSet.id == live_id)
+            .with_for_update(of=LiveSet)
+            .execution_options(populate_existing=True)
+        )).scalar_one_or_none()
+        if locked is None:
+            raise MoveRootError("set vanished during the move")
+        changed = [c for c, v in read.items() if getattr(locked, c) != v]
+        if changed:
+            raise MoveRootError(f"set changed during the move ({', '.join(changed)})")
+        live = locked
         live.media_root_id = target_id
         await audit_log(
             s,
@@ -225,7 +271,7 @@ async def _move_root_one(
         )
         await s.commit()
     except BaseException:
-        _remove_placed(placed)
+        _remove_placed(placed, created_dirs)
         raise
 
     # Committed: the set now lives on the target. Drop the old names unless

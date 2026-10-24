@@ -9,7 +9,7 @@ from setvault_core.models.catalog import LiveSet
 
 # RQ's default job timeout is 180s, far too short for a multi-hour set.
 # Every enqueue of run_pipeline must pass this. Room for probe's quality
-# check (180 s), two fpcalc runs (900 s cap each), transcode and normalise.
+# check (180 s), two fpcalc runs (900 s cap each), normalise and transcode.
 PIPELINE_JOB_TIMEOUT = "1h"
 
 
@@ -22,8 +22,10 @@ async def _run(live_set_id: str) -> None:
 
     await probe_audio(live_set_id)
     await fingerprint_audio(live_set_id)
-    await transcode_audio(live_set_id)
+    # Measure the original first: transcode applies the gain towards the
+    # loudness target (P2a A3).
     await normalize_audio(live_set_id)
+    await transcode_audio(live_set_id)
     await generate_waveform(live_set_id)
     async with session_factory()() as s:
         live = await s.get(LiveSet, uuid.UUID(live_set_id))
@@ -34,7 +36,7 @@ async def _run(live_set_id: str) -> None:
 
 
 def run_pipeline(live_set_id: str) -> None:
-    """RQ entrypoint. Chains probe -> fingerprint -> transcode -> normalize -> waveform -> ready."""
+    """RQ entrypoint. Chains probe -> fingerprint -> normalize -> transcode -> waveform -> ready."""
     if "DATABASE_URL" in os.environ:
         init_engine(os.environ["DATABASE_URL"])
     try:

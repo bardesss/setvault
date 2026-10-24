@@ -17,10 +17,9 @@ from sqlalchemy import select
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.jobs.normalize import normalize_audio
 from setvault_core.models.catalog import LiveSet
+from setvault_core.services.loudness import BOGUS_LUFS
 
 logger = logging.getLogger(__name__)
-
-BOGUS_LUFS = -70.0
 
 
 async def bogus_loudness_set_ids() -> list[str]:

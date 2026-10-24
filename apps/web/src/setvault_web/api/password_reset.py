@@ -16,6 +16,7 @@ from setvault_web.config import Settings, get_settings
 from setvault_web.deps import db_session, require_admin
 from setvault_web.rate_limit import enforce_auth_strict
 from setvault_web.services.notifications import enqueue_email
+from setvault_web.services.reset_tokens import mint_reset_token
 
 router = APIRouter(prefix="/api/password-reset", tags=["auth"])
 
@@ -74,11 +75,7 @@ async def admin_link(
     )).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
-    plaintext, digest = generate_token()
-    token = EmailToken(user_id=user.id, email=user.email, kind="password_reset",
-                       token_hash=digest, payload={}, expires_at=expires(1))
-    session.add(token)
-    user.session_version += 1
+    plaintext, token = mint_reset_token(session, user)
     await session.commit()
     return AdminLinkOut(reset_link=f"{settings.base_url}/reset/{plaintext}",
                         expires_at=token.expires_at)

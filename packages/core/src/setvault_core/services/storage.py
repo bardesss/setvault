@@ -43,7 +43,39 @@ def resolve_set_path(host_root: str, relative: str) -> Path:
 PlacementMode = Literal["hardlinked", "copied"]
 
 
-def place_audio_file(src: Path, dst: Path) -> PlacementMode:
+def _copy_exclusive(src: Path, dst: Path) -> None:
+    """Copy ``src`` to ``dst`` without ever replacing an existing ``dst``.
+
+    The copy goes to a uniquely named tmp in dst's directory, which is then
+    hardlinked to ``dst`` (fails with FileExistsError if the name is taken,
+    atomically) and removed. Where the filesystem has no hardlinks, ``dst``
+    is reserved with an exclusive create and the tmp renamed over that
+    placeholder, which only this call owns.
+    """
+    tmp = dst.parent / f".{dst.name}.{uuid.uuid4().hex}.tmp"
+    try:
+        shutil.copy2(src, tmp)
+        try:
+            os.link(tmp, dst)
+        except FileExistsError:
+            raise
+        except OSError:
+            # No hardlink support: reserve the name, then fill it atomically.
+            fd = os.open(dst, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            try:
+                os.replace(tmp, dst)
+            except OSError:
+                dst.unlink(missing_ok=True)  # our own empty placeholder
+                raise
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def place_audio_file(src: Path, dst: Path, *, overwrite: bool = True) -> PlacementMode:
     """Place ``src`` at ``dst`` using a hardlink when on the same filesystem,
     otherwise a copy followed by an atomic rename. The destination's parent
     directory is created if missing.
@@ -57,6 +89,10 @@ def place_audio_file(src: Path, dst: Path) -> PlacementMode:
     quota failures (passes through). ``src`` is never deleted by this call —
     on hardlink we keep both names; on copy the caller decides whether to
     unlink the original.
+
+    ``overwrite=False`` makes the placement an exclusive create: if ``dst``
+    exists (or appears concurrently) it raises FileExistsError and leaves
+    ``dst`` untouched. The default replaces an existing ``dst``.
     """
     src = Path(src)
     dst = Path(dst)
@@ -73,12 +109,17 @@ def place_audio_file(src: Path, dst: Path) -> PlacementMode:
         same_fs = False
 
     if same_fs:
-        # Hardlink — instant, zero extra disk. If a stale dst exists, remove it
-        # first (os.link won't overwrite).
-        if dst.exists():
+        # Hardlink — instant, zero extra disk. os.link won't overwrite: with
+        # overwrite=False an existing dst raises FileExistsError; otherwise a
+        # stale dst is removed first.
+        if overwrite and dst.exists():
             dst.unlink()
         os.link(src, dst)
         return "hardlinked"
+
+    if not overwrite:
+        _copy_exclusive(src, dst)
+        return "copied"
 
     # Cross-filesystem: copy to a sibling .tmp file then atomic-rename.
     tmp = dst.with_suffix(dst.suffix + ".tmp")
@@ -106,8 +147,8 @@ async def path_in_use(
 
     Every code path that deletes set files checks this first: after a quality
     upgrade (services/set_upgrade.py) the live set and its recycled old copy
-    can end up naming the same file, e.g. once the live set's stream is
-    regenerated at ``stream/<id>.opus``.
+    can end up naming the same file. ``jobs/transcode.py`` checks it before
+    rewriting a stream too.
     """
     conds = [
         LiveSet.media_root_id == media_root_id,

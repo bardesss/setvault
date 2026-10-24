@@ -85,7 +85,7 @@ async def a_party_with_venue(seeded_admin):
         s.add(party)
         await s.flush()
         await s.commit()
-        yield {"party_slug": party.slug, "venue_id": str(venue.id)}
+        yield {"party_slug": party.slug, "venue_id": str(venue.id), "venue_slug": venue.slug}
 
 
 @pytest.mark.asyncio
@@ -140,3 +140,72 @@ async def test_party_patch_with_date_200(authed_admin_client, a_party_with_venue
             select(AuditEvent).where(AuditEvent.action == "party.edited")
         )).scalars().one()
     assert ev.after["date"] == "2026-01-02"
+
+
+@pytest.mark.asyncio
+async def test_artist_detail_includes_monitor_state(authed_admin_client, an_artist):
+    r = await authed_admin_client.get(f"/api/catalog/artists/{an_artist}")
+    assert r.status_code == 200, r.text
+    assert r.json()["monitor"] is None
+    artist_id = r.json()["id"]
+
+    r = await authed_admin_client.post("/api/monitors", json={
+        "kind": "query", "query_text": "Edit Me", "catalog_kind": "artist",
+        "catalog_id": artist_id,
+    })
+    assert r.status_code == 201, r.text
+    mid = r.json()["id"]
+    r = await authed_admin_client.get(f"/api/catalog/artists/{an_artist}")
+    assert r.json()["monitor"] == {"id": mid, "enabled": True}
+
+    r = await authed_admin_client.delete(f"/api/monitors/{mid}")
+    assert r.status_code == 204, r.text
+    r = await authed_admin_client.get(f"/api/catalog/artists/{an_artist}")
+    assert r.json()["monitor"] is None
+
+
+@pytest.mark.asyncio
+async def test_party_and_venue_detail_include_monitor_state(
+    authed_admin_client, a_party_with_venue,
+):
+    for path, kind in (("parties", "party"), ("venues", "venue")):
+        slug = a_party_with_venue[f"{kind}_slug"]
+        r = await authed_admin_client.get(f"/api/catalog/{path}/{slug}")
+        assert r.status_code == 200, r.text
+        assert r.json()["monitor"] is None
+        r = await authed_admin_client.post("/api/monitors", json={
+            "kind": "query", "query_text": "x", "catalog_kind": kind,
+            "catalog_id": r.json()["id"],
+        })
+        assert r.status_code == 201, r.text
+        r = await authed_admin_client.get(f"/api/catalog/{path}/{slug}")
+        assert r.json()["monitor"]["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_entity_detail_monitor_null_when_user_cannot_monitor(client, an_artist):
+    """A non-admin with monitoring switched off gets ``monitor: null`` even
+    when a linked monitor of theirs exists (the gate, not the row, decides)."""
+    from setvault_core.models.catalog import Artist
+    from setvault_core.models.identity import User
+    from setvault_core.models.monitors import Monitor
+    from setvault_core.services.passwords import hash_password
+    from sqlalchemy import select
+
+    email, pw = f"u-{uuid.uuid4().hex[:6]}@x.test", "hunter2hunter2"
+    async with session_factory()() as s:
+        u = User(email=email, username=f"u{uuid.uuid4().hex[:6]}", display_name="u",
+                 password_hash=hash_password(pw), role="user")
+        s.add(u)
+        await s.flush()
+        artist = (await s.execute(select(Artist).where(Artist.slug == an_artist))).scalar_one()
+        s.add(Monitor(owner_user_id=u.id, kind="query", query_text="Edit Me",
+                      catalog_kind="artist", catalog_id=artist.id))
+        await s.commit()
+
+    login = await client.post("/api/auth/login", json={"email": email, "password": pw})
+    assert login.status_code == 200, login.text
+    client.cookies = login.cookies
+    r = await client.get(f"/api/catalog/artists/{an_artist}")
+    assert r.status_code == 200, r.text
+    assert r.json()["monitor"] is None

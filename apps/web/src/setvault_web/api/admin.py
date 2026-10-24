@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -103,7 +104,27 @@ def _settings_out(config) -> SettingsOut:
         # An unknown stored value (hand-edited / older build) reads as the
         # default, which is also what the scheduler runs (due_sets).
         upgrade_search_schedule=normalize_schedule(config.upgrade_search_schedule),
+        loudness_target_lufs=config.loudness_target_lufs,
+        backup_enabled=config.backup_enabled,
+        backup_time=config.backup_time,
+        backup_keep=config.backup_keep,
+        backup_dir=config.backup_dir,
     )
+
+
+def _ensure_writable_dir(path: str) -> None:
+    """Create ``path`` (owner-only) if missing and prove it's writable (a
+    probe file), else 422. The web and worker processes run as the same uid."""
+    from setvault_core.jobs.backup import ensure_backup_dir
+
+    try:
+        ensure_backup_dir(path)
+        with tempfile.NamedTemporaryFile(dir=path, prefix=".write-test-"):
+            pass
+    except OSError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"backup_dir is not a writable directory: {exc}",
+        ) from exc
 
 
 @router.get("/settings", response_model=SettingsOut)
@@ -121,6 +142,8 @@ async def update_settings(
     session: Annotated[AsyncSession, Depends(db_session)],
     _: Annotated[object, Depends(require_admin)],
 ) -> SettingsOut:
+    if body.backup_dir is not None:
+        _ensure_writable_dir(body.backup_dir)
     config = await get_config(session)
     if body.audit_retention_days is not None:
         config.audit_retention_days = body.audit_retention_days
@@ -149,6 +172,18 @@ async def update_settings(
         config.auto_upgrades_enabled = body.auto_upgrades_enabled
     if body.upgrade_search_schedule is not None:
         config.upgrade_search_schedule = body.upgrade_search_schedule
+    # Null is a real value here (off), so "supplied" means present in the body.
+    if "loudness_target_lufs" in body.model_fields_set:
+        config.loudness_target_lufs = body.loudness_target_lufs
+    if body.backup_enabled is not None:
+        config.backup_enabled = body.backup_enabled
+    if body.backup_time is not None:
+        config.backup_time = body.backup_time
+    if body.backup_keep is not None:
+        config.backup_keep = body.backup_keep
+    # Null is a real value (use SETVAULT_BACKUP_PATH), as for the loudness target.
+    if "backup_dir" in body.model_fields_set:
+        config.backup_dir = body.backup_dir
     await session.flush()
     await session.commit()
     return _settings_out(config)
@@ -186,6 +221,32 @@ async def remeasure_loudness(
     )
     await session.commit()
     return {"status": "queued", "job_id": rq_job.id, "candidates": int(candidates)}
+
+
+@router.post("/maintenance/regain", status_code=202)
+async def regain_library(
+    session: Annotated[AsyncSession, Depends(db_session)],
+    admin: Annotated[User, Depends(current_user)],
+    _: Annotated[object, Depends(require_admin)],
+):
+    """Re-apply to library: enqueue the low-priority job that re-transcodes
+    every stream whose gain no longer matches the loudness target."""
+    from redis import Redis
+    from rq import Queue
+    from setvault_core.jobs.regain import REGAIN_JOB_FUNC, REGAIN_JOB_TIMEOUT
+
+    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    rq_job = Queue("low", connection=redis).enqueue(
+        REGAIN_JOB_FUNC, job_timeout=REGAIN_JOB_TIMEOUT,
+    )
+    await audit_log(
+        session,
+        actor_user_id=admin.id,
+        action="maintenance.regain_started",
+        after={"job_id": rq_job.id},
+    )
+    await session.commit()
+    return {"job_id": rq_job.id}
 
 
 @router.get("/maintenance/quality-backfill")

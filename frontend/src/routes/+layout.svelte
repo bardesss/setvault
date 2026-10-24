@@ -16,6 +16,7 @@
   import MiniPlayer from "#lib/components/MiniPlayer.svelte";
   import FullScreenPlayer from "#lib/components/FullScreenPlayer.svelte";
   import AudioHost from "#lib/components/AudioHost.svelte";
+  import Toaster from "#lib/components/Toaster.svelte";
 
   setupI18n();
 
@@ -54,6 +55,7 @@
 </script>
 
 <AudioHost />
+<Toaster />
 <div class="app-shell" class:no-shell={!showShell}>
   {#if showShell && user}
     <TopBar {user} />

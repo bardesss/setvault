@@ -130,10 +130,10 @@
   <p class="hint">
     Downloads a <code>.tar</code> archive containing a Postgres dump and
     every file under each configured media root. Streaming starts as soon as
-    <code>pg_dump</code> begins producing output. Scheduled backups + restore
-    are tracked for v0.1.1.
+    <code>pg_dump</code> begins producing output. {$_("admin.backups.system_link")}
   </p>
   <a class="btn btn-primary" href="/api/admin/backup" download>Download backup</a>
+  <a class="btn" href="/admin/backups">{$_("admin.backups.title")}</a>
 </StatusBlock>
 
 <StatusBlock title="Environment">

@@ -11,7 +11,10 @@ rip that created them (``originals/<id>/``, ``stream/<id>.opus``,
 ``waveform/<id>.json``), so exchanging the path strings between two rows in one
 transaction moves the audio without moving a file. A failure anywhere before
 the commit leaves both rows on their own, untouched files. Do not add file I/O
-to ``apply_upgrade``; ``test_swap_does_no_file_io`` guards this.
+to ``apply_upgrade``; ``test_swap_does_no_file_io`` guards this. (A naming
+template may have moved a set's audio to a template path; that path is still
+the set's own, since ``jobs/apply_naming`` never reuses a taken name. After
+the commit the target is queued for its template name.)
 
 ``discard_arrival`` is the opposite outcome: the candidate was not the same
 audio or not better, so its row and files go and the target records a
@@ -29,6 +32,7 @@ from pathlib import Path
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.jobs.apply_naming import enqueue_apply_naming
 from setvault_core.jobs.ready import fan_out_webhooks
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.models.engagement import ListeningHistory, UserSetState
@@ -63,6 +67,7 @@ _AUDIO_FIELDS = (
     "waveform_path",
     "duration_seconds",
     "normalized_lufs",
+    "stream_gain_db",
     "audio_codec",
     "audio_bitrate_kbps",
     "audio_sample_rate",
@@ -346,6 +351,9 @@ async def apply_upgrade(
         arrival.purge_after_at = now + RECYCLE_GRACE
         if before_commit is not None:
             await before_commit(target, arrival)
+        # Read now so nothing after the commit needs the database to decide.
+        root = await session.get(MediaRoot, target.media_root_id)
+        rename = root is not None and bool(root.naming_template)
 
         session.add(event)
         await session.flush()
@@ -355,6 +363,10 @@ async def apply_upgrade(
         raise
 
     logger.info("upgraded set %s from %s to %s", target.id, event.from_tier, event.to_tier)
+    # The target now points at the arrival's originals/<id>/ file; give it
+    # its template name. Queued only after the commit so the job sees the swap.
+    if rename:
+        enqueue_apply_naming(target.id)
     # Only announce sets that are public; a draft's title/slug must not leak
     # to external webhook receivers.
     if target.status == "published" and target.deleted_at is None:

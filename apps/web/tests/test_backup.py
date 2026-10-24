@@ -195,6 +195,49 @@ def test_restore_rejects_missing_db_sql(tmp_path, monkeypatch):
         )
 
 
+def test_restore_accepts_sql_gz(tmp_path, monkeypatch):
+    """A scheduled ``.sql.gz`` backup restores the database only."""
+    import gzip
+
+    import setvault_web.restore as restore_mod
+
+    loaded = []
+
+    def fake_restore(db_sql, url):
+        loaded.append((db_sql.name, db_sql.read_bytes(), url))
+
+    monkeypatch.setattr(restore_mod, "_restore_database", fake_restore)
+    monkeypatch.setattr(restore_mod, "_restore_media",
+                        lambda *a: pytest.fail("a .sql.gz has no media"))
+    gz = tmp_path / "setvault-20261023-033000.sql.gz"
+    gz.write_bytes(gzip.compress(b"-- db\nSELECT 1;\n"))
+
+    with pytest.raises(RestoreError, match="not confirmed"):
+        restore_mod.restore_from_sql_gz(gz, TEST_DB_URL, confirm=False)
+    assert loaded == []
+
+    restore_mod.restore_from_sql_gz(gz, TEST_DB_URL, confirm=True)
+    assert loaded == [("db.sql", b"-- db\nSELECT 1;\n", TEST_DB_URL)]
+
+    # The CLI picks the DB-only path from the extension.
+    loaded.clear()
+    monkeypatch.setattr(restore_mod, "_load_media_roots",
+                        lambda url: pytest.fail("no media to place"))
+    restore_mod.main([str(gz), "--yes"])
+    assert [(name, data) for name, data, _ in loaded] == [("db.sql", b"-- db\nSELECT 1;\n")]
+
+
+def test_restore_rejects_corrupt_sql_gz(tmp_path, monkeypatch):
+    import setvault_web.restore as restore_mod
+
+    monkeypatch.setattr(restore_mod, "_restore_database",
+                        lambda db_sql, url: pytest.fail("loaded a corrupt dump"))
+    gz = tmp_path / "setvault-20261023-033000.sql.gz"
+    gz.write_bytes(b"not gzip at all")
+    with pytest.raises(RestoreError, match="not a valid gzip"):
+        restore_mod.restore_from_sql_gz(gz, TEST_DB_URL, confirm=True)
+
+
 # --------------------------------------------------------------------------- #
 # Full DB round-trip — requires real pg_dump + psql
 # --------------------------------------------------------------------------- #

@@ -4,7 +4,7 @@ from datetime import date as _date
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, StringConstraints, model_validator
 
 from setvault_core.schemas.catalog import PartyOut, VenueOut
 
@@ -88,13 +88,30 @@ class SetListOut(BaseModel):
     total: int
 
 
+class SetArtistIn(BaseModel):
+    id: str
+    # Digits allowed so the "b2b" role is valid.
+    role: Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,16}$")] = "main"
+
+
 class SetPatchIn(BaseModel):
-    title: str | None = None
+    """Partial set edit. Omitted fields are left alone. An explicit ``null``
+    clears ``party_id``, ``venue_id``, ``date`` and ``description``; ``title``
+    can't be cleared. When ``artists`` is given it wins over ``artist_ids``."""
+
+    title: Annotated[str, StringConstraints(strip_whitespace=True, max_length=512)] | None = None
     date: _date | None = None
     set_type: SetType | None = None
     party_id: str | None = None
     venue_id: str | None = None
     description: str | None = None
     artist_ids: list[str] | None = None
+    artists: list[SetArtistIn] | None = None
     tag_names: list[Annotated[str, StringConstraints(max_length=80)]] | None = None
     upgrades_enabled: bool | None = None
+
+    @model_validator(mode="after")
+    def _title_not_blank(self) -> SetPatchIn:
+        if "title" in self.model_fields_set and not self.title:
+            raise ValueError("title must not be blank")
+        return self

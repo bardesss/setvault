@@ -717,3 +717,42 @@ async def test_apply_rechecks_state_from_the_db(tmp_path: Path, webhooks):
         a = await s.get(LiveSet, ids["arrival"])
         assert a.audio_path == f"originals/{ids['arrival']}/new.flac" and a.deleted_at is None
     assert webhooks == []
+
+
+# --- P2a: naming template + stream gain --------------------------------------
+
+
+async def test_upgrade_swap_enqueues_naming_and_copies_gain(
+    tmp_path: Path, webhooks, monkeypatch,
+):
+    ids = await _seed(tmp_path)
+    tid, aid = ids["target"], ids["arrival"]
+    async with session_factory()() as s:
+        t = await s.get(LiveSet, tid)
+        a = await s.get(LiveSet, aid)
+        t.stream_gain_db, a.stream_gain_db = 0.0, -4.5
+        (await s.get(MediaRoot, t.media_root_id)).naming_template = "{Slug}.{Ext}"
+        await s.commit()
+
+    seen: list[tuple[uuid.UUID, bool]] = []
+    async with session_factory()() as s:
+        # Record whether the swap's transaction was still open at enqueue time:
+        # the job must only see the committed swap.
+        monkeypatch.setattr(set_upgrade, "enqueue_apply_naming",
+                            lambda set_id: seen.append((set_id, s.in_transaction())))
+        await _apply(s, ids)
+
+    assert seen == [(tid, False)]
+    async with session_factory()() as s:
+        assert (await s.get(LiveSet, tid)).audio_path == f"originals/{aid}/new.flac"
+        assert (await s.get(LiveSet, tid)).stream_gain_db == -4.5
+        assert (await s.get(LiveSet, aid)).stream_gain_db == 0.0
+
+
+async def test_upgrade_without_template_enqueues_nothing(tmp_path: Path, webhooks, monkeypatch):
+    ids = await _seed(tmp_path)
+    calls: list = []
+    monkeypatch.setattr(set_upgrade, "enqueue_apply_naming", calls.append)
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    assert calls == []

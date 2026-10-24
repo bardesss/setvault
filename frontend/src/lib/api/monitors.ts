@@ -10,6 +10,10 @@ export interface Monitor {
   per_poll_cap: number;
   last_checked_at: string | null;
   created_at: string;
+  catalog_kind: "artist" | "party" | "venue" | null;
+  catalog_id: string | null;
+  catalog_name: string | null;
+  catalog_slug: string | null;
 }
 
 export interface Discovery {
@@ -37,6 +41,9 @@ export function createMonitor(body: {
   query_text?: string;
   source_kind?: string | null;
   external_id?: string | null;
+  per_poll_cap?: number;
+  catalog_kind?: "artist" | "party" | "venue";
+  catalog_id?: string;
 }): Promise<Monitor> {
   return api<Monitor>("/api/monitors", {
     method: "POST",
@@ -54,18 +61,37 @@ export function setMonitorEnabled(
   });
 }
 
+export function updateMonitor(
+  id: string,
+  patch: {
+    enabled?: boolean;
+    query_text?: string;
+    source_kind?: string | null;
+    per_poll_cap?: number;
+  },
+): Promise<Monitor> {
+  return api<Monitor>(`/api/monitors/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
 export async function deleteMonitor(id: string): Promise<void> {
   await api<void>(`/api/monitors/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
 }
 
-export async function listDiscoveries(status?: string): Promise<Discovery[]> {
-  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
-  const { items } = await api<{ items: Discovery[] }>(
+export async function listDiscoveries(
+  status?: string | string[],
+): Promise<{ items: Discovery[]; pending_count: number }> {
+  const list = status === undefined ? [] : Array.isArray(status) ? status : [status];
+  const qs = list.length
+    ? "?" + list.map((s) => `status=${encodeURIComponent(s)}`).join("&")
+    : "";
+  return api<{ items: Discovery[]; pending_count: number }>(
     `/api/me/discoveries${qs}`,
   );
-  return items;
 }
 
 export async function ripDiscovery(id: string): Promise<void> {

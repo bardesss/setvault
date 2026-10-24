@@ -36,6 +36,11 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://setvault:${POSTGRES_PASSWORD:-setvault}@postgres:5432/setvault
       REDIS_URL: redis://redis:6379/0
+      # Scheduled backups run at backup_time in this zone.
+      TZ: ${TZ:-UTC}
+      # The in-container side of the backups mount below (the .env value of
+      # SETVAULT_BACKUP_PATH is the host side).
+      SETVAULT_BACKUP_PATH: /srv/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,4 +53,5 @@ services:
       - ${SETVAULT_CACHE_PATH:-./.data/cache}:/srv/cache
       - ${SETVAULT_CONFIG_PATH:-./.data/config}:/srv/config
       - ${SETVAULT_WATCH_FOLDERS_PATH:-./.data/watch}:/srv/watch
+      - ${SETVAULT_BACKUP_PATH:-./.data/backups}:/srv/backups
     security_opt: [no-new-privileges:true]

@@ -95,3 +95,91 @@ def test_cross_fs_falls_back_to_copy(tmp_path: Path, monkeypatch: pytest.MonkeyP
     real_src_ino = real_stat(src).st_ino
     real_dst_ino = real_stat(dst).st_ino
     assert real_src_ino != real_dst_ino
+
+
+# --- overwrite=False: exclusive create (P2a A4 renames) ----------------------
+
+
+def _pretend_cross_fs(monkeypatch: pytest.MonkeyPatch, src: Path) -> None:
+    """Make src report another device so placement takes the copy path."""
+    import os as _os
+
+    real_stat = Path.stat
+
+    def fake_stat(self, *args, **kw):
+        st = real_stat(self, *args, **kw)
+        if self == src:
+            fields = list(st)
+            fields[2] = 999  # st_dev
+            return _os.stat_result(fields)
+        return st
+
+    monkeypatch.setattr(Path, "stat", fake_stat)
+
+
+def test_no_overwrite_hardlink_refuses_existing_dst(tmp_path: Path):
+    src = tmp_path / "audio.opus"
+    dst = tmp_path / "dst.opus"
+    _write(src, b"new")
+    _write(dst, b"old")
+
+    with pytest.raises(FileExistsError):
+        place_audio_file(src, dst, overwrite=False)
+
+    assert dst.read_bytes() == b"old"
+    assert src.read_bytes() == b"new"
+
+
+def test_no_overwrite_copy_places_new_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    src = tmp_path / "audio.opus"
+    dst = tmp_path / "dst" / "audio.opus"
+    _write(src, b"y" * 32)
+    _pretend_cross_fs(monkeypatch, src)
+
+    assert place_audio_file(src, dst, overwrite=False) == "copied"
+
+    assert dst.read_bytes() == b"y" * 32
+    assert not list(dst.parent.glob("*.tmp"))
+
+
+def test_no_overwrite_copy_refuses_existing_dst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    src = tmp_path / "audio.opus"
+    dst = tmp_path / "dst" / "audio.opus"
+    _write(src, b"new")
+    _write(dst, b"old")
+    _pretend_cross_fs(monkeypatch, src)
+
+    with pytest.raises(FileExistsError):
+        place_audio_file(src, dst, overwrite=False)
+
+    assert dst.read_bytes() == b"old"
+    assert not list(dst.parent.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("taken", [False, True])
+def test_no_overwrite_copy_without_hardlink_support(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, taken: bool,
+):
+    """A filesystem without hardlinks: the name is reserved exclusively."""
+    import os as _os
+
+    src = tmp_path / "audio.opus"
+    dst = tmp_path / "dst" / "audio.opus"
+    _write(src, b"new")
+    if taken:
+        _write(dst, b"old")
+    _pretend_cross_fs(monkeypatch, src)
+
+    def no_link(*a, **kw):
+        raise PermissionError("hardlinks not supported")
+
+    monkeypatch.setattr(_os, "link", no_link)
+
+    if taken:
+        with pytest.raises(FileExistsError):
+            place_audio_file(src, dst, overwrite=False)
+        assert dst.read_bytes() == b"old"
+    else:
+        assert place_audio_file(src, dst, overwrite=False) == "copied"
+        assert dst.read_bytes() == b"new"
+    assert not list(dst.parent.glob("*.tmp"))

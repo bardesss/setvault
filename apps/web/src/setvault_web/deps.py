@@ -77,16 +77,20 @@ async def require_admin(user: Annotated[User, Depends(current_user)]) -> User:
     return user
 
 
+async def can_monitor(session: AsyncSession, user: User) -> bool:
+    """Admins can always monitor; other users only when the global
+    ``monitors_allow_all_users`` setting is on."""
+    if user.role == "admin":
+        return True
+    return bool((await get_config(session)).monitors_allow_all_users)
+
+
 async def require_can_monitor(
     user: Annotated[User, Depends(current_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ) -> User:
-    """Gate for monitor + discovery endpoints. Admins always pass; other users
-    pass only when the global ``monitors_allow_all_users`` setting is on."""
-    if user.role == "admin":
-        return user
-    config = await get_config(session)
-    if not config.monitors_allow_all_users:
+    """Gate for monitor + discovery endpoints (see ``can_monitor``)."""
+    if not await can_monitor(session, user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="monitoring is admin-only"
         )

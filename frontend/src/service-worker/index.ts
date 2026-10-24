@@ -1,7 +1,7 @@
 import { version } from "$app/env";
 import { assets, immutable } from "$app/manifest";
 import { self as sw } from "$app/service-worker";
-import { chooseStrategy } from "#lib/sw-strategy.ts";
+import { chooseStrategy, resolveAudio } from "#lib/sw-strategy.ts";
 import {
   AUDIO_CACHE,
   META_CACHE,
@@ -77,19 +77,31 @@ async function cacheFirst(request: Request, cacheName: string): Promise<Response
 
 async function audioCacheFirst(request: Request): Promise<Response> {
   const cache = await caches.open(AUDIO_CACHE);
-  const cached = await cache.match(request);
-  if (cached) return cached;
-  const response = await fetch(request);
-  // Only full (200) responses can be stored. `<audio>` elements issue Range
-  // requests, which the server answers with 206 Partial Content — and
-  // Cache.put() rejects a 206, which would reject this handler and fail the
-  // media element with net::ERR_FAILED. Pass partial responses straight
-  // through; the explicit "cache this set offline" full GET (200) still caches.
-  if (response.status === 200) {
-    await cache.put(request, response.clone());
-    await enforceAudioCap();
-  }
-  return response;
+  // Exact match, then network, then (offline only) an older copy of the same
+  // set under a different ?v= gain tag. The order lives in resolveAudio().
+  return resolveAudio<Response>({
+    matchExact: () => cache.match(request),
+    matchIgnoringSearch: () => cache.match(request, { ignoreSearch: true }),
+    fetchNetwork: async () => {
+      const response = await fetch(request);
+      // Only full (200) responses can be stored. `<audio>` elements issue Range
+      // requests, which the server answers with 206 Partial Content — and
+      // Cache.put() rejects a 206, which would reject this handler and fail the
+      // media element with net::ERR_FAILED. Pass partial responses straight
+      // through; the explicit "cache this set offline" full GET (200) still caches.
+      if (response.status === 200) {
+        // A storage failure must not turn a good network response into an
+        // "offline" fallback to an older copy.
+        try {
+          await cache.put(request, response.clone());
+          await enforceAudioCap();
+        } catch {
+          // quota or cache error: serve the fresh response uncached
+        }
+      }
+      return response;
+    },
+  });
 }
 
 async function networkFirst(request: Request, cacheName: string): Promise<Response> {

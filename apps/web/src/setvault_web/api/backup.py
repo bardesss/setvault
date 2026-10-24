@@ -12,15 +12,12 @@ the whole thing in memory. Failures (e.g. ``pg_dump`` not installed) abort
 the stream and surface as a partial download — admin sees an incomplete
 file size + a warning in the logs.
 
-Scheduled backups + restore are explicitly deferred to v0.1.1; the §J2 spec
-calls for them but the v0.1.0 surface is "an admin can download a single
-backup from the UI on demand."
+Scheduled (database-only) backups live in ``setvault_web.api.backups`` and
+``setvault_core.jobs.backup``; this endpoint is the full DB + media export.
 """
 from __future__ import annotations
 
 import logging
-import shlex
-import subprocess
 import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +26,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from setvault_core.models.catalog import MediaRoot
+from setvault_core.services.pg_dump import stream_pg_dump as _stream_pg_dump
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,48 +36,6 @@ from setvault_web.deps import db_session, require_admin
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/backup", tags=["admin"])
-
-
-def _pg_dump_args_from_url(database_url: str) -> list[str]:
-    """Convert ``postgresql+asyncpg://user:pwd@host:port/db`` into the
-    arg list pg_dump expects. Drops the +asyncpg driver suffix and uses
-    ``-d <full-url>`` so passwords don't end up on the command line.
-    """
-    plain = database_url.replace("+asyncpg", "")
-    # --clean --if-exists makes the dump drop-then-recreate each object, so a
-    # restore works whether the target DB is empty OR already has the migrated
-    # schema (the bundled-mode reality: the embedded PG auto-migrates on boot).
-    # Without it, restore fails on "<object> already exists".
-    return [
-        "pg_dump", "--no-owner", "--no-privileges", "--clean", "--if-exists",
-        "-d", plain,
-    ]
-
-
-def _stream_pg_dump(database_url: str):
-    """Yields bytes chunks from pg_dump's stdout."""
-    cmd = _pg_dump_args_from_url(database_url)
-    logger.info("backup: invoking %s", shlex.join(cmd[:-1]) + " -d <redacted>")
-    # S603: cmd is constructed from settings, not user input. S607 noqa
-    # because pg_dump is on PATH inside the worker image.
-    proc = subprocess.Popen(  # noqa: S603
-        cmd,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        bufsize=0,
-    )
-    try:
-        assert proc.stdout is not None
-        while True:
-            chunk = proc.stdout.read(64 * 1024)
-            if not chunk:
-                break
-            yield chunk
-    finally:
-        proc.stdout.close() if proc.stdout else None
-        proc.wait(timeout=30)
-        if proc.returncode != 0:
-            err = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
-            logger.warning("backup: pg_dump exited %s: %s", proc.returncode, err[:1000])
 
 
 def _stream_tar(database_url: str, roots: list[MediaRoot]):
