@@ -4,6 +4,26 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0](https://github.com/bardesss/setvault/compare/v0.21.0...v0.22.0) (2026-10-24)
+
+
+### Features
+
+* **catalog:** browse lists, paged entity sets and a track filter ([936b66c](https://github.com/bardesss/setvault/commit/936b66c8592dff000fcfb4aa57e35e7410670bd9))
+* **health:** check db and redis; admin-only entity actions ([078f8a9](https://github.com/bardesss/setvault/commit/078f8a9b64ab9d4c4b8cf4c56a1ee404a32bef93))
+* **home:** recent activity list ([c8bd806](https://github.com/bardesss/setvault/commit/c8bd806d7226df4f60c3b3c7f9818ff541957b79))
+* P2b browse pages, home activity, health endpoint, entity role gating ([0e0e104](https://github.com/bardesss/setvault/commit/0e0e104266bb49eea42cfde6f431eb9e056338c2))
+* **storage:** record set sizes and show real audio storage on Home ([2327b08](https://github.com/bardesss/setvault/commit/2327b081be237baf77f697d3dde82d7f4492f42e))
+* **ui:** browse pages, track link and load-more on entity pages ([08c907c](https://github.com/bardesss/setvault/commit/08c907c218a152af9e43162b2164003b17bddbb0))
+
+
+### Bug Fixes
+
+* **browse,home:** final review fixes ([d806a95](https://github.com/bardesss/setvault/commit/d806a95ebfb1b785dc5c890b2acb0e2b5c14b7d3))
+* **health:** log failed checks; add unreachable-redis test ([9f7c349](https://github.com/bardesss/setvault/commit/9f7c349b27a43fbc65758aa4c4812906667e6afe))
+* **home:** unique activity item ids and populated e2e ([551735e](https://github.com/bardesss/setvault/commit/551735e209c26d753e7f3d073836db8e228e75ba))
+* **storage:** bound the worker-start size check and dedupe the backfill ([66a8407](https://github.com/bardesss/setvault/commit/66a8407385407d1ef3a7d5902119d9ee802dda46))
+
 ## [0.21.0](https://github.com/bardesss/setvault/compare/v0.20.0...v0.21.0) (2026-10-24)
 
 
