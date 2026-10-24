@@ -4,6 +4,46 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0](https://github.com/bardesss/setvault/compare/v0.20.0...v0.21.0) (2026-10-24)
+
+
+### Features
+
+* **admin:** edit and probe media roots, preview naming, edit and delete SMTP connector ([37c0b95](https://github.com/bardesss/setvault/commit/37c0b9511f86f4e649fd1c5f3aa0b0d4fade8143))
+* **audio:** apply static loudness gain at transcode with a library re-gain job ([aff24cd](https://github.com/bardesss/setvault/commit/aff24cda234fde340ce8923461907df36bf86073))
+* **backup:** nightly gzipped database backups with retention, API and restore ([47efe99](https://github.com/bardesss/setvault/commit/47efe99a84c43620bc7190aa543cf186459c2837))
+* **cli:** reset_password command for a locked-out admin ([38dbbdd](https://github.com/bardesss/setvault/commit/38dbbdd2cab604036d4984b4716573469c56dc08))
+* **db:** add P2a columns (0033_p2a) ([906029a](https://github.com/bardesss/setvault/commit/906029ac89f386ae916a1567cc7a1bfd6df75a71))
+* **monitors:** link query monitors to catalog entities, edit in place, audit ([a3c1c9b](https://github.com/bardesss/setvault/commit/a3c1c9b43832aec713a1160974718d8e99de7ade))
+* **naming:** apply the root's naming template at publish, after upgrades, and per set ([f4ba7a1](https://github.com/bardesss/setvault/commit/f4ba7a1ccbdc23fb0c3511d74ac1a93d4953da8b))
+* P2a must-haves (set editor, monitors, loudness, naming, backups, storage/email) ([f108191](https://github.com/bardesss/setvault/commit/f10819168816b85f07c5828a29465a0fc09d1454))
+* **sets:** edit artist roles, clear fields, audit edits; add catalog lookup ([e0cd10a](https://github.com/bardesss/setvault/commit/e0cd10a5979ab8e242ca5b0a72ed9e69e8d43474))
+* **ui:** add Modal, ConfirmDialog, toasts and EntityPicker ([5b1d070](https://github.com/bardesss/setvault/commit/5b1d070c26e582b75c3fd822b49be8eafb6cc4d7))
+* **ui:** admin backups tab ([2e744e6](https://github.com/bardesss/setvault/commit/2e744e6bbf4f8c2df17cf447bc9787cd608f1e27))
+* **ui:** editable storage roots and an email settings tab ([1c40898](https://github.com/bardesss/setvault/commit/1c4089808f96faa22b7a6490feb298d9717e2003))
+* **ui:** loudness target setting, library re-gain, offline audio fallback ([6df913e](https://github.com/bardesss/setvault/commit/6df913e29f7004230a6e41dad677932638d8aca2))
+* **ui:** monitor from entity pages, full monitor form, discoveries in nav ([3b17a82](https://github.com/bardesss/setvault/commit/3b17a82ec116d759620ca115b7282308d0822237))
+* **ui:** set metadata editor ([c4f759a](https://github.com/bardesss/setvault/commit/c4f759aed336913221129c19e15d87773140284f))
+
+
+### Bug Fixes
+
+* **backup:** keep an existing dir's mode; report an unreadable backup dir ([42ee416](https://github.com/bardesss/setvault/commit/42ee416c07a8e43a48364efc97cdba113b28d1b3))
+* **backup:** owner-only files, one failure notice per day, no overwrite, mtime pruning ([1ec1474](https://github.com/bardesss/setvault/commit/1ec1474d9c6c24e54ccddd5b7b4bedc1634273da))
+* **bulk:** place move-root copies by exclusive create and tidy created dirs ([26bb837](https://github.com/bardesss/setvault/commit/26bb837cf482a88ef96a1594d17b6d21eb591125))
+* **media:** queue a stream for restored sets and re-check move-root under lock ([12ee36f](https://github.com/bardesss/setvault/commit/12ee36faa1377d2dd9ba0071078219333e85dff0))
+* **merge:** keep monitoring when the dropped loser monitor was active ([2bb0769](https://github.com/bardesss/setvault/commit/2bb0769edc0199fe060e3424a47df51f4f015795))
+* **naming:** exclusive-create renames and row-locked re-apply ([4c348dd](https://github.com/bardesss/setvault/commit/4c348dd554427c37b202f558b74728a2b4e4bacb))
+* **sets:** audit set.edited with target_type LiveSet like the other set audits ([bb3db12](https://github.com/bardesss/setvault/commit/bb3db12b5af53427606f0ca8b745181a86d2772e))
+* **transcode:** never overwrite a stream another row references ([251ffb1](https://github.com/bardesss/setvault/commit/251ffb1535f5edf01572dc133ac1fc12ff9a613f))
+* **transcode:** re-check the row under lock before swapping in a new stream ([8c99585](https://github.com/bardesss/setvault/commit/8c9958570847bb5c2cca82c7a0f41e49e6d36029))
+* **transcode:** re-encode after a rename or root move instead of discarding ([0ae872b](https://github.com/bardesss/setvault/commit/0ae872be5328749c71588f236b0c75c7e9ede9de))
+* **ui:** deflake loudness e2e, stub re-gain, keep fresh audio on cache errors ([ac1f987](https://github.com/bardesss/setvault/commit/ac1f9870a70ce5df1c5c686b27d7ee0c875f97fd))
+* **ui:** discoveries badge store, ingested tab, i18n regression ([5ff9325](https://github.com/bardesss/setvault/commit/5ff9325f5af67f3f8e28a9e3bf89efc3679ebeed))
+* **ui:** harden EntityPicker lookups and stack Modal escape handling ([fbea89e](https://github.com/bardesss/setvault/commit/fbea89eee2c234e8e59a97d4b60c9357ef581bb8))
+* **ui:** own-connector cleanup in email e2e, health badge variants, GiB label ([c7b4b31](https://github.com/bardesss/setvault/commit/c7b4b31dedb10f0b3151b54469658d51948f0ec7))
+* **ui:** treat a 404 on monitor delete as stopped ([ba89e1a](https://github.com/bardesss/setvault/commit/ba89e1a05132036a72bf7bd5ac8522cf961cc8ea))
+
 ## [0.20.0](https://github.com/bardesss/setvault/compare/v0.19.1...v0.20.0) (2026-10-22)
 
 
