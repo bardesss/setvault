@@ -48,6 +48,7 @@ class ActivityItem(BaseModel):
 
 
 class HomeActivityItem(BaseModel):
+    id: str
     kind: Literal["set_published", "discovery", "job_failed"]
     at: datetime
     title: str
@@ -163,7 +164,7 @@ async def home_activity(
     items: list[HomeActivityItem] = []
 
     published = await session.execute(
-        select(ActivityEvent.created_at, LiveSet.title, LiveSet.slug)
+        select(ActivityEvent.created_at, LiveSet.title, LiveSet.slug, ActivityEvent.id)
         .join(LiveSet, LiveSet.id == ActivityEvent.subject_id)
         .where(
             ActivityEvent.kind == "set.published",
@@ -173,12 +174,15 @@ async def home_activity(
         .limit(HOME_ACTIVITY_LIMIT)
     )
     items += [
-        HomeActivityItem(kind="set_published", at=at, title=title, href=f"/sets/{slug}")
-        for at, title, slug in published.all()
+        HomeActivityItem(
+            id=f"set_published:{eid}", kind="set_published", at=at, title=title,
+            href=f"/sets/{slug}",
+        )
+        for at, title, slug, eid in published.all()
     ]
 
     disc_q = (
-        select(MonitorDiscovery.created_at, MonitorDiscovery.title)
+        select(MonitorDiscovery.created_at, MonitorDiscovery.title, MonitorDiscovery.id)
         .join(Monitor, Monitor.id == MonitorDiscovery.monitor_id)
         .where(MonitorDiscovery.status == "pending_review")
         .order_by(MonitorDiscovery.created_at.desc())
@@ -187,24 +191,29 @@ async def home_activity(
     if user.role != "admin":
         disc_q = disc_q.where(Monitor.owner_user_id == user.id)
     items += [
-        HomeActivityItem(kind="discovery", at=at, title=title, href="/discoveries")
-        for at, title in (await session.execute(disc_q)).all()
+        HomeActivityItem(
+            id=f"discovery:{did}", kind="discovery", at=at, title=title, href="/discoveries",
+        )
+        for at, title, did in (await session.execute(disc_q)).all()
     ]
 
     if user.role == "admin":
         since = datetime.now(UTC) - timedelta(days=HOME_FAILED_JOBS_DAYS)
         failed = await session.execute(
-            select(Job.finished_at, Job.kind)
+            select(Job.finished_at, Job.kind, Job.id)
             .where(Job.status == "failed", Job.finished_at >= since)
             .order_by(Job.finished_at.desc())
             .limit(HOME_ACTIVITY_LIMIT)
         )
         items += [
-            HomeActivityItem(kind="job_failed", at=at, title=kind, href="/admin/jobs")
-            for at, kind in failed.all()
+            HomeActivityItem(
+                id=f"job_failed:{jid}", kind="job_failed", at=at, title=kind, href="/admin/jobs",
+            )
+            for at, kind, jid in failed.all()
         ]
 
-    items.sort(key=lambda i: i.at, reverse=True)
+    # Newest first; kind then id break ties so equal timestamps order stably.
+    items.sort(key=lambda i: (i.at, i.kind, i.id), reverse=True)
     return items[:HOME_ACTIVITY_LIMIT]
 
 

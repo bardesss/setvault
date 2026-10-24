@@ -34,6 +34,7 @@ from setvault_core.models.catalog import (
     Tag,
     Venue,
 )
+from setvault_core.models.engagement import ActivityEvent
 from setvault_core.models.identity import User
 from setvault_core.models.tracklist import Track, TracklistEntry
 from setvault_core.services.passwords import hash_password
@@ -278,6 +279,11 @@ async def seed_e2e(session: Annotated[AsyncSession, Depends(db_session)]) -> See
         session.add(edit_set)
         await session.flush()
         session.add(LiveSetArtist(live_set_id=edit_set.id, artist_id=resident.id, position=0))
+        # One publish event so Home's activity list has a row (home-library e2e).
+        session.add(ActivityEvent(
+            kind="set.published", subject_type="live_set", subject_id=edit_set.id,
+            user_id=admin.id, payload={},
+        ))
 
     # 6. A set with a resolved tracklist entry, for the browse e2e test
     # (tests/browse.test.ts): "Other sets with this track" needs a track_id.

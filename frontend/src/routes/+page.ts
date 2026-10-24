@@ -19,6 +19,7 @@ interface ContinueItem {
 }
 
 export interface ActivityItem {
+  id: string;
   kind: "set_published" | "discovery" | "job_failed";
   at: string;
   title: string;

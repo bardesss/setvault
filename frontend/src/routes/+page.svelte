@@ -134,7 +134,7 @@
     <SectionHeader title={$_("home.activity.title")} />
     {#if data.activity.length}
       <ul class="activity">
-        {#each data.activity as a (a.kind + a.href + a.at)}
+        {#each data.activity as a (a.id)}
           <li class="activity-row kind-{a.kind}">
             <span class="activity-icon" aria-hidden="true">{ACTIVITY_ICON[a.kind]}</span>
             <a href={a.href}>

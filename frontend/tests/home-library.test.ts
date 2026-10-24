@@ -87,6 +87,7 @@ test("home shows recent activity", async ({ page, request }) => {
   await page.goto("/");
   const section = page.getByTestId("home-activity");
   await expect(section.getByRole("heading", { name: "Recent activity" })).toBeVisible();
-  // Either published sets are listed or the empty state is.
-  await expect(section.locator("li.activity-row").first().or(section.locator(".activity-empty"))).toBeVisible();
+  // The e2e seed records a publish event, so the list is populated.
+  await expect(section.locator("li.activity-row").first()).toBeVisible();
+  await expect(section.locator(".activity-empty")).toHaveCount(0);
 });

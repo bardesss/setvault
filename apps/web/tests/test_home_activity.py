@@ -144,3 +144,15 @@ async def test_old_failed_job_excluded(authed_admin_client):
     await _job("fine", NOW, status="succeeded")
     r = await authed_admin_client.get("/api/me/home-activity")
     assert [i["title"] for i in r.json()] == ["recent"]
+
+
+async def test_same_timestamp_discoveries_have_distinct_ids(authed_admin_client):
+    admin = await _admin_id()
+    at = NOW - timedelta(hours=1)
+    await _discovery(admin, "twin a", at)
+    await _discovery(admin, "twin b", at)
+    r = await authed_admin_client.get("/api/me/home-activity")
+    body = r.json()
+    assert sorted(i["title"] for i in body) == ["twin a", "twin b"]
+    assert len({i["id"] for i in body}) == 2
+    assert all(i["id"].startswith("discovery:") for i in body)
