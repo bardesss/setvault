@@ -20,6 +20,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
     year: /^\d+$/.test(yearParam) ? yearParam : "",
     venue_kind: p.get("venue_kind") ?? "",
     sort: SORTS.includes(sortParam) ? sortParam : "recent",
+    track: p.get("track") ?? "",
   };
   // Auth is enforced by the API: an unauthenticated /api/sets returns 401,
   // which propagates through the !response.ok guard below.

@@ -35,6 +35,8 @@ export interface ListSetsParams {
   year?: string | number;
   venue_kind?: string;
   sort?: string;
+  /** Only sets whose tracklist has this track (a track id). */
+  track?: string;
 }
 
 export interface SetUpgradeHistoryItem {

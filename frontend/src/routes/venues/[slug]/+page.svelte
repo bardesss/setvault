@@ -66,7 +66,7 @@
   {/if}
 
   <h2>{$_("catalog.sets")}</h2>
-  {#if data.sets.length}<EntitySetsGrid sets={data.sets} />{:else}<EmptyState message={$_("catalog.no_sets")} />{/if}
+  {#if data.sets.length}<EntitySetsGrid kind="venues" slug={data.venue.slug} sets={data.sets} total={data.setsTotal} />{:else}<EmptyState message={$_("catalog.no_sets")} />{/if}
 </article>
 
 <style>

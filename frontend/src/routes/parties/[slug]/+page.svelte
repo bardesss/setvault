@@ -59,7 +59,7 @@
     {#if party.description}<p>{party.description}</p>{/if}
   {/if}
   <h2>{$_("catalog.sets")}</h2>
-  {#if data.sets.length}<EntitySetsGrid sets={data.sets} />{:else}<EmptyState message={$_("catalog.no_sets")} />{/if}
+  {#if data.sets.length}<EntitySetsGrid kind="parties" slug={data.party.slug} sets={data.sets} total={data.setsTotal} />{:else}<EmptyState message={$_("catalog.no_sets")} />{/if}
 </article>
 
 <style>
