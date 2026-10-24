@@ -71,7 +71,39 @@ async def test_home_summary_counts_one_seeded_set(
     assert response.status_code == 200
     body = response.json()
     assert body["sets_count"] == 1
-    assert body["audio_bytes"] >= 0
+    assert body["audio_bytes"] == 0  # its sizes are not recorded yet
+
+
+async def test_home_summary_audio_bytes_sums_sizes(authed_admin_client, seeded_live_set):
+    import uuid
+    from datetime import UTC, datetime
+
+    from setvault_core.db import session_factory
+    from setvault_core.models.catalog import LiveSet
+
+    # Set A: original and stream measured. Set B: not backfilled yet (NULL
+    # sizes count as 0). A recycled set never counts.
+    await _patch_live_set(seeded_live_set["id"], audio_bytes=100, stream_bytes=50)
+    async with session_factory()() as s:
+        a = await s.get(LiveSet, uuid.UUID(seeded_live_set["id"]))
+        for name, extra in (
+            ("b", {}),
+            ("gone", {"audio_bytes": 1000, "stream_bytes": 1000,
+                      "deleted_at": datetime.now(UTC)}),
+        ):
+            s.add(LiveSet(
+                slug=f"size-{name}-{uuid.uuid4().hex[:6]}", title=name,
+                media_root_id=a.media_root_id, audio_path=f"originals/{name}.flac",
+                status="published", source_type="upload", uploaded_by=a.uploaded_by,
+                **extra,
+            ))
+        await s.commit()
+
+    response = await authed_admin_client.get("/api/me/home-summary")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sets_count"] == 2
+    assert body["audio_bytes"] == 150
 
 
 async def _patch_live_set(set_id: str, **fields) -> None:

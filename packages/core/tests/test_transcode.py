@@ -137,6 +137,37 @@ async def test_transcode_no_filter_when_target_off(tmp_path: Path, monkeypatch, 
         assert (await s.get(LiveSet, sid)).stream_gain_db == 0.0
 
 
+def _ffmpeg_writing(monkeypatch, payload: bytes) -> None:
+    def _run(args, **kwargs):
+        Path(args[-1]).write_bytes(payload)
+        return subprocess.CompletedProcess(args, 0, b"", b"")
+
+    monkeypatch.setattr(subprocess, "run", _run)
+
+
+async def test_transcode_records_stream_bytes(tmp_path: Path, monkeypatch, loudness_target):
+    await loudness_target(-14.0)
+    sid = await _seed_set(tmp_path, normalized_lufs=-8.0)
+    _ffmpeg_writing(monkeypatch, b"x" * 1234)
+
+    assert await transcode_audio(str(sid)) == "done"
+
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.streaming_path == f"stream/{sid}.opus"
+        assert row.stream_bytes == 1234
+
+    # A re-transcode rewrites the same stream file in place: the size follows.
+    _ffmpeg_writing(monkeypatch, b"y" * 77)
+    assert await transcode_audio(str(sid)) == "done"
+
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.streaming_path == f"stream/{sid}.opus"
+        assert (tmp_path / row.streaming_path).stat().st_size == 77
+        assert row.stream_bytes == 77
+
+
 async def _seed_swapped_pair(tmp_path: Path) -> tuple[uuid.UUID, uuid.UUID]:
     """A quality upgrade's aftermath: the target streams from the arrival's
     file and the recycled arrival row names ``stream/<target-id>.opus``."""
@@ -223,11 +254,11 @@ async def _seed_upgrade_pair(tmp_path: Path) -> tuple[uuid.UUID, uuid.UUID]:
             LiveSet(id=target_id, slug=f"s-{uuid.uuid4().hex[:6]}", title="target",
                     audio_path="old.flac", status="published", normalized_lufs=-8.0,
                     streaming_path=f"stream/{target_id}.opus", stream_gain_db=-6.0,
-                    **common),
+                    stream_bytes=len(b"target-old"), **common),
             LiveSet(id=arrival_id, slug=f"s-{uuid.uuid4().hex[:6]}", title="arrival",
                     audio_path="new.flac", status="draft", normalized_lufs=-12.0,
                     streaming_path=f"stream/{arrival_id}.opus", stream_gain_db=-2.0,
-                    **common),
+                    stream_bytes=len(b"arrival"), **common),
         ])
         await s.commit()
     (tmp_path / "stream").mkdir()
@@ -310,6 +341,9 @@ async def test_transcode_racing_upgrade_swap_discards_its_stream(
         assert target.audio_path == "new.flac"
         assert target.streaming_path == f"stream/{arrival_id}.opus"  # not reverted
         assert target.stream_gain_db == -2.0
+        # The discarded encode records no size: each row keeps its own.
+        assert target.stream_bytes == len(b"arrival")
+        assert recycled.stream_bytes == len(b"target-old")
         assert recycled.streaming_path == f"stream/{target_id}.opus"
         referenced = {target.streaming_path, recycled.streaming_path}
     on_disk = {f"stream/{p.name}" for p in (tmp_path / "stream").iterdir()}

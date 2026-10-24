@@ -10,6 +10,8 @@
   import { _ } from "svelte-i18n";
   import { session } from "#lib/stores/session.ts";
   import { listSets, type SetSummary } from "#lib/api/sets.ts";
+  import { getTrack, type TrackInfo } from "#lib/api/catalog.ts";
+  import { isTrackId } from "#lib/trackFilter.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;
@@ -49,6 +51,38 @@
     setParam("sort", sort);
   }
 
+  // The track chip: only the id is in the URL, so fetch its title. A track
+  // that can't be fetched (gone, or a malformed id) still gets a chip
+  // ("Track: unknown") so the filter can always be removed.
+  let trackInfo: TrackInfo | null = null;
+  let trackUnknown = false;
+  let trackFor = "";
+  $: loadTrack(data.filters.track);
+  async function loadTrack(id: string) {
+    if (id === trackFor) return;
+    trackFor = id;
+    trackInfo = null;
+    trackUnknown = false;
+    if (!id) return;
+    if (!isTrackId(id)) {
+      trackUnknown = true;
+      return;
+    }
+    try {
+      const t = await getTrack(id);
+      if (trackFor === id) trackInfo = t;
+    } catch {
+      if (trackFor === id) trackUnknown = true;
+    }
+  }
+  $: chipLabel = trackInfo
+    ? trackInfo.artist_name
+      ? $_("browse.track_chip_artist", { values: { title: trackInfo.title, artist: trackInfo.artist_name } })
+      : $_("browse.track_chip", { values: { title: trackInfo.title } })
+    : trackUnknown
+      ? $_("browse.track_chip_unknown")
+      : "";
+
   async function loadMore() {
     loadingMore = true;
     moreError = false;
@@ -60,6 +94,8 @@
         year: f.year,
         venue_kind: f.venue_kind,
         sort: f.sort,
+        track: f.track,
+        exclude: f.exclude,
         limit: data.limit,
         offset: items.length,
       });
@@ -139,6 +175,14 @@
 />
 
 <section class="library-body">
+  {#if trackInfo || trackUnknown}
+    <div class="chips">
+      <span class="chip" data-testid="track-chip">
+        {chipLabel}
+        <button type="button" aria-label={$_("browse.remove_track_filter")} on:click={() => setParam("track", "")}>×</button>
+      </span>
+    </div>
+  {/if}
   {#if isAdmin && selected.size > 0}
     <BulkActionToolbar
       selectedIds={Array.from(selected)}
@@ -303,5 +347,12 @@
     .library-body { padding: var(--sp-3); }
     .grid { grid-template-columns: 1fr; }
   }
+  .chips { display: flex; gap: var(--sp-2); }
+  .chip {
+    display: inline-flex; align-items: center; gap: var(--sp-2);
+    padding: 2px var(--sp-3); border: 1px solid var(--accent); border-radius: 999px;
+    color: var(--accent); font-size: var(--ts-sm);
+  }
+  .chip button { background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-size: var(--ts-md, 1em); line-height: 1; }
   .more-error { color: var(--accent-error); font-size: var(--ts-sm); margin: 0; }
 </style>

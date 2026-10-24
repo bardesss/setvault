@@ -1,6 +1,6 @@
 import { error } from "@sveltejs/kit";
 import type { PageLoad } from "./$types";
-import { getArtist, getEntitySets, type Artist, type EntitySet } from "#lib/api/catalog.ts";
+import { getArtist, getEntitySets, type Artist } from "#lib/api/catalog.ts";
 
 export const load: PageLoad = async ({ fetch, params }) => {
   void fetch; // universal load runs in the browser; api() uses window.fetch
@@ -10,6 +10,6 @@ export const load: PageLoad = async ({ fetch, params }) => {
   } catch {
     throw error(404, "Artist not found");
   }
-  const sets: EntitySet[] = await getEntitySets("artists", params.slug);
-  return { artist, sets };
+  const page = await getEntitySets("artists", params.slug);
+  return { artist, sets: page.items, setsTotal: page.total };
 };

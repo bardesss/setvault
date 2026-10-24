@@ -131,6 +131,9 @@
           <div class="track-main">
             <div class="tn">{entry.raw_label}</div>
             {#if entry.edit_notes}<div class="ta">{entry.edit_notes}</div>{/if}
+            {#if entry.track_id}
+              <a class="other-sets" href={`/sets?track=${entry.track_id}&exclude=${encodeURIComponent(slug)}`}>{$_("browse.other_sets_with_track")}</a>
+            {/if}
           </div>
           <span class="bpm-key"></span>
           <span class="badge" data-status={entry.status}>{entry.status}</span>
@@ -185,6 +188,8 @@
     color: var(--accent-secondary, var(--accent));
   }
   .track-main { min-width: 0; }
+  .other-sets { font-size: var(--ts-xs); color: var(--text-muted); }
+  .other-sets:hover { color: var(--accent); }
   .track-main .tn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bulk-status { margin: 0 var(--sp-8); padding: var(--sp-2) 0; color: var(--text-muted); font-size: var(--ts-sm); }
   .empty { margin: var(--sp-4) var(--sp-8); color: var(--text-muted); font-style: italic; }

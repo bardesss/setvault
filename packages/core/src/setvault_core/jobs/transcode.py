@@ -146,10 +146,12 @@ async def _swap_in(
             previous = live.streaming_path
             rel = await _stream_rel(s, live)
             (snap.host / rel).parent.mkdir(parents=True, exist_ok=True)
+            size = tmp.stat().st_size  # noqa: ASYNC240
             # A rename within the stream dir: quick, and must happen under the lock.
             tmp.replace(snap.host / rel)  # noqa: ASYNC240
             live.streaming_path = rel
             live.stream_gain_db = snap.gain_db
+            live.stream_bytes = size
             await s.commit()
         except Exception:
             await s.rollback()

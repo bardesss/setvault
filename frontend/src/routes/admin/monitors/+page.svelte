@@ -1,5 +1,6 @@
 <script lang="ts">
   import { _, locale } from "svelte-i18n";
+  import { fmtAgo } from "#lib/format.ts";
   import { onMount } from "svelte";
   import AdminTable from "#lib/components/AdminTable.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
@@ -113,19 +114,8 @@
     }
   }
 
-  const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ["day", 86400],
-    ["hour", 3600],
-    ["minute", 60],
-  ];
   function ago(iso: string | null, loc: string | null | undefined): string {
-    if (!iso) return $_("monitors.never");
-    const secs = Math.round((new Date(iso).getTime() - Date.now()) / 1000);
-    const rtf = new Intl.RelativeTimeFormat(loc || "en", { numeric: "auto" });
-    for (const [unit, size] of UNITS) {
-      if (Math.abs(secs) >= size) return rtf.format(Math.round(secs / size), unit);
-    }
-    return rtf.format(0, "second");
+    return iso ? fmtAgo(iso, loc) : $_("monitors.never");
   }
 
   const ENTITY_PATH = { artist: "artists", party: "parties", venue: "venues" };

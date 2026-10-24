@@ -5,6 +5,7 @@
   import EmptyState from "#lib/components/EmptyState.svelte";
   import { patchSeries } from "#lib/api/catalog.ts";
   import { ApiError } from "#lib/api/client.ts";
+  import { session } from "#lib/stores/session.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;
@@ -30,7 +31,7 @@
 <article class="entity-detail">
   <header class="entity-head">
     <h1>{series.name}</h1>
-    {#if !editing}<button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>{/if}
+    {#if !editing && $session?.role === "admin"}<button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>{/if}
   </header>
   {#if editing}
     <form class="entity-edit" on:submit|preventDefault={save}>
@@ -44,7 +45,7 @@
     </form>
   {:else if series.description}<p>{series.description}</p>{/if}
   <h2>{$_("catalog.sets")}</h2>
-  {#if data.sets.length}<EntitySetsGrid sets={data.sets} />{:else}<EmptyState message={$_("catalog.no_sets")} />{/if}
+  {#if data.sets.length}<EntitySetsGrid kind="series" slug={data.series.slug} sets={data.sets} total={data.setsTotal} />{:else}<EmptyState message={$_("catalog.no_sets")} />{/if}
 </article>
 
 <style>

@@ -7,6 +7,7 @@
   import MediaRootForm from "#lib/components/MediaRootForm.svelte";
   import Modal from "#lib/components/Modal.svelte";
   import { errorMessage } from "#lib/api/errors.ts";
+  import { fmtBytes } from "#lib/format.ts";
   import {
     deleteMediaRoot,
     listMediaRoots,
@@ -33,18 +34,6 @@
     unreachable: "badge-bad",
     unknown: "badge-neutral",
   };
-
-  function formatBytes(n: number | null): string {
-    if (n === null) return $_("admin.storage.unlimited");
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let value = n;
-    let i = 0;
-    while (value >= 1024 && i < units.length - 1) {
-      value /= 1024;
-      i += 1;
-    }
-    return `${value.toFixed(1)} ${units[i]}`;
-  }
 
   async function refresh() {
     try {
@@ -134,7 +123,7 @@
         <td>{r.name}</td>
         <td class="mono">{r.host_path}</td>
         <td>{r.default_for_ingest ? $_("common.yes") : $_("common.no")}</td>
-        <td>{formatBytes(r.max_bytes)}</td>
+        <td>{r.max_bytes === null ? $_("admin.storage.unlimited") : fmtBytes(r.max_bytes)}</td>
         <td>{r.set_count}</td>
         <td>
           <span

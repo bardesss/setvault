@@ -34,7 +34,9 @@ from setvault_core.models.catalog import (
     Tag,
     Venue,
 )
+from setvault_core.models.engagement import ActivityEvent
 from setvault_core.models.identity import User
+from setvault_core.models.tracklist import Track, TracklistEntry
 from setvault_core.services.passwords import hash_password
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,6 +110,12 @@ EDIT_SET_SLUG = "edit-target"
 EDIT_SET_TITLE = "Edit Target"
 EDIT_ARTIST_SLUG = "e2e-resident"
 EDIT_ARTIST_NAME = "E2E Resident"
+
+# Read-only set for tests/browse.test.ts: one resolved tracklist entry. No
+# "e2e-" prefix (the library tests count those).
+TRACK_SET_SLUG = "track-link"
+TRACK_SET_TITLE = "Track Link Set"
+TRACK_TITLE = "Browse Anthem"
 
 
 class SeedAdminOut(BaseModel):
@@ -271,6 +279,44 @@ async def seed_e2e(session: Annotated[AsyncSession, Depends(db_session)]) -> See
         session.add(edit_set)
         await session.flush()
         session.add(LiveSetArtist(live_set_id=edit_set.id, artist_id=resident.id, position=0))
+        # One publish event so Home's activity list has a row (home-library e2e).
+        session.add(ActivityEvent(
+            kind="set.published", subject_type="live_set", subject_id=edit_set.id,
+            user_id=admin.id, payload={},
+        ))
+
+    # 6. A set with a resolved tracklist entry, for the browse e2e test
+    # (tests/browse.test.ts): "Other sets with this track" needs a track_id.
+    track_set_exists = (
+        await session.execute(select(LiveSet.id).where(LiveSet.slug == TRACK_SET_SLUG))
+    ).scalar_one_or_none()
+    if track_set_exists is None:
+        track = Track(title=TRACK_TITLE, primary_artist_id=resident.id)
+        session.add(track)
+        track_set = LiveSet(
+            id=uuid.uuid4(),
+            slug=TRACK_SET_SLUG,
+            title=TRACK_SET_TITLE,
+            media_root_id=media_root.id,
+            audio_path=f"originals/seed/{TRACK_SET_SLUG}.wav",
+            streaming_path=SEED_STREAMING_REL,
+            duration_seconds=1,
+            status="published",
+            source_type="upload",
+            uploaded_by=admin.id,
+            created_at=now - timedelta(hours=5),
+        )
+        session.add(track_set)
+        await session.flush()
+        session.add(TracklistEntry(
+            live_set_id=track_set.id,
+            position=0,
+            start_seconds=0,
+            raw_label=f"{EDIT_ARTIST_NAME} - {TRACK_TITLE}",
+            track_id=track.id,
+            status="resolved",
+            created_by=admin.id,
+        ))
 
     await session.commit()
     return SeedOut(

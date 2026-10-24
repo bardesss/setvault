@@ -35,6 +35,10 @@ export interface ListSetsParams {
   year?: string | number;
   venue_kind?: string;
   sort?: string;
+  /** Only sets whose tracklist has this track (a track id). */
+  track?: string;
+  /** A set slug to leave out; only meaningful with `track`. */
+  exclude?: string;
 }
 
 export interface SetUpgradeHistoryItem {

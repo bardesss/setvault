@@ -61,6 +61,34 @@
   </div>
 
   <div class="rail-section">
+    <div class="rail-section-title">{$_("nav.browse")}</div>
+    <a class="rail-link" class:active={active("/artists")} href="/artists">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
+        <circle cx="8" cy="5" r="3" /><path d="M2 14c0-3 2.7-5 6-5s6 2 6 5" />
+      </svg>
+      {$_("nav.artists")}
+    </a>
+    <a class="rail-link" class:active={active("/parties")} href="/parties">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
+        <path d="M3 13l3-9 7 7z" /><path d="M10 3v2M13 5h-2" />
+      </svg>
+      {$_("nav.parties")}
+    </a>
+    <a class="rail-link" class:active={active("/venues")} href="/venues">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
+        <path d="M8 14s-5-4.5-5-8a5 5 0 0 1 10 0c0 3.5-5 8-5 8z" /><circle cx="8" cy="6" r="1.5" />
+      </svg>
+      {$_("nav.venues")}
+    </a>
+    <a class="rail-link" class:active={active("/series")} href="/series">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
+        <rect x="2" y="2" width="9" height="9" rx="1" /><path d="M5 14h9V5" />
+      </svg>
+      {$_("nav.series")}
+    </a>
+  </div>
+
+  <div class="rail-section">
     <div class="rail-section-title">Yours</div>
     <a class="rail-link" class:active={active("/me/bookmarks")} href="/me/bookmarks">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">

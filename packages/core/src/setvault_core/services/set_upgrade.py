@@ -68,6 +68,8 @@ _AUDIO_FIELDS = (
     "duration_seconds",
     "normalized_lufs",
     "stream_gain_db",
+    "audio_bytes",
+    "stream_bytes",
     "audio_codec",
     "audio_bitrate_kbps",
     "audio_sample_rate",

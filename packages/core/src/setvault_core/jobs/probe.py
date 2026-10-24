@@ -40,6 +40,7 @@ async def probe_audio(live_set_id: str) -> None:
         info = json.loads(out.stdout)
         duration = float(info.get("format", {}).get("duration", 0))
         live.duration_seconds = round(duration)
+        live.audio_bytes = (await asyncio.to_thread(path.stat)).st_size
         await s.commit()
 
         # Quality is best-effort: a failed measurement leaves the columns NULL

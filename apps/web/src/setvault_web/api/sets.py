@@ -22,6 +22,7 @@ from setvault_core.models.catalog import (
 )
 from setvault_core.models.engagement import UserSetState
 from setvault_core.models.identity import User
+from setvault_core.models.tracklist import TracklistEntry
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.schemas.catalog import PartyOut, SeriesOut, VenueOut
 from setvault_core.schemas.sets import (
@@ -221,9 +222,20 @@ async def list_sets(
     tag: Annotated[str | None, Query(max_length=80)] = None,
     year: Annotated[int | None, Query(ge=1, le=9999)] = None,
     venue_kind: Annotated[str | None, Query(max_length=32)] = None,
+    track: Annotated[str | None, Query(max_length=64)] = None,
+    exclude: Annotated[str | None, Query(max_length=200)] = None,
     sort: Literal["recent", "date", "title", "duration"] = "date",
 ):
     conds = list(_published())
+    if track is not None:
+        track_id = parse_uuid(track, status_code=422, detail="invalid track")
+        conds.append(exists().where(
+            TracklistEntry.live_set_id == LiveSet.id, TracklistEntry.track_id == track_id,
+        ))
+        # Only meaningful with a track: "other sets with this track" leaves out
+        # the set the user came from.
+        if exclude:
+            conds.append(LiveSet.slug != exclude)
     if q:
         pattern = f"%{_like_escape(q.strip())}%"
         conds.append(or_(

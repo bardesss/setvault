@@ -81,3 +81,13 @@ test("home recently added uses created order", async ({ page, request }) => {
   // Venue shows on the card for the set that has one.
   await expect(page.locator("a.recent-card", { hasText: "Alpha Night" })).toContainText("E2E Club");
 });
+
+test("home shows recent activity", async ({ page, request }) => {
+  await loginAs(page, request);
+  await page.goto("/");
+  const section = page.getByTestId("home-activity");
+  await expect(section.getByRole("heading", { name: "Recent activity" })).toBeVisible();
+  // The e2e seed records a publish event, so the list is populated.
+  await expect(section.locator("li.activity-row").first()).toBeVisible();
+  await expect(section.locator(".activity-empty")).toHaveCount(0);
+});

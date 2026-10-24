@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import date
 
 import pytest
 from setvault_core.db import init_engine, session_factory
@@ -209,3 +210,38 @@ async def test_entity_detail_monitor_null_when_user_cannot_monitor(client, an_ar
     r = await client.get(f"/api/catalog/artists/{an_artist}")
     assert r.status_code == 200, r.text
     assert r.json()["monitor"] is None
+
+
+@pytest.fixture
+async def artist_with_three_sets(seeded_admin):
+    init_engine(os.environ["TEST_DATABASE_URL"])
+    async with session_factory()() as s:
+        root = MediaRoot(name=f"r-{uuid.uuid4().hex[:6]}", host_path="/srv/test-media")
+        artist = Artist(name="Pager", slug=f"pager-{uuid.uuid4().hex[:6]}")
+        s.add_all([root, artist])
+        await s.flush()
+        for i in range(3):
+            ls = LiveSet(slug=f"s-{uuid.uuid4().hex[:8]}", title=f"Set {i}",
+                         date=date(2020, 1, i + 1), media_root_id=root.id,
+                         audio_path="a/b.flac", status="published",
+                         source_type="upload", uploaded_by=seeded_admin.id)
+            s.add(ls)
+            await s.flush()
+            s.add(LiveSetArtist(live_set_id=ls.id, artist_id=artist.id, position=0))
+        await s.commit()
+        yield artist.slug
+
+
+@pytest.mark.asyncio
+async def test_entity_sets_paged(authed_admin_client, artist_with_three_sets):
+    url = f"/api/catalog/artists/{artist_with_three_sets}/sets"
+    body = (await authed_admin_client.get(url)).json()
+    assert body["total"] == 3
+    assert [i["title"] for i in body["items"]] == ["Set 2", "Set 1", "Set 0"]
+    body = (await authed_admin_client.get(url, params={"limit": 2})).json()
+    assert [i["title"] for i in body["items"]] == ["Set 2", "Set 1"] and body["total"] == 3
+    body = (await authed_admin_client.get(url, params={"limit": 2, "offset": 2})).json()
+    assert [i["title"] for i in body["items"]] == ["Set 0"] and body["total"] == 3
+    body = (await authed_admin_client.get(url, params={"offset": 99})).json()
+    assert body == {"items": [], "total": 3}
+    assert (await authed_admin_client.get(url, params={"limit": 101})).status_code == 422

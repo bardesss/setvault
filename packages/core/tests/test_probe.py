@@ -49,3 +49,28 @@ async def test_probe_writes_duration_to_live_set(silent_audio, tmp_path):
         row = await s.get(LiveSet, sid)
         assert row.duration_seconds is not None
         assert 2 <= row.duration_seconds <= 4
+
+
+async def test_probe_records_audio_bytes(silent_audio, tmp_path):
+    async with session_factory()() as s:
+        u = User(email=f"u{uuid.uuid4().hex[:6]}@x.test", username=f"u{uuid.uuid4().hex[:6]}",
+                 display_name="u", password_hash="x", role="admin")
+        r = MediaRoot(name=f"r{uuid.uuid4().hex[:6]}", host_path=str(tmp_path),
+                      enabled=True, default_for_ingest=True)
+        s.add_all([u, r])
+        await s.flush()
+        live = LiveSet(slug=f"s-{uuid.uuid4().hex[:6]}", title="t", media_root_id=r.id,
+                       audio_path="originals/x", uploaded_by=u.id, source_type="upload",
+                       status="processing")
+        (tmp_path / "originals").mkdir()
+        shutil.copy(silent_audio, tmp_path / "originals" / "x")
+        s.add(live)
+        await s.commit()
+        sid = live.id
+
+    await probe_audio(str(sid))
+
+    async with session_factory()() as s:
+        row = await s.get(LiveSet, sid)
+        assert row.audio_bytes == (tmp_path / "originals" / "x").stat().st_size
+        assert row.audio_bytes > 0

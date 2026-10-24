@@ -50,7 +50,29 @@ export const createVenue = (name: string) =>
 export const createParty = (body: { name: string; date?: string | null; venue_id?: string | null }) =>
   api<Party>("/api/catalog/parties", { method: "POST", body: JSON.stringify(body) });
 
-export const getEntitySets = async (kind: EntityKind, slug: string): Promise<EntitySet[]> => {
-  const r = await api<{ items: EntitySet[] }>(`/api/catalog/${kind}/${slug}/sets`);
-  return r.items;
+export interface EntitySetsPage { items: EntitySet[]; total: number }
+
+export const getEntitySets = (kind: EntityKind, slug: string, limit = 50, offset = 0) =>
+  api<EntitySetsPage>(`/api/catalog/${kind}/${slug}/sets?limit=${limit}&offset=${offset}`);
+
+export interface EntityListItem {
+  id: string; name: string; slug: string; hint: string | null; set_count: number;
+}
+export type EntitySort = "name" | "sets" | "recent";
+
+export const listEntities = (
+  kind: EntityKind,
+  params: { q?: string; sort?: EntitySort; limit?: number; offset?: number } = {},
+) => {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== "") qs.set(k, String(v));
+  }
+  const s = qs.toString();
+  return api<{ items: EntityListItem[]; total: number }>(
+    `/api/catalog/${kind}${s ? `?${s}` : ""}`,
+  );
 };
+
+export interface TrackInfo { id: string; title: string; artist_name: string | null }
+export const getTrack = (id: string) => api<TrackInfo>(`/api/tracks/${encodeURIComponent(id)}`);

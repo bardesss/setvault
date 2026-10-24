@@ -4,7 +4,8 @@ Boots an RQ worker (``RecordingWorker``, which records every run for
 Admin -> Jobs) on the `default` and `low` queues (in that priority order:
 upgrade searches and upgrade rips go on `low`, so they never hold up uploads)
 and registers the periodic jobs (e.g. MediaRoot health-checks) with
-rq-scheduler.
+rq-scheduler. At start it also queues the set size backfill while sets
+still lack a recorded size.
 
 Notes on API drift:
   * `rq>=2.0` removed `rq.Connection`; we pass `connection=` directly to
@@ -14,17 +15,28 @@ Notes on API drift:
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
+import threading
 from datetime import UTC, datetime
 
 from redis import Redis
 from rq import Queue
 from rq_scheduler import Scheduler
 from setvault_core.db import init_engine
+from setvault_core.jobs import size_backfill
 from setvault_core.jobs.backup import BACKUP_JOB_TIMEOUT
 from setvault_core.jobs.upgrade_search import UPGRADE_QUEUE, UPGRADE_SEARCH_JOB_TIMEOUT
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from setvault_worker.recording import RecordingWorker
+
+logger = logging.getLogger(__name__)
+
+# How long boot waits for the size backfill check (DB + Redis) at most.
+SIZE_BACKFILL_CHECK_SECONDS = 5.0
 
 _HOURLY = 60 * 60
 _DAILY = 24 * 60 * 60
@@ -77,11 +89,48 @@ def _bootstrap_scheduler(redis: Redis) -> None:
         )
 
 
+async def _size_backfill_check(database_url: str, redis: Redis) -> bool:
+    # An engine of its own (not the process-wide one), so this check can be
+    # left running in its thread without touching what the worker uses.
+    engine = create_async_engine(
+        database_url, poolclass=NullPool,
+        connect_args={"timeout": SIZE_BACKFILL_CHECK_SECONDS},
+    )
+    try:
+        async with async_sessionmaker(engine)() as s:
+            return await size_backfill.enqueue_if_needed(s, redis=redis)
+    finally:
+        await engine.dispose()
+
+
+def _queue_size_backfill(database_url: str, redis: Redis) -> None:
+    """Queue the one-off set size backfill while any set lacks a size.
+
+    Best effort, and bounded: the check runs in a daemon thread that boot
+    waits on for at most SIZE_BACKFILL_CHECK_SECONDS. A failure is logged;
+    a slow DB or Redis never holds up the worker (it is built to keep
+    running while the DB is down)."""
+    def _run() -> None:
+        try:
+            if asyncio.run(_size_backfill_check(database_url, redis)):
+                logger.info("size backfill queued")
+        except Exception:
+            logger.exception("queueing the size backfill failed")
+
+    thread = threading.Thread(target=_run, name="size-backfill-check", daemon=True)
+    thread.start()
+    thread.join(SIZE_BACKFILL_CHECK_SECONDS)
+    if thread.is_alive():
+        logger.warning("size backfill check still running after %ss; starting the "
+                       "worker without waiting for it", SIZE_BACKFILL_CHECK_SECONDS)
+
+
 def main() -> None:
     database_url = os.environ["DATABASE_URL"]
     init_engine(database_url)
     redis = Redis.from_url(os.environ["REDIS_URL"])
     _bootstrap_scheduler(redis)
+    _queue_size_backfill(database_url, redis)
     queues = [Queue(name, connection=redis) for name in _QUEUE_ORDER]
     # Records each run in the jobs table (Admin -> Jobs).
     RecordingWorker(queues, connection=redis, database_url=database_url).work(

@@ -61,9 +61,9 @@
     {#if !editing}
       {#if $session?.role === "admin"}
         <MonitorButton kind="artist" entityId={artist.id} name={artist.name} monitor={data.artist.monitor ?? null} />
+        <button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>
+        <button class="btn btn-ghost" on:click={enrich} disabled={enriching}>{$_("catalog.enrich")}</button>
       {/if}
-      <button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>
-      <button class="btn btn-ghost" on:click={enrich} disabled={enriching}>{$_("catalog.enrich")}</button>
     {/if}
   </header>
 
@@ -87,7 +87,7 @@
 
   <h2>{$_("catalog.sets")}</h2>
   {#if data.sets.length}
-    <EntitySetsGrid sets={data.sets} />
+    <EntitySetsGrid kind="artists" slug={artist.slug} sets={data.sets} total={data.setsTotal} />
   {:else}
     <EmptyState message={$_("catalog.no_sets")} />
   {/if}
