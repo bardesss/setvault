@@ -1,4 +1,6 @@
 import asyncio
+import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -57,6 +59,8 @@ from setvault_web.middleware.security_headers import (
     compute_inline_script_hashes,
 )
 
+logger = logging.getLogger(__name__)
+
 HEALTH_CHECK_TIMEOUT_SECONDS = 2
 
 
@@ -77,10 +81,11 @@ async def _ping_redis() -> None:
         await client.aclose()
 
 
-async def _run_check(check) -> bool:
+async def _run_check(name: str, check: Callable[[], Awaitable[None]]) -> bool:
     try:
         await asyncio.wait_for(check(), HEALTH_CHECK_TIMEOUT_SECONDS)
     except Exception:
+        logger.warning("health check failed: %s", name, exc_info=True)
         return False
     return True
 
@@ -107,7 +112,8 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     async def health() -> JSONResponse:
         db_ok, redis_ok = await asyncio.gather(
-            _run_check(lambda: _check_db()), _run_check(lambda: _ping_redis())
+            _run_check("db", lambda: _check_db()),
+            _run_check("redis", lambda: _ping_redis()),
         )
         failed = [n for n, ok in (("db", db_ok), ("redis", redis_ok)) if not ok]
         if failed:
