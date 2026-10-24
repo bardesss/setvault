@@ -61,9 +61,9 @@
     {#if !editing}
       {#if $session?.role === "admin"}
         <MonitorButton kind="artist" entityId={artist.id} name={artist.name} monitor={data.artist.monitor ?? null} />
+        <button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>
+        <button class="btn btn-ghost" on:click={enrich} disabled={enriching}>{$_("catalog.enrich")}</button>
       {/if}
-      <button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>
-      <button class="btn btn-ghost" on:click={enrich} disabled={enriching}>{$_("catalog.enrich")}</button>
     {/if}
   </header>
 

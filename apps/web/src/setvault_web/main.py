@@ -1,9 +1,12 @@
+import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from setvault_core.db import init_engine
-from starlette.responses import FileResponse
+from redis.asyncio import Redis
+from setvault_core.db import init_engine, session_factory
+from sqlalchemy import text
+from starlette.responses import FileResponse, JSONResponse
 
 from setvault_web import __version__
 from setvault_web.api import admin as admin_api
@@ -54,6 +57,33 @@ from setvault_web.middleware.security_headers import (
     compute_inline_script_hashes,
 )
 
+HEALTH_CHECK_TIMEOUT_SECONDS = 2
+
+
+async def _check_db() -> None:
+    async with session_factory()() as session:
+        await session.execute(text("SELECT 1"))
+
+
+async def _ping_redis() -> None:
+    client = Redis.from_url(
+        get_settings().redis_url,
+        socket_connect_timeout=1,
+        socket_timeout=1,
+    )
+    try:
+        await client.ping()
+    finally:
+        await client.aclose()
+
+
+async def _run_check(check) -> bool:
+    try:
+        await asyncio.wait_for(check(), HEALTH_CHECK_TIMEOUT_SECONDS)
+    except Exception:
+        return False
+    return True
+
 
 def create_app() -> FastAPI:
     settings = get_settings()
@@ -75,8 +105,14 @@ def create_app() -> FastAPI:
     app.add_middleware(CsrfMiddleware)
 
     @app.get("/api/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok", "version": __version__, "base_url": settings.base_url}
+    async def health() -> JSONResponse:
+        db_ok, redis_ok = await asyncio.gather(
+            _run_check(lambda: _check_db()), _run_check(lambda: _ping_redis())
+        )
+        failed = [n for n, ok in (("db", db_ok), ("redis", redis_ok)) if not ok]
+        if failed:
+            return JSONResponse({"status": "degraded", "failed": failed}, status_code=503)
+        return JSONResponse({"status": "ok"})
 
     app.include_router(auth_api.router)
     app.include_router(setup_api.router)

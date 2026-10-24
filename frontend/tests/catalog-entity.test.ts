@@ -36,3 +36,22 @@ test("artist page lists sets and supports inline edit", async ({ page, request }
   await page.getByRole("button", { name: /^save$/i }).click();
   await expect(page.getByText("edited bio")).toBeVisible();
 });
+
+test("members see no Edit or Enrich on entity pages", async ({ page, request }) => {
+  await loginAs(page, request);
+  await page.route(/\/api\/auth\/me$/, async (route) => {
+    const real = await route.fetch();
+    return route.fulfill({ json: { ...(await real.json()), role: "user" } });
+  });
+  await page.route(/\/api\/catalog\/artists\/stub-artist\/sets/, (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) }),
+  );
+  await page.route(/\/api\/catalog\/artists\/stub-artist$/, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(artist) }),
+  );
+  await page.goto("/artists/stub-artist");
+  await page.waitForLoadState("networkidle");
+  await expect(page.getByRole("heading", { name: "Stub Artist" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /edit/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /enrich/i })).toHaveCount(0);
+});

@@ -35,8 +35,8 @@
     {#if !editing}
       {#if $session?.role === "admin"}
         <MonitorButton kind="party" entityId={party.id} name={party.name} monitor={data.party.monitor ?? null} />
+        <button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>
       {/if}
-      <button class="btn btn-ghost" on:click={startEdit}>{$_("catalog.edit")}</button>
     {/if}
   </header>
   {#if editing}
