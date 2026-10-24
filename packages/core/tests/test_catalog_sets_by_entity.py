@@ -59,14 +59,14 @@ async def test_lists_sets_for_each_entity_kind(session):
     p_set = await _set(s, uploader=uploader, root_id=root.id, party_id=party.id)
     await s.commit()
 
-    artist_sets = await list_sets_for_entity(s, kind="artist", entity_id=artist.id)
+    artist_sets, _ = await list_sets_for_entity(s, kind="artist", entity_id=artist.id)
     assert [x.id for x in artist_sets] == [a_set]
-    venue_sets = await list_sets_for_entity(s, kind="venue", entity_id=venue.id)
+    venue_sets, _ = await list_sets_for_entity(s, kind="venue", entity_id=venue.id)
     assert [x.id for x in venue_sets] == [v_set]
-    party_sets = await list_sets_for_entity(s, kind="party", entity_id=party.id)
+    party_sets, _ = await list_sets_for_entity(s, kind="party", entity_id=party.id)
     assert [x.id for x in party_sets] == [p_set]
     # series: sets whose party belongs to the series
-    series_sets = await list_sets_for_entity(s, kind="series", entity_id=series.id)
+    series_sets, _ = await list_sets_for_entity(s, kind="series", entity_id=series.id)
     assert [x.id for x in series_sets] == [p_set]
 
 
@@ -88,5 +88,6 @@ async def test_excludes_soft_deleted_and_unpublished(session):
     deleted.deleted_at = datetime.now(UTC)
     await s.commit()
 
-    rows = await list_sets_for_entity(s, kind="artist", entity_id=artist.id)
+    rows, total = await list_sets_for_entity(s, kind="artist", entity_id=artist.id)
     assert [x.id for x in rows] == [live_id]
+    assert total == 1

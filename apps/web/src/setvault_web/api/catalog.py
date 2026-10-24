@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -27,7 +27,9 @@ from setvault_core.schemas.catalog import (
 from setvault_core.services.artist_enrich import enrich_artist_entity
 from setvault_core.services.audit import log as audit_log
 from setvault_core.services.catalog import (
+    BrowseSort,
     LookupKind,
+    list_entities,
     list_sets_for_entity,
     slugify,
     unique_slug,
@@ -154,6 +156,46 @@ async def lookup_entities(
     """Typeahead for the set editor: ``limit`` is capped at 25."""
     rows = await catalog_lookup(session, kind, q, limit)
     return [LookupOut(id=r.id, name=r.name, slug=r.slug, hint=r.hint) for r in rows]
+
+
+# -------- Browse --------
+
+BrowseKindPath = Literal["artists", "parties", "venues", "series"]
+_BROWSE_KIND = {"artists": "artist", "parties": "party", "venues": "venue", "series": "series"}
+
+
+class EntityListItemOut(LookupOut):
+    set_count: int
+
+
+class EntityListOut(BaseModel):
+    items: list[EntityListItemOut]
+    total: int
+
+
+# Registered after "/lookup" and before the "/{kind}/{slug}" routes.
+@router.get("/{kind}", response_model=EntityListOut)
+async def list_catalog_entities(
+    kind: BrowseKindPath,
+    session: Annotated[AsyncSession, Depends(db_session)],
+    _: Annotated[object, Depends(current_user)],
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    sort: BrowseSort = "name",
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    """One page of a catalog kind for the browse pages, with set counts."""
+    rows, total = await list_entities(
+        session, _BROWSE_KIND[kind], q=q, sort=sort, limit=limit, offset=offset,
+    )
+    return EntityListOut(
+        items=[
+            EntityListItemOut(id=r.id, name=r.name, slug=r.slug, hint=r.hint,
+                              set_count=r.set_count)
+            for r in rows
+        ],
+        total=total,
+    )
 
 
 # -------- Artists --------
@@ -615,6 +657,8 @@ async def entity_sets(
     slug: str,
     session: Annotated[AsyncSession, Depends(db_session)],
     _: Annotated[object, Depends(current_user)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     model = _KIND_MODEL.get(kind)
     if model is None:
@@ -624,5 +668,7 @@ async def entity_sets(
     )).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="not found")
-    sets = await list_sets_for_entity(session, kind=_KIND_NAME[kind], entity_id=row.id)
-    return {"items": [_set_summary_dict(s) for s in sets]}
+    sets, total = await list_sets_for_entity(
+        session, kind=_KIND_NAME[kind], entity_id=row.id, limit=limit, offset=offset,
+    )
+    return {"items": [_set_summary_dict(s) for s in sets], "total": total}

@@ -89,15 +89,19 @@ def _party_hint(p: Party) -> str | None:
     return " · ".join(x for x in parts if x) or None
 
 
-async def lookup(
-    session: AsyncSession, kind: LookupKind, q: str, limit: int = 10,
-) -> list[LookupRow]:
-    """Typeahead search over one catalog kind: case-insensitive substring
-    match on the name (and, for artists, the aliases). Merged-away entities
-    are left out. Prefix matches come first, then the rest, each by name.
-    ``limit`` is capped at ``LOOKUP_MAX``."""
-    model = {"artist": Artist, "party": Party, "venue": Venue, "series": Series, "tag": Tag}[kind]
-    limit = max(1, min(limit, LOOKUP_MAX))
+_LOOKUP_MODELS = {"artist": Artist, "party": Party, "venue": Venue, "series": Series, "tag": Tag}
+
+
+def _match_filter(model, q: str | None) -> tuple[list, object | None]:
+    """The shared WHERE for lookup and browse: a case-insensitive substring
+    match on the name (and, for artists, the aliases) when ``q`` is given, and
+    merged-away entities left out. Also returns the prefix-match expression
+    lookup orders by (``None`` without a ``q``)."""
+    conds: list = []
+    if model is not Tag:
+        conds.append(model.merged_into_id.is_(None))
+    if q is None or not q.strip():
+        return conds, None
     term = _like_escape(q.strip().replace(_ALIAS_SEP, ""))
     contains = model.name.ilike(f"%{term}%", escape="\\")
     prefix = model.name.ilike(f"{term}%", escape="\\")
@@ -105,40 +109,132 @@ async def lookup(
         aliases = func.concat(_ALIAS_SEP, func.array_to_string(Artist.aliases, _ALIAS_SEP))
         contains = or_(contains, aliases.ilike(f"%{term}%", escape="\\"))
         prefix = or_(prefix, aliases.ilike(f"%{_ALIAS_SEP}{term}%", escape="\\"))
-    stmt = select(model).where(contains)
-    if model is not Tag:
-        stmt = stmt.where(model.merged_into_id.is_(None))
-    stmt = stmt.order_by(
-        case((prefix, 0), else_=1), func.lower(model.name), model.id,
-    ).limit(limit)
+    conds.append(contains)
+    return conds, prefix
+
+
+def _hint(row) -> str | None:
+    if isinstance(row, Venue):
+        return row.city_or_area
+    if isinstance(row, Party):
+        return _party_hint(row)
+    return None
+
+
+async def lookup(
+    session: AsyncSession, kind: LookupKind, q: str, limit: int = 10,
+) -> list[LookupRow]:
+    """Typeahead search over one catalog kind: case-insensitive substring
+    match on the name (and, for artists, the aliases). Merged-away entities
+    are left out. Prefix matches come first, then the rest, each by name.
+    ``limit`` is capped at ``LOOKUP_MAX``."""
+    model = _LOOKUP_MODELS[kind]
+    limit = max(1, min(limit, LOOKUP_MAX))
+    conds, prefix = _match_filter(model, q)
+    order = [func.lower(model.name), model.id]
+    if prefix is not None:
+        order.insert(0, case((prefix, 0), else_=1))
+    stmt = select(model).where(*conds).order_by(*order).limit(limit)
     rows = (await session.execute(stmt)).scalars().unique().all()
+    return [LookupRow(id=str(r.id), name=r.name, slug=r.slug, hint=_hint(r)) for r in rows]
 
-    def hint(row) -> str | None:
-        if model is Venue:
-            return row.city_or_area
-        if model is Party:
-            return _party_hint(row)
-        return None
 
-    return [LookupRow(id=str(r.id), name=r.name, slug=r.slug, hint=hint(r)) for r in rows]
+BrowseKind = Literal["artist", "party", "venue", "series"]
+BrowseSort = Literal["name", "sets", "recent"]
+
+
+@dataclass(frozen=True)
+class EntityRow(LookupRow):
+    set_count: int
+
+
+def _set_counts(kind: BrowseKind):
+    """Published, non-deleted set count per entity id, as a grouped subquery."""
+    live = (LiveSet.deleted_at.is_(None), LiveSet.status == "published")
+    if kind == "artist":
+        key = LiveSetArtist.artist_id
+        stmt = select(key.label("entity_id"), func.count(func.distinct(LiveSet.id)).label("n"))
+        stmt = stmt.join(LiveSet, LiveSet.id == LiveSetArtist.live_set_id)
+    elif kind == "series":
+        key = Party.series_id
+        stmt = select(key.label("entity_id"), func.count(LiveSet.id).label("n"))
+        stmt = stmt.select_from(LiveSet).join(Party, Party.id == LiveSet.party_id)
+    else:
+        key = LiveSet.venue_id if kind == "venue" else LiveSet.party_id
+        stmt = select(key.label("entity_id"), func.count(LiveSet.id).label("n"))
+    return stmt.where(*live, key.is_not(None)).group_by(key).subquery()
+
+
+async def list_entities(
+    session: AsyncSession,
+    kind: BrowseKind,
+    *,
+    q: str | None,
+    sort: BrowseSort,
+    limit: int,
+    offset: int,
+) -> tuple[list[EntityRow], int]:
+    """One page of a catalog kind for the browse pages, with each entity's
+    published set count, plus the total matching ``q``. Same match and
+    merged-away rules as ``lookup``."""
+    model = _LOOKUP_MODELS[kind]
+    conds, _ = _match_filter(model, q)
+    total = (await session.execute(
+        select(func.count()).select_from(model).where(*conds)
+    )).scalar_one()
+    counts = _set_counts(kind)
+    set_count = func.coalesce(counts.c.n, 0)
+    if sort == "sets":
+        order = [set_count.desc(), func.lower(model.name), model.id]
+    elif sort == "recent":
+        order = [model.created_at.desc(), model.id]
+    else:
+        order = [func.lower(model.name), model.id]
+    stmt = (
+        select(model, set_count)
+        .outerjoin(counts, counts.c.entity_id == model.id)
+        .where(*conds)
+        .order_by(*order)
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = (await session.execute(stmt)).all()
+    items = [
+        EntityRow(id=str(r.id), name=r.name, slug=r.slug, hint=_hint(r), set_count=int(n))
+        for r, n in rows
+    ]
+    return items, int(total)
 
 
 async def list_sets_for_entity(
-    session: AsyncSession, *, kind: EntityKind, entity_id: uuid.UUID,
-) -> list[LiveSet]:
-    """Published, non-deleted LiveSets referencing the entity, newest first."""
-    q = select(LiveSet).where(
-        LiveSet.deleted_at.is_(None), LiveSet.status == "published",
-    )
+    session: AsyncSession,
+    *,
+    kind: EntityKind,
+    entity_id: uuid.UUID,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[LiveSet], int]:
+    """One page of the published, non-deleted LiveSets referencing the entity,
+    newest first, plus their total."""
+    conds = [LiveSet.deleted_at.is_(None), LiveSet.status == "published"]
     if kind == "artist":
-        q = q.join(LiveSetArtist, LiveSetArtist.live_set_id == LiveSet.id).where(
-            LiveSetArtist.artist_id == entity_id,
-        )
+        conds.append(LiveSet.id.in_(
+            select(LiveSetArtist.live_set_id).where(LiveSetArtist.artist_id == entity_id)
+        ))
     elif kind == "venue":
-        q = q.where(LiveSet.venue_id == entity_id)
+        conds.append(LiveSet.venue_id == entity_id)
     elif kind == "party":
-        q = q.where(LiveSet.party_id == entity_id)
+        conds.append(LiveSet.party_id == entity_id)
     elif kind == "series":
-        q = q.join(Party, Party.id == LiveSet.party_id).where(Party.series_id == entity_id)
-    q = q.order_by(LiveSet.date.desc().nullslast(), LiveSet.created_at.desc())
-    return list((await session.execute(q)).scalars().unique().all())
+        conds.append(LiveSet.party_id.in_(
+            select(Party.id).where(Party.series_id == entity_id)
+        ))
+    total = (await session.execute(
+        select(func.count()).select_from(LiveSet).where(*conds)
+    )).scalar_one()
+    q = (
+        select(LiveSet).where(*conds)
+        .order_by(LiveSet.date.desc().nullslast(), LiveSet.created_at.desc(), LiveSet.id)
+        .limit(limit).offset(offset)
+    )
+    return list((await session.execute(q)).scalars().unique().all()), int(total)

@@ -423,3 +423,51 @@ async def test_patch_enqueues_naming_when_used_field_changes(
     # A date change does not touch a template without {Date}/{Year}.
     await authed_admin_client.patch(f"/api/sets/{slug}", json={"date": "2024-01-01"})
     assert len(calls) == 1
+
+
+# ---- track filter -------------------------------------------------------------
+
+
+async def _track_on(slug: str, title: str = "Strings of Life"):
+    """Create a Track and a TracklistEntry on set ``slug`` pointing at it."""
+    from setvault_core.models.tracklist import Track, TracklistEntry
+    async with session_factory()() as s:
+        admin = (await s.execute(
+            select(User).where(User.email == "admin@example.test"))).scalar_one()
+        live = (await s.execute(select(LiveSet).where(LiveSet.slug == slug))).scalar_one()
+        track = Track(title=title)
+        s.add(track)
+        await s.flush()
+        s.add(TracklistEntry(
+            live_set_id=live.id, position=0, start_seconds=0, track_id=track.id,
+            raw_label=title, created_by=admin.id,
+        ))
+        await s.commit()
+        return track.id
+
+
+async def test_track_filter(authed_admin_client, library):
+    with_track = await library("has track", tags=["techno"])
+    await library("no track", tags=["techno"])
+    track_id = await _track_on(with_track)
+    r = await authed_admin_client.get(f"/api/sets?track={track_id}")
+    assert r.status_code == 200, r.text
+    assert [i["slug"] for i in r.json()["items"]] == [with_track]
+    assert r.json()["total"] == 1
+    # Combines with the other filters.
+    r = await authed_admin_client.get(f"/api/sets?track={track_id}&tag=techno")
+    assert r.json()["total"] == 1
+    r = await authed_admin_client.get(f"/api/sets?track={track_id}&q=nomatch")
+    assert r.json() == {"items": [], "total": 0}
+
+
+async def test_track_filter_bad_id_422(authed_admin_client):
+    r = await authed_admin_client.get("/api/sets?track=not-a-uuid")
+    assert r.status_code == 422
+
+
+async def test_track_filter_unknown_track_empty(authed_admin_client, library):
+    await library("a set")
+    r = await authed_admin_client.get(f"/api/sets?track={_uuid.uuid4()}")
+    assert r.status_code == 200
+    assert r.json() == {"items": [], "total": 0}

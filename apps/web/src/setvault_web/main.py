@@ -39,6 +39,7 @@ from setvault_web.api import search as search_api
 from setvault_web.api import sets as sets_api
 from setvault_web.api import setup as setup_api
 from setvault_web.api import tracklist as tracklist_api
+from setvault_web.api import tracks as tracks_api
 from setvault_web.api import uploads as uploads_api
 from setvault_web.api import url_rip as url_rip_api
 from setvault_web.api import users as users_api
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(catalog_admin_api.router)
     app.include_router(sets_api.router)
     app.include_router(tracklist_api.router)
+    app.include_router(tracks_api.router)
     app.include_router(enrichment_api.router)
     app.include_router(search_api.router)
     app.include_router(ws_api.router)
