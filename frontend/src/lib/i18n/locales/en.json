@@ -107,6 +107,16 @@
     "year": "Year",
     "all": "All"
   },
+  "home": {
+    "activity": {
+      "title": "Recent activity",
+      "empty": "Nothing new yet.",
+      "set_published": "Set published",
+      "discovery": "Discovery to review",
+      "job_failed": "Job failed",
+      "view_jobs": "View all jobs"
+    }
+  },
   "nav": {
     "home": "Home",
     "library": "Library",

@@ -18,6 +18,13 @@ interface ContinueItem {
   duration_seconds: number | null;
 }
 
+export interface ActivityItem {
+  kind: "set_published" | "discovery" | "job_failed";
+  at: string;
+  title: string;
+  href: string;
+}
+
 interface RecentSet {
   slug: string;
   title: string;
@@ -36,13 +43,15 @@ export const load: PageLoad = async ({ fetch, parent }) => {
       homeSummary: null as HomeSummary | null,
       continueListening: [] as ContinueItem[],
       recent: [] as RecentSet[],
+      activity: [] as ActivityItem[],
     };
   }
 
-  const [summaryRes, cont, recentBody] = await Promise.all([
+  const [summaryRes, cont, recentBody, activity] = await Promise.all([
     fetch("/api/me/home-summary").then((r) => (r.ok ? r.json() : null)),
     fetch("/api/me/continue-listening").then((r) => (r.ok ? r.json() : [])),
     fetch("/api/sets?limit=12&sort=recent").then((r) => (r.ok ? r.json() : { items: [] })),
+    fetch("/api/me/home-activity").then((r) => (r.ok ? r.json() : [])),
   ]);
 
   return {
@@ -50,5 +59,6 @@ export const load: PageLoad = async ({ fetch, parent }) => {
     homeSummary: summaryRes as HomeSummary | null,
     continueListening: cont as ContinueItem[],
     recent: (recentBody.items ?? []) as RecentSet[],
+    activity: activity as ActivityItem[],
   };
 };

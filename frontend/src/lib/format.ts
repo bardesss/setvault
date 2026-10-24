@@ -19,3 +19,19 @@ export function fmtBytes(n: number | null | undefined): string {
   const oneDecimal = i > 0 && value.toFixed(1) !== "10.0" && value < 10;
   return `${oneDecimal ? value.toFixed(1) : Math.round(value)} ${BYTE_UNITS[i]}`;
 }
+
+const AGO_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+  ["day", 86400],
+  ["hour", 3600],
+  ["minute", 60],
+];
+
+/** An ISO timestamp as relative time in the given locale ("2 hours ago"). */
+export function fmtAgo(iso: string, loc: string | null | undefined): string {
+  const secs = Math.round((new Date(iso).getTime() - Date.now()) / 1000);
+  const rtf = new Intl.RelativeTimeFormat(loc || "en", { numeric: "auto" });
+  for (const [unit, size] of AGO_UNITS) {
+    if (Math.abs(secs) >= size) return rtf.format(Math.round(secs / size), unit);
+  }
+  return rtf.format(0, "second");
+}

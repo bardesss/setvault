@@ -10,7 +10,8 @@ from setvault_core.models.api_token import ApiToken
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.engagement import ActivityEvent, UserSetState
 from setvault_core.models.identity import NotificationPreference, User
-from setvault_core.models.system import NotificationConnector
+from setvault_core.models.monitors import Monitor, MonitorDiscovery
+from setvault_core.models.system import Job, NotificationConnector
 from setvault_core.schemas.feeds import (
     RssTokenCreateIn,
     RssTokenOut,
@@ -44,6 +45,17 @@ class ActivityItem(BaseModel):
     subject_id: str | None
     payload: dict
     created_at: str
+
+
+class HomeActivityItem(BaseModel):
+    kind: Literal["set_published", "discovery", "job_failed"]
+    at: datetime
+    title: str
+    href: str
+
+
+HOME_ACTIVITY_LIMIT = 10
+HOME_FAILED_JOBS_DAYS = 7
 
 
 class HomeSummaryOut(BaseModel):
@@ -138,6 +150,62 @@ async def activity(
         )
         for e in rows
     ]
+
+
+@router.get("/home-activity", response_model=list[HomeActivityItem])
+async def home_activity(
+    user: Annotated[User, Depends(current_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+):
+    """Newest-first mix of published sets, discoveries awaiting review and (for
+    admins) recently failed jobs. Each source is capped in SQL before merging;
+    rows whose subject is gone drop out through the inner joins."""
+    items: list[HomeActivityItem] = []
+
+    published = await session.execute(
+        select(ActivityEvent.created_at, LiveSet.title, LiveSet.slug)
+        .join(LiveSet, LiveSet.id == ActivityEvent.subject_id)
+        .where(
+            ActivityEvent.kind == "set.published",
+            LiveSet.deleted_at.is_(None),
+        )
+        .order_by(ActivityEvent.created_at.desc())
+        .limit(HOME_ACTIVITY_LIMIT)
+    )
+    items += [
+        HomeActivityItem(kind="set_published", at=at, title=title, href=f"/sets/{slug}")
+        for at, title, slug in published.all()
+    ]
+
+    disc_q = (
+        select(MonitorDiscovery.created_at, MonitorDiscovery.title)
+        .join(Monitor, Monitor.id == MonitorDiscovery.monitor_id)
+        .where(MonitorDiscovery.status == "pending_review")
+        .order_by(MonitorDiscovery.created_at.desc())
+        .limit(HOME_ACTIVITY_LIMIT)
+    )
+    if user.role != "admin":
+        disc_q = disc_q.where(Monitor.owner_user_id == user.id)
+    items += [
+        HomeActivityItem(kind="discovery", at=at, title=title, href="/discoveries")
+        for at, title in (await session.execute(disc_q)).all()
+    ]
+
+    if user.role == "admin":
+        since = datetime.now(UTC) - timedelta(days=HOME_FAILED_JOBS_DAYS)
+        failed = await session.execute(
+            select(Job.finished_at, Job.kind)
+            .where(Job.status == "failed", Job.finished_at >= since)
+            .order_by(Job.finished_at.desc())
+            .limit(HOME_ACTIVITY_LIMIT)
+        )
+        items += [
+            HomeActivityItem(kind="job_failed", at=at, title=kind, href="/admin/jobs")
+            for at, kind in failed.all()
+        ]
+
+    items.sort(key=lambda i: i.at, reverse=True)
+    return items[:HOME_ACTIVITY_LIMIT]
 
 
 @router.get("/home-summary", response_model=HomeSummaryOut)

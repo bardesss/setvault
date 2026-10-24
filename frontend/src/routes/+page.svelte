@@ -4,7 +4,8 @@
   import Kpi from "#lib/components/Kpi.svelte";
   import ContinueCard from "#lib/components/ContinueCard.svelte";
   import RecentCard from "#lib/components/RecentCard.svelte";
-  import { fmtBytes } from "#lib/format.ts";
+  import { _, locale } from "svelte-i18n";
+  import { fmtBytes, fmtAgo } from "#lib/format.ts";
   import type { PageData } from "./$types";
 
   export let data: PageData;
@@ -31,6 +32,8 @@
     data.user?.email?.split("@")[0] ||
     "";
   $: summary = data.homeSummary;
+
+  const ACTIVITY_ICON = { set_published: "♫", discovery: "◎", job_failed: "!" };
 
   const NEW_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
   function isNewSet(createdAt: string | undefined): boolean {
@@ -127,9 +130,28 @@
     </div>
   </section>
 
-  <!-- Phase 7: Activity feed + Jobs panel cells go here when the
-       backend feed + WS streams land. Mockup section in 03-home.html
-       lines ~480-670. -->
+  <section class="home-section" data-testid="home-activity">
+    <SectionHeader title={$_("home.activity.title")} />
+    {#if data.activity.length}
+      <ul class="activity">
+        {#each data.activity as a (a.kind + a.href + a.at)}
+          <li class="activity-row kind-{a.kind}">
+            <span class="activity-icon" aria-hidden="true">{ACTIVITY_ICON[a.kind]}</span>
+            <a href={a.href}>
+              <span class="activity-kind">{$_(`home.activity.${a.kind}`)}</span>
+              {a.title}
+            </a>
+            <time datetime={a.at} title={a.at}>{fmtAgo(a.at, $locale)}</time>
+          </li>
+        {/each}
+      </ul>
+    {:else}
+      <p class="activity-empty">{$_("home.activity.empty")}</p>
+    {/if}
+    {#if data.user.role === "admin"}
+      <a class="activity-jobs" href="/admin/jobs">{$_("home.activity.view_jobs")} →</a>
+    {/if}
+  </section>
 {/if}
 
 <style>
@@ -148,5 +170,37 @@
   .home-section {
     padding: var(--sp-6) var(--sp-8);
     border-bottom: 1px solid var(--border-subtle);
+  }
+  .activity {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--sp-2);
+  }
+  .activity-row {
+    display: grid;
+    grid-template-columns: 1.5rem 1fr auto;
+    align-items: baseline;
+    gap: var(--sp-3);
+  }
+  .activity-icon {
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .kind-job_failed .activity-icon {
+    color: var(--accent-error);
+  }
+  .activity-kind {
+    color: var(--text-muted);
+    margin-right: var(--sp-2);
+  }
+  .activity-row time,
+  .activity-empty {
+    color: var(--text-muted);
+  }
+  .activity-jobs {
+    display: inline-block;
+    margin-top: var(--sp-3);
   }
 </style>
