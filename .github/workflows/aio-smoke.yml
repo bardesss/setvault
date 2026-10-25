@@ -36,6 +36,11 @@ jobs:
           done
           echo "health never came up"; docker logs sv; exit 1
 
+      - name: YouTube helpers (Deno, yt-dlp-ejs, PO-token server on :4416)
+        run: bash infra/docker/test/smoke_pot_provider.sh
+        env:
+          CONTAINER: sv
+
       - name: Periodic jobs run (rq-scheduler service moves due jobs to the worker)
         run: bash infra/docker/test/smoke_scheduler.sh
         env:
