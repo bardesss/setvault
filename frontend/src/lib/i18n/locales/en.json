@@ -427,6 +427,9 @@
     "col_rate_window": "Window (s)",
     "save": "Save"
   },
+  "search": {
+    "sources_throttled": "Skipped for now (rate limit reached): {sources}"
+  },
   "comments": {
     "heading": "Comments",
     "composer_placeholder": "Write a comment — supports Markdown and @mentions",

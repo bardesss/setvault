@@ -27,6 +27,8 @@ class SourceRateLimitedError(Exception):
 class SearchAllResult:
     candidates: list[Candidate]
     errored_kinds: list[str]
+    # Skipped because their rate-limit budget is spent this window.
+    throttled_kinds: list[str]
 
 
 def _record_success(st: IngestSourceState) -> None:
@@ -129,11 +131,11 @@ async def search_all_sources(
         if st.enabled and (src := get_source(st.kind)) is not None
     ]
 
-    async def _run(src: IngestSource, st: IngestSourceState) -> list[Candidate]:
+    async def _run(src: IngestSource, st: IngestSourceState) -> list[Candidate] | None:
         if not await _source_allow(
             st.kind, limit=st.rate_limit_max, window_seconds=st.rate_limit_window_seconds,
         ):
-            return []  # budget exhausted this window; try next poll
+            return None  # budget exhausted this window: throttled, not searched
         return await asyncio.to_thread(src.search, query, limit=limit_per_source)
 
     results = await asyncio.gather(
@@ -141,8 +143,11 @@ async def search_all_sources(
     )
     candidates: list[Candidate] = []
     errored: list[str] = []
+    throttled: list[str] = []
     for (st, _src), res in zip(enabled, results, strict=True):
-        if isinstance(res, SourceError):
+        if res is None:
+            throttled.append(st.kind)
+        elif isinstance(res, SourceError):
             _record_failure(st, res)
             errored.append(st.kind)
         elif isinstance(res, BaseException):
@@ -153,4 +158,6 @@ async def search_all_sources(
             _record_success(st)
             candidates.extend(res)
     await session.flush()
-    return SearchAllResult(candidates=candidates, errored_kinds=errored)
+    return SearchAllResult(
+        candidates=candidates, errored_kinds=errored, throttled_kinds=throttled,
+    )

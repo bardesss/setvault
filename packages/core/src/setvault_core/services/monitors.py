@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.models.catalog import Artist, Party, Venue
+from setvault_core.models.identity import User
 from setvault_core.models.monitors import Monitor
 
 CATALOG_MODELS = {"artist": Artist, "party": Party, "venue": Venue}
@@ -176,11 +177,13 @@ async def delete_monitor(
 async def due_monitors(
     session: AsyncSession, *, interval_seconds: int, now: datetime,
 ) -> list[Monitor]:
-    """Enabled monitors never checked or last checked older than the interval."""
+    """Enabled monitors of active (not disabled) owners, never checked or last
+    checked older than the interval."""
     cutoff = now - timedelta(seconds=interval_seconds)
     return list((await session.execute(
-        select(Monitor).where(
+        select(Monitor).join(User, User.id == Monitor.owner_user_id).where(
             Monitor.enabled.is_(True),
+            User.disabled_at.is_(None),
             or_(Monitor.last_checked_at.is_(None), Monitor.last_checked_at < cutoff),
         )
     )).scalars())

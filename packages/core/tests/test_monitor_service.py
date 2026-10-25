@@ -70,3 +70,21 @@ async def test_due_monitors_respects_interval(session):
     assert stale.id in due_ids
     assert never.id in due_ids
     assert fresh.id not in due_ids
+
+
+@pytest.mark.asyncio
+async def test_due_monitors_skip_disabled_owner(session):
+    now = datetime.now(UTC)
+    active_uid = await _make_user(session)
+    disabled_uid = await _make_user(session)
+    disabled = await session.get(User, disabled_uid)
+    disabled.disabled_at = now
+    active_m = await svc.create_monitor(session, owner_user_id=active_uid, kind="query",
+                                        query_text="a", source_kind=None, external_id=None)
+    disabled_m = await svc.create_monitor(session, owner_user_id=disabled_uid, kind="query",
+                                          query_text="b", source_kind=None, external_id=None)
+    await session.flush()
+
+    due_ids = {m.id for m in await svc.due_monitors(session, interval_seconds=3600, now=now)}
+    assert active_m.id in due_ids
+    assert disabled_m.id not in due_ids

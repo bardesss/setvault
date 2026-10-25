@@ -22,6 +22,7 @@
   let sourceQuery = "";
   let candidates: SourceCandidate[] = [];
   let erroredSources: string[] = [];
+  let throttledSources: string[] = [];
   let searching = false;
   let sourceError: string | null = null;
   let ingesting: Record<string, boolean> = {};
@@ -39,6 +40,7 @@
     if (!sourceQuery.trim()) {
       candidates = [];
       erroredSources = [];
+      throttledSources = [];
       return;
     }
     searching = true;
@@ -47,6 +49,7 @@
       const result = await searchSources(sourceQuery.trim());
       candidates = result.items;
       erroredSources = result.errored_sources;
+      throttledSources = result.throttled_kinds;
     } catch (e) {
       sourceError = $_("sources.search_failed");
     } finally {
@@ -161,6 +164,13 @@
       <p class="admin-msg is-warn" role="status">
         {$_("sources.partial_unavailable", {
           values: { sources: erroredSources.map(sourceLabel).join(", ") },
+        })}
+      </p>
+    {/if}
+    {#if throttledSources.length > 0}
+      <p class="muted" role="status">
+        {$_("search.sources_throttled", {
+          values: { sources: throttledSources.map(sourceLabel).join(", ") },
         })}
       </p>
     {/if}

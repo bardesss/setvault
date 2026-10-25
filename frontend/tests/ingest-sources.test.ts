@@ -40,6 +40,7 @@ test("multi-source search lists candidates with chips, an unavailable notice, an
           },
         ],
         errored_sources: ["mixcloud"],
+        throttled_kinds: ["bandcamp"],
       }),
     }),
   );
@@ -103,6 +104,9 @@ test("multi-source search lists candidates with chips, an unavailable notice, an
 
   // The errored source surfaces in the partial-unavailable notice.
   await expect(page.getByText(/Mixcloud/i)).toBeVisible();
+
+  // The throttled source surfaces in its own note.
+  await expect(page.getByText("Skipped for now (rate limit reached): Bandcamp")).toBeVisible();
 
   // Ingest the first (YouTube) candidate and assert it flips to "In library".
   await page.getByRole("button", { name: /^Ingest$/i }).first().click();

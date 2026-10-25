@@ -4,6 +4,7 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from setvault_core.models.identity import User
 from setvault_core.models.url_rip import RipJob
 from setvault_core.services.ingest_sources import (
     get_state,
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.api.images import build_proxied_image_url
 from setvault_web.deps import current_user, db_session, require_admin
+from setvault_web.rate_limit import hit as _ratelimit_hit
 from setvault_web.schemas.ingest_sources import (
     CandidateOut,
     SetEnabledIn,
@@ -31,6 +33,9 @@ from setvault_web.schemas.ingest_sources import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["ingest-sources"])
+
+# Per-user searches per minute; every search fans out to all enabled sources.
+SEARCH_LIMIT = 30
 
 
 def _state_out(st, source) -> SourceStateOut:
@@ -49,9 +54,14 @@ def _state_out(st, source) -> SourceStateOut:
 @router.post("/api/ingest-sources/search", response_model=SourceSearchOut)
 async def search(
     body: SourceSearchIn,
-    user: Annotated[object, Depends(current_user)],
+    user: Annotated[User, Depends(current_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ) -> SourceSearchOut:
+    searches = await _ratelimit_hit(f"search:{user.id}", limit=SEARCH_LIMIT, window_seconds=60)
+    if searches > SEARCH_LIMIT:
+        raise HTTPException(
+            status_code=429, detail="too many searches", headers={"Retry-After": "60"},
+        )
     result = await search_all_sources(
         session, query=body.q, limit_per_source=body.limit_per_source
     )
@@ -104,6 +114,7 @@ async def search(
             for c in cands
         ],
         errored_sources=result.errored_kinds,
+        throttled_kinds=result.throttled_kinds,
     )
 
 

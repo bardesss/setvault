@@ -17,32 +17,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.deps import current_user, db_session
-from setvault_web.rate_limit import hit as _ratelimit_hit
+from setvault_web.rip_limits import enforce_rip_rate_limit
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["url_rip"])
-
-_RIP_HOURLY_LIMIT = 5
-_RIP_DAILY_LIMIT = 50
-
-
-async def _enforce_rip_rate_limit(user_id: uuid.UUID) -> None:
-    """Per-user URL-rip submission limit: 5/hour and 50/day."""
-    hourly = await _ratelimit_hit(f"rip_hour:{user_id}",
-                                  limit=_RIP_HOURLY_LIMIT, window_seconds=3600)
-    if hourly > _RIP_HOURLY_LIMIT:
-        raise HTTPException(
-            status_code=429, detail="too many URL rips this hour",
-            headers={"Retry-After": "3600"},
-        )
-    daily = await _ratelimit_hit(f"rip_day:{user_id}",
-                                 limit=_RIP_DAILY_LIMIT, window_seconds=86400)
-    if daily > _RIP_DAILY_LIMIT:
-        raise HTTPException(
-            status_code=429, detail="too many URL rips today",
-            headers={"Retry-After": "86400"},
-        )
 
 
 def _to_out(job: RipJob, *, live_set_slug: str | None = None) -> RipJobOut:
@@ -71,7 +50,7 @@ async def submit_url_rip(
     user: Annotated[User, Depends(current_user)],
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
-    await _enforce_rip_rate_limit(user.id)
+    await enforce_rip_rate_limit(user.id)
     try:
         job = await _service.submit_rip(
             session, user_id=user.id, url=body.url, trigger=body.trigger,

@@ -32,7 +32,8 @@ async def test_poll_query_monitor_calls_search_all_and_processes(session, monkey
     await session.flush()
 
     async def fake_search_all(s, *, query, limit_per_source=10):
-        return ingest_svc.SearchAllResult(candidates=[_cand("a")], errored_kinds=[])
+        return ingest_svc.SearchAllResult(candidates=[_cand("a")], errored_kinds=[],
+                                         throttled_kinds=[])
     captured = {}
     async def fake_process(s, *, monitor, candidates):
         captured["count"] = len(candidates)
