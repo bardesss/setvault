@@ -770,3 +770,19 @@ async def test_shifted_positions_stay_inside_the_survivors_audio(lib):
         states = dict((await s.execute(select(UserSetState.user_id, UserSetState.position_seconds)
                                        .where(UserSetState.live_set_id == older))).all())
         assert states == {u: 300.0, u2: 300.0}
+
+
+async def test_merge_rounds_half_up(lib):
+    """Integer positions shift by the offset rounded half-up, as in a swap
+    (``round`` would make 2.5 into 2)."""
+    a = _items(23)
+    older = await lib.add(a)
+    newer = await lib.add(a[TRIM:])
+    async with session_factory()() as s:
+        s.add(Comment(live_set_id=newer, user_id=lib.owner.id, position_seconds=10, body="c"))
+        await s.commit()
+        survivor, loser = await s.get(LiveSet, older), await s.get(LiveSet, newer)
+        await set_merge.merge_pair(s, survivor=survivor, loser=loser, offset_seconds=2.5)
+    async with session_factory()() as s:
+        assert (await s.execute(select(Comment.position_seconds)
+                                .where(Comment.live_set_id == older))).scalar_one() == 13

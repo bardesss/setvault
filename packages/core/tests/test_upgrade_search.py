@@ -739,3 +739,22 @@ def test_run_upgrade_search_stops_when_sources_fail(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     summary = job.run_upgrade_search()
     assert seen == ids[:1] and summary["sources_failed"] == 1
+
+
+async def test_rejected_event_sets_source_type(seeded, sources, monkeypatch):
+    """The candidate would arrive as a URL rip; its tier and codec aren't
+    measured yet, so they stay empty."""
+    sources["results"] = [_cand("better", tier="lossless")]
+
+    def down(_rip_id):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(job, "_enqueue_rip", down)
+    async with session_factory()() as s:
+        await job.search_upgrade_for_set(s, seeded["set"], trigger="scheduled")
+    async with session_factory()() as s:
+        [ev] = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == seeded["set"]))).scalars().all()
+        assert ev.outcome == "rejected"
+        assert ev.to_source_type == "url_rip"
+        assert (ev.to_tier, ev.to_codec) == (None, None)

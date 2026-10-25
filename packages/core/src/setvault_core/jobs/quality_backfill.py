@@ -38,9 +38,9 @@ from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.jobs.fingerprint import store_fingerprint
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.services.audio_match import (
-    MATCHER_VERSION,
     compute_legacy_digest,
     compute_raw_fingerprint,
+    current_fingerprint,
     raw_to_bytes,
 )
 from setvault_core.services.audio_quality import apply_quality, measure_quality
@@ -83,8 +83,7 @@ def _has_current_fingerprint():
         select(SetFingerprint.id)
         .where(
             SetFingerprint.live_set_id == LiveSet.id,
-            SetFingerprint.raw.is_not(None),
-            SetFingerprint.raw_version >= MATCHER_VERSION,
+            current_fingerprint(),
         )
         .exists()
     )
@@ -314,8 +313,7 @@ async def _backfill_one(live_set_id: uuid.UUID) -> tuple[bool, bool]:
         need_fp = (await s.execute(
             select(SetFingerprint.id).where(
                 SetFingerprint.live_set_id == live.id,
-                SetFingerprint.raw.is_not(None),
-                SetFingerprint.raw_version >= MATCHER_VERSION,
+                current_fingerprint(),
             ).limit(1)
         )).first() is None
     if not path.is_file():

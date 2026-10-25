@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from setvault_core import triggers
 from setvault_core.models.identity import User
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
 from setvault_core.schemas.monitors import (
@@ -230,7 +231,7 @@ async def rip_discovery(
         return
     try:
         job = await submit_rip(
-            session, user_id=user.id, url=d.webpage_url, trigger="monitor",
+            session, user_id=user.id, url=d.webpage_url, trigger=triggers.MONITOR,
         )
     except DuplicateRipError as exc:
         d.url_rip_id = exc.existing.id

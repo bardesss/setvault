@@ -29,11 +29,13 @@ from typing import TYPE_CHECKING
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core import triggers
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
 from setvault_core.services.catalog import slugify
+from setvault_core.services.set_upgrade import build_upgrade_event, event_audio
 from setvault_core.services.storage import path_in_use
 
 if TYPE_CHECKING:
@@ -356,7 +358,7 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
         else:
             await fingerprint_audio(live_set_id)
 
-        trigger = job.trigger or "url_rip"
+        trigger = job.trigger or triggers.URL_RIP
         candidate = {"candidate_source_kind": job.source_platform,
                      "candidate_external_id": job.source_external_id}
         if job.upgrade_target_set_id is not None:
@@ -438,17 +440,14 @@ async def _record_failed_upgrade_attempt(session: AsyncSession, job: RipJob) -> 
     target = await session.get(LiveSet, job.upgrade_target_set_id)
     if target is None:
         return
-    session.add(SetUpgradeEvent(
-        live_set_id=target.id, trigger=job.trigger or "url_rip", outcome="rejected",
-        reason=f"rip failed: {job.error_text or 'unknown error'}"[:200],
-        from_tier=target.quality_tier, from_codec=target.audio_codec,
-        from_bitrate_kbps=target.audio_bitrate_kbps, from_source_type=target.source_type,
-        from_source_url=target.source_url,
-        to_source_url=job.source_url[:2048],
+    # The rip failed before it was measured: no tier or codec to record.
+    session.add(build_upgrade_event(
+        live_set_id=target.id, trigger=job.trigger or triggers.URL_RIP, outcome="rejected",
+        reason=f"rip failed: {job.error_text or 'unknown error'}",
+        **event_audio("from", target),
+        to_source_type="url_rip", to_source_url=job.source_url,
         candidate_source_kind=job.source_platform,
-        candidate_external_id=(
-            job.source_external_id[:255] if job.source_external_id else None
-        ),
+        candidate_external_id=job.source_external_id,
     ))
 
 

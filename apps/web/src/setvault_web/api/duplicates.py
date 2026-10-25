@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from setvault_core import triggers
 from setvault_core.jobs.ready import fan_out_webhooks, publish_live_set
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.identity import User
@@ -166,7 +167,7 @@ async def discard_duplicate(
             try:
                 await merge_pair(
                     session, survivor=original, loser=live,
-                    offset_seconds=live.match_offset_seconds or 0.0, trigger="duplicates",
+                    offset_seconds=live.match_offset_seconds or 0.0, trigger=triggers.DUPLICATES,
                 )
             except ValueError as e:
                 # The original was recycled (or the copy changed) between

@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.models.catalog import LiveSet, SetFingerprint
 from setvault_core.services.audio_match import (
-    MATCHER_VERSION,
     MatchResult,
     compare,
+    current_fingerprint,
+    is_current_fingerprint,
     is_same_audio,
     raw_from_bytes,
 )
@@ -52,10 +53,7 @@ async def find_original_match(
     read-only session with nothing pending; its loaded objects get expired.
     """
     tol = max(DURATION_TOLERANCE_PCT * duration, DURATION_TOLERANCE_SECONDS)
-    comparable = and_(
-        SetFingerprint.raw.is_not(None),
-        SetFingerprint.raw_version == MATCHER_VERSION,
-    )
+    comparable = current_fingerprint()
     fuzzy = and_(
         comparable,
         SetFingerprint.duration_seconds.between(duration - tol, duration + tol),
@@ -137,7 +135,7 @@ async def match_upgrade_target(
         .order_by(SetFingerprint.created_at),
     )).scalars().all()
     current = next(
-        (r for r in rows if r.raw is not None and r.raw_version == MATCHER_VERSION), None,
+        (r for r in rows if is_current_fingerprint(r)), None,
     )
     if current is not None:
         target_raw = raw_from_bytes(current.raw)

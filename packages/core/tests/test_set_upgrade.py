@@ -776,3 +776,20 @@ async def test_upgrade_without_template_enqueues_nothing(tmp_path: Path, webhook
     async with session_factory()() as s:
         await _apply(s, ids)
     assert calls == []
+
+
+async def test_upgrade_event_truncates_long_url(tmp_path: Path):
+    ids = await _seed(tmp_path)
+    long_url = "https://example.test/" + "x" * 3000
+    async with session_factory()() as s:
+        s.add(set_upgrade.build_upgrade_event(
+            live_set_id=ids["target"], trigger="scheduled", outcome="rejected",
+            reason="r" * 300, to_source_url=long_url, candidate_external_id="e" * 300,
+        ))
+        await s.commit()
+    async with session_factory()() as s:
+        ev = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == ids["target"]))).scalar_one()
+        assert ev.to_source_url == long_url[:2048]
+        assert ev.reason == "r" * 200
+        assert ev.candidate_external_id == "e" * 255

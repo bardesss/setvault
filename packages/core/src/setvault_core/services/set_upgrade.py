@@ -32,6 +32,7 @@ from pathlib import Path
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core import triggers
 from setvault_core.jobs.apply_naming import enqueue_apply_naming
 from setvault_core.jobs.ready import fan_out_webhooks
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
@@ -55,8 +56,6 @@ RECYCLE_GRACE = timedelta(days=14)
 MIN_SHIFT_SECONDS = 1.0
 _REPLACED_SUFFIX = " (replaced copy)"
 _TITLE_MAX = 512  # LiveSet.title is String(512)
-# The Wanted page's manual search; not blocked by the library-wide switch.
-SEARCH_NOW_TRIGGER = "search_now"
 
 # The columns that describe the audio file itself. They move together: the
 # path strings are relative to ``media_root_id``.
@@ -93,27 +92,44 @@ _POSITION_COLUMNS = (
 )
 
 
+def whole_seconds(offset: float) -> int:
+    """An offset in whole seconds for integer positions, rounded half up
+    (``round()`` would make 2.5 into 2, banker's rounding)."""
+    return math.floor(offset + 0.5)
+
+
+def event_audio(side: str, live: LiveSet) -> dict:
+    """The ``from_*`` or ``to_*`` (``side``) fields of an upgrade event that
+    describe ``live``'s audio."""
+    return {
+        f"{side}_tier": live.quality_tier,
+        f"{side}_codec": live.audio_codec,
+        f"{side}_bitrate_kbps": live.audio_bitrate_kbps,
+        f"{side}_source_type": live.source_type,
+        f"{side}_source_url": live.source_url,
+    }
+
+
+def build_upgrade_event(**fields) -> SetUpgradeEvent:
+    """A history row. Every string is cut to its column's length, so a long
+    URL or reason is stored shortened instead of failing the insert."""
+    columns = SetUpgradeEvent.__table__.columns
+    for name, value in fields.items():
+        length = getattr(columns[name].type, "length", None) if name in columns else None
+        if isinstance(value, str) and length is not None:
+            fields[name] = value[:length]
+    return SetUpgradeEvent(**fields)
+
+
 def _event(
     target: LiveSet, candidate: LiveSet, *, outcome: str, trigger: str,
     reason: str | None, candidate_source_kind: str | None,
     candidate_external_id: str | None,
 ) -> SetUpgradeEvent:
     """History row: ``from`` is the target's current audio, ``to`` the candidate's."""
-    return SetUpgradeEvent(
-        live_set_id=target.id,
-        trigger=trigger,
-        outcome=outcome,
-        reason=reason,
-        from_tier=target.quality_tier,
-        from_codec=target.audio_codec,
-        from_bitrate_kbps=target.audio_bitrate_kbps,
-        from_source_type=target.source_type,
-        from_source_url=target.source_url,
-        to_tier=candidate.quality_tier,
-        to_codec=candidate.audio_codec,
-        to_bitrate_kbps=candidate.audio_bitrate_kbps,
-        to_source_type=candidate.source_type,
-        to_source_url=candidate.source_url,
+    return build_upgrade_event(
+        live_set_id=target.id, trigger=trigger, outcome=outcome, reason=reason,
+        **event_audio("from", target), **event_audio("to", candidate),
         candidate_source_kind=candidate_source_kind,
         candidate_external_id=candidate_external_id,
         offset_seconds=candidate.match_offset_seconds,
@@ -127,10 +143,9 @@ async def _shift_positions(session: AsyncSession, live: LiveSet, offset: float) 
     ``offset > 0`` means the new copy starts later in the set, so existing
     time t is at t - offset in the new audio. NULL positions stay NULL (Postgres
     GREATEST/LEAST ignore NULLs and would turn them into a bound). Integer
-    positions shift by the offset rounded half-up (``round()`` would round
-    2.5 to 2, banker's rounding).
+    positions shift by :func:`whole_seconds`.
     """
-    whole = math.floor(offset + 0.5)
+    whole = whole_seconds(offset)
     end = live.duration_seconds
     for model, col, is_int in _POSITION_COLUMNS:
         delta = whole if is_int else offset
@@ -205,7 +220,7 @@ async def upgrade_switches_on(session: AsyncSession, target: LiveSet, *, trigger
     explicit "search now" (R18)."""
     if not target.upgrades_enabled:
         return False
-    if trigger == SEARCH_NOW_TRIGGER:
+    if trigger == triggers.SEARCH_NOW:
         return True
     return bool((await get_config(session)).auto_upgrades_enabled)
 
@@ -422,7 +437,7 @@ async def discard_arrival(
             return
         try:
             session.add(_event(
-                target, arrival, outcome="rejected", trigger=trigger, reason=reason[:200],
+                target, arrival, outcome="rejected", trigger=trigger, reason=reason,
                 candidate_source_kind=candidate_source_kind,
                 candidate_external_id=candidate_external_id,
             ))
@@ -458,7 +473,7 @@ async def discard_arrival(
     try:
         if target is not None:
             session.add(_event(
-                target, arrival, outcome="rejected", trigger=trigger, reason=reason[:200],
+                target, arrival, outcome="rejected", trigger=trigger, reason=reason,
                 candidate_source_kind=candidate_source_kind,
                 candidate_external_id=candidate_external_id,
             ))

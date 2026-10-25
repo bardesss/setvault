@@ -34,9 +34,26 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from sqlalchemy import ColumnElement, and_
+
+from setvault_core.models.catalog import SetFingerprint
+
 # Bump when the fingerprint parameters or the comparison change in a way that
 # makes stored raw fingerprints incomparable with new ones.
 MATCHER_VERSION = 1
+
+
+def current_fingerprint() -> ColumnElement[bool]:
+    """SQL: a ``SetFingerprint`` row with a raw fingerprint from this matcher
+    version. One from any other version can't be compared, so it counts as
+    missing and the backfill redoes it."""
+    return and_(SetFingerprint.raw.is_not(None), SetFingerprint.raw_version == MATCHER_VERSION)
+
+
+def is_current_fingerprint(row: SetFingerprint) -> bool:
+    """Python twin of :func:`current_fingerprint` for a loaded row."""
+    return row.raw is not None and row.raw_version == MATCHER_VERSION
+
 
 # Chromaprint resamples to 11025 Hz; frames are 4096 samples overlapping by
 # 4096 - 4096 // 3, so it hops 1365 samples per item (8.0769/s). fpcalc's

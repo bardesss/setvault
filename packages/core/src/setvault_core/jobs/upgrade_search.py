@@ -24,13 +24,15 @@ from sqlalchemy import ColumnElement, and_, exists, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core import triggers
 from setvault_core.config import redis_url
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.models.identity import User
 from setvault_core.models.upgrades import SetUpgradeEvent, already_tried
 from setvault_core.models.url_rip import RipJob
-from setvault_core.services.audio_match import MATCHER_VERSION
+from setvault_core.schedules import SCHEDULES, Schedule
+from setvault_core.services.audio_match import current_fingerprint
 from setvault_core.services.ingest_sources import (
     SourceDisabledError,
     SourceRateLimitedError,
@@ -46,7 +48,11 @@ from setvault_core.services.quality_profile import (
     is_better,
     rank,
 )
-from setvault_core.services.set_upgrade import SEARCH_NOW_TRIGGER, upgrade_switches_on
+from setvault_core.services.set_upgrade import (
+    build_upgrade_event,
+    event_audio,
+    upgrade_switches_on,
+)
 from setvault_core.services.soundboard_hint import has_soundboard_hint
 from setvault_core.services.system_config import get_config
 from setvault_core.services.url_rip import DuplicateRipError, submit_rip
@@ -55,7 +61,6 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL_ENV = "DATABASE_URL"
 
-SCHEDULED_TRIGGER = "scheduled"
 # Sets per hourly run: 20 x 168 runs covers ~3,300 sets a week (480 a day).
 UPGRADE_SEARCH_BATCH = 20
 # An upgrade briefly holds both copies (the old one sits in the recycle bin).
@@ -65,7 +70,6 @@ UPGRADE_SEARCH_JOB_TIMEOUT = 30 * 60
 SEARCH_NOW_JOB_TIMEOUT = 10 * 60
 
 _WINDOWS = {"daily": timedelta(hours=24), "weekly": timedelta(hours=168)}
-Schedule = Literal["daily", "weekly", "off"]
 DEFAULT_SCHEDULE: Schedule = "weekly"
 _RESULTS_PER_SOURCE = 10
 _DURATION_TOLERANCE = 0.10
@@ -109,7 +113,7 @@ def normalize_schedule(value: str | None) -> Schedule:
     """The stored upgrade search schedule as the scheduler runs it. An
     unknown value (hand-edited, older build) is the column default, weekly,
     so the settings page and the scheduler agree; "off" stays off."""
-    if value in ("daily", "weekly", "off"):
+    if value in SCHEDULES:
         return value  # type: ignore[return-value]
     return DEFAULT_SCHEDULE
 
@@ -130,8 +134,7 @@ def _upgradeable_below_cutoff(profile: QualityProfile) -> ColumnElement[bool]:
 def _has_current_raw_fingerprint() -> ColumnElement[bool]:
     return exists().where(
         SetFingerprint.live_set_id == LiveSet.id,
-        SetFingerprint.raw.is_not(None),
-        SetFingerprint.raw_version == MATCHER_VERSION,
+        current_fingerprint(),
     )
 
 
@@ -338,14 +341,13 @@ async def _rip_owner(session: AsyncSession, live: LiveSet) -> uuid.UUID | None:
 def _rejected_event(
     live: LiveSet, c: Candidate, reason: str, *, trigger: str,
 ) -> SetUpgradeEvent:
-    return SetUpgradeEvent(
-        live_set_id=live.id, trigger=trigger, outcome="rejected",
-        reason=reason[:200],
-        from_tier=live.quality_tier, from_codec=live.audio_codec,
-        from_bitrate_kbps=live.audio_bitrate_kbps, from_source_type=live.source_type,
-        from_source_url=live.source_url,
-        to_source_url=c.webpage_url[:2048],
-        candidate_source_kind=c.source_kind, candidate_external_id=c.external_id[:255],
+    # The candidate would have arrived as a URL rip. Its tier and codec stay
+    # None: nothing was downloaded or measured (expected_tier is a guess).
+    return build_upgrade_event(
+        live_set_id=live.id, trigger=trigger, outcome="rejected", reason=reason,
+        **event_audio("from", live),
+        to_source_type="url_rip", to_source_url=c.webpage_url,
+        candidate_source_kind=c.source_kind, candidate_external_id=c.external_id,
     )
 
 
@@ -378,12 +380,13 @@ async def search_upgrade_for_set(
     session: AsyncSession,
     live_set_id: uuid.UUID,
     *,
-    trigger: Literal["scheduled", "search_now"],
+    trigger: str,
 ) -> Outcome:
     """Search the sources for a better copy of one set and submit at most one
-    targeted upgrade rip. Commits. A rate limit, a full disk or (scheduled
-    only) enough upgrade rips already in flight leaves the set unstamped so
-    the next run retries it first."""
+    targeted upgrade rip (``trigger``: triggers.SCHEDULED or SEARCH_NOW).
+    Commits. A rate limit, a full disk or (scheduled only) enough upgrade
+    rips already in flight leaves the set unstamped so the next run retries
+    it first."""
     live = await session.get(LiveSet, live_set_id)
     profile = await get_profile(session)
     if (
@@ -400,7 +403,7 @@ async def search_upgrade_for_set(
         return "not_eligible"
     # Checked before searching, so a busy queue doesn't spend source budget.
     # An explicit "search now" is one rip at most and not capped.
-    if trigger == SCHEDULED_TRIGGER and (
+    if trigger == triggers.SCHEDULED and (
         await upgrade_rips_in_flight(session, now=datetime.now(UTC))
         >= MAX_UPGRADE_RIPS_IN_FLIGHT
     ):
@@ -497,7 +500,7 @@ async def _run_batch() -> dict:
         # One session per set, so one bad set can't poison the rest.
         async with session_factory()() as s:
             try:
-                outcome: str = await search_upgrade_for_set(s, set_id, trigger=SCHEDULED_TRIGGER)
+                outcome: str = await search_upgrade_for_set(s, set_id, trigger=triggers.SCHEDULED)
             except Exception:
                 logger.exception("upgrade search failed for set %s", set_id)
                 outcome = "error"
@@ -530,7 +533,7 @@ def run_search_upgrade_now(*, live_set_id: str) -> str:
             init_engine(os.environ[DATABASE_URL_ENV])
         async with session_factory()() as s:
             return await search_upgrade_for_set(
-                s, uuid.UUID(live_set_id), trigger=SEARCH_NOW_TRIGGER,
+                s, uuid.UUID(live_set_id), trigger=triggers.SEARCH_NOW,
             )
 
     return run_job(_main())

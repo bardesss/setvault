@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 
+from setvault_core import triggers
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.jobs.probe import probe_audio
 from setvault_core.models.catalog import LiveSet
@@ -31,7 +32,7 @@ async def _run(live_set_id: str) -> None:
         live = await s.get(LiveSet, uuid.UUID(live_set_id))
         source_type = live.source_type if live is not None else None
     # Upgrade history records how a better copy arrived.
-    trigger = "watch_folder" if source_type == "watch_folder" else "upload"
+    trigger = triggers.WATCH_FOLDER if source_type == "watch_folder" else triggers.UPLOAD
     await mark_ready(live_set_id, trigger=trigger)
 
 

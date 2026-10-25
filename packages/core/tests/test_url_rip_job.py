@@ -758,3 +758,36 @@ async def test_rip_draft_slug_folds_accents(session, tmp_path):
 
     live = await _create_draft_live_set(session, job, root=root, audio_relpath="originals/a.flac")
     assert re.fullmatch(r"ame-live-[0-9a-f]{6}", live.slug)
+
+
+async def test_url_rip_event_sets_source_type(session, monkeypatch, tmp_path):
+    from setvault_core.db import session_factory
+    from setvault_core.models.upgrades import SetUpgradeEvent
+    from sqlalchemy import select
+
+    tid, job_id, _user, _calls = await _upgrade_rip_setup(
+        session, monkeypatch, tmp_path, arrival_tier="lossless", matches=True,
+    )
+
+    async def _boom(*a, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("setvault_core.jobs.url_rip_job._download", _boom)
+    await _run_rip_job(session, job_id)
+
+    async with session_factory()() as s:
+        [event] = (await s.execute(select(SetUpgradeEvent).where(
+            SetUpgradeEvent.live_set_id == tid))).scalars().all()
+        assert event.outcome == "rejected"
+        assert event.to_source_type == "url_rip"
+
+
+async def test_rip_trigger_accepts_32_chars(session):
+    user = await _make_user(session)
+    job = RipJob(
+        submitted_by=user.id, source_url="https://x.bandcamp.com/track/t", status="queued",
+        progress_pct=0, probed_metadata={}, trigger="t" * 20,
+    )
+    session.add(job)
+    await session.commit()
+    assert (await session.get(RipJob, job.id)).trigger == "t" * 20

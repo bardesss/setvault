@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core import triggers
 from setvault_core.config import redis_url
 from setvault_core.db import init_engine, session_factory
 from setvault_core.jobs.apply_naming import enqueue_apply_naming
@@ -84,7 +85,7 @@ class ArrivalResult:
 
 async def finish_arrival(
     live_set_id: str, *, upgrade_target_id: uuid.UUID | None = None,
-    trigger: str = "upload", candidate_source_kind: str | None = None,
+    trigger: str = triggers.UPLOAD, candidate_source_kind: str | None = None,
     candidate_external_id: str | None = None,
 ) -> ArrivalResult:
     """Final pipeline stage. Decides the arrival first
@@ -126,7 +127,7 @@ async def finish_arrival(
 
 
 async def mark_ready(
-    live_set_id: str, *, trigger: str = "upload",
+    live_set_id: str, *, trigger: str = triggers.UPLOAD,
 ) -> bool:
     """:func:`finish_arrival`, returning whether the set was published."""
     result = await finish_arrival(live_set_id, trigger=trigger)

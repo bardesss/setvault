@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
-from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
+from setvault_core.schedules import Schedule
 from setvault_core.services.audio_quality import TIERS
 
 
@@ -17,7 +17,7 @@ class SettingsOut(BaseModel):
     quality_tiers_order: list[str]
     quality_cutoff: str
     auto_upgrades_enabled: bool
-    upgrade_search_schedule: Literal["daily", "weekly", "off"]
+    upgrade_search_schedule: Schedule
     # None = loudness matching off.
     loudness_target_lufs: float | None
     backup_enabled: bool
@@ -42,7 +42,7 @@ class SettingsIn(BaseModel):
     quality_tiers_order: list[str] | None = None
     quality_cutoff: str | None = None
     auto_upgrades_enabled: bool | None = None
-    upgrade_search_schedule: Literal["daily", "weekly", "off"] | None = None
+    upgrade_search_schedule: Schedule | None = None
     # An explicit null turns loudness matching off; leaving the field out
     # keeps the stored target (the PUT checks ``model_fields_set``).
     loudness_target_lufs: float | None = Field(default=None, ge=-30.0, le=-5.0)
