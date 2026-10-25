@@ -127,13 +127,13 @@ def test_probe_url_turns_ytdlp_errors_into_probe_error():
 
     ctx = MagicMock()
     ctx.__enter__.return_value.extract_info.side_effect = DownloadError(
-        "\x1b[0;31mERROR:\x1b[0m [youtube] abc: Sign in to confirm you're not a bot."
+        "\x1b[0;31mERROR:\x1b[0m [youtube] abc: Video unavailable. This video is private"
     )
     with patch("setvault_core.services.url_rip.yt_dlp.YoutubeDL", return_value=ctx):
         with pytest.raises(ProbeError) as exc_info:
             probe_url("https://www.youtube.com/watch?v=abc")
     assert isinstance(exc_info.value, ValueError)
-    assert str(exc_info.value) == "[youtube] abc: Sign in to confirm you're not a bot."
+    assert str(exc_info.value) == "[youtube] abc: Video unavailable. This video is private"
 
 
 async def test_submit_rip_probes_off_the_event_loop(monkeypatch):

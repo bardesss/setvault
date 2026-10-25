@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import yt_dlp
 
 from setvault_ingest_sources.base import Candidate, SourceError
+
+try:
+    # The YouTube cookies uploaded in Admin -> Sources. setvault-core is always
+    # installed next to this package in SetVault, but isn't a dependency of it.
+    from setvault_core.services.ytdlp_cookies import ytdlp_cookie_opts
+except ImportError:  # pragma: no cover - standalone use
+    def ytdlp_cookie_opts():
+        return nullcontext({})
 
 
 def _thumb(entry: dict) -> str | None:
@@ -31,7 +41,8 @@ class _YtDlpSearchSource:
         opts = {"quiet": True, "no_warnings": True, "skip_download": True,
                 "extract_flat": True, "default_search": self.search_prefix}
         try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
+            with ytdlp_cookie_opts() as cookie_opts, \
+                    yt_dlp.YoutubeDL({**opts, **cookie_opts}) as ydl:
                 info = ydl.extract_info(f"{self.search_prefix}{limit}:{query}", download=False)
         except Exception as e:
             raise SourceError(f"{self.kind} search failed: {e}") from e
