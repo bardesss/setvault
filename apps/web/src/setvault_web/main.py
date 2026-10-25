@@ -53,6 +53,7 @@ from setvault_web.api import wanted as wanted_api
 from setvault_web.api import watch_folders as watch_folders_api
 from setvault_web.api import webhooks as webhooks_api
 from setvault_web.api import ws as ws_api
+from setvault_web.api import ytdlp_cookies as ytdlp_cookies_api
 from setvault_web.config import get_settings
 from setvault_web.middleware.csrf import CsrfMiddleware
 from setvault_web.middleware.security_headers import (
@@ -162,6 +163,7 @@ def create_app() -> FastAPI:
     app.include_router(backups_api.router)
     app.include_router(bulk_action_api.router)
     app.include_router(monitors_api.router)
+    app.include_router(ytdlp_cookies_api.router)
     if dev_seed_api.is_enabled():
         app.include_router(dev_seed_api.router)
 

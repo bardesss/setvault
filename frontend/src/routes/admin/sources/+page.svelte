@@ -2,6 +2,7 @@
   import { _ } from "svelte-i18n";
   import AdminTable from "#lib/components/AdminTable.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
+  import YtdlpCookiesAdmin from "#lib/components/YtdlpCookiesAdmin.svelte";
   import {
     setSourceEnabled,
     setSourceRateLimit,
@@ -137,6 +138,8 @@
       {/each}
     </AdminTable>
   {/if}
+
+  <YtdlpCookiesAdmin />
 </section>
 
 <style>
