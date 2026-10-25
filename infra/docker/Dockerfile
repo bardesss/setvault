@@ -15,6 +15,13 @@
 # amd64 binaries on arm64.
 
 ARG S6_OVERLAY_VERSION=3.2.1.0
+# Deno runs yt-dlp's YouTube JS-challenge solver (yt-dlp-ejs) and the bgutil
+# PO-token server. BGUTIL_VERSION must match bgutil-ytdlp-pot-provider in
+# packages/core/pyproject.toml.
+ARG DENO_VERSION=2.9.7
+ARG BGUTIL_VERSION=2.0.2
+
+FROM denoland/deno:bin-${DENO_VERSION} AS deno
 
 # ── Frontend stage ──────────────────────────────────────────────────────────
 FROM node:26-alpine AS frontend
@@ -108,6 +115,20 @@ RUN case "${TARGETARCH}" in \
 
 RUN pip install --no-cache-dir uv
 
+COPY --from=deno /deno /usr/local/bin/deno
+
+# ── PO-token server: bgutil's YouTube proof-of-origin token provider ─────────
+# Built on the runtime base so the native canvas module matches its glibc.
+FROM base AS potserver
+ARG BGUTIL_VERSION
+ENV DENO_DIR=/opt/bgutil/.deno
+RUN mkdir -p /opt/bgutil "${DENO_DIR}" && \
+    curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 \
+      "https://github.com/Brainicism/bgutil-ytdlp-pot-provider/archive/refs/tags/${BGUTIL_VERSION}.tar.gz" \
+      | tar -xz -C /opt/bgutil --strip-components=1 && \
+    cd /opt/bgutil/server && \
+    deno install --allow-scripts=npm:canvas --frozen
+
 # ── Deps layer ──────────────────────────────────────────────────────────────
 FROM base AS deps
 WORKDIR /srv
@@ -130,6 +151,9 @@ COPY alembic.ini ./
 COPY infra/migrations infra/migrations
 COPY --from=frontend /build/apps/web/src/setvault_web/static apps/web/src/setvault_web/static
 RUN uv sync --no-dev
+
+COPY --from=potserver /opt/bgutil/server /opt/bgutil/server
+COPY --from=potserver /opt/bgutil/.deno /opt/bgutil/.deno
 
 # s6 services + container init scripts.
 COPY infra/docker/s6-rc.d /etc/s6-overlay/s6-rc.d

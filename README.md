@@ -277,6 +277,38 @@ docker exec setvault python -m setvault_web.restore /data/restore.tar --yes
 
 ---
 
+## ▶️ YouTube: sign-in / bot check
+
+YouTube sometimes answers yt-dlp with *"Sign in to confirm you're not a bot"*,
+mostly on homelab and datacenter IPs. URL rips and source searches then fail
+with that message. SetVault handles this in two layers.
+
+**Out of the box.** The image includes [Deno](https://deno.com), which runs
+yt-dlp's YouTube challenge solver (`yt-dlp-ejs`). It also runs the
+[bgutil PO-token server](https://github.com/Brainicism/bgutil-ytdlp-pot-provider)
+on `127.0.0.1:4416` (s6 service `pot-provider`). yt-dlp's bgutil plugin fetches
+proof-of-origin tokens from it automatically. On many IPs this is enough, and
+there's nothing to set up.
+
+**If the bot check persists, upload cookies.** In **Admin → Sources → YouTube
+cookies**, upload a `cookies.txt` from a browser that is logged in to YouTube:
+
+1. Log in to YouTube in a private window with a **throwaway Google account**.
+   Anyone holding the cookies is logged in as that account.
+2. Export the cookies in Netscape format with an extension such as
+   *Get cookies.txt LOCALLY*, then close the window without logging out.
+3. Upload the file. SetVault accepts Netscape cookie files up to 1 MB. It
+   shows when the file was uploaded and how many YouTube cookies it holds,
+   but never shows the cookies themselves.
+
+The file is stored owner-only as `youtube-cookies.txt` in the config volume
+(`/data/config` bundled, `/srv/config` with external compose). yt-dlp gets a
+throwaway copy for each call, so it never rewrites your upload. Cookies expire
+or get revoked. When the bot check comes back, the error says so; export and
+upload the cookies again, or use **Remove** to stop sending them.
+
+---
+
 ## 🌐 Translations
 
 Translation-ready via [Crowdin](https://crowdin.com/project/setvault) — contributions welcome.

@@ -22,6 +22,7 @@ from setvault_web.api import catalog_admin as catalog_admin_api
 from setvault_web.api import comments as comments_api
 from setvault_web.api import connectors as connectors_api
 from setvault_web.api import dev_seed as dev_seed_api
+from setvault_web.api import drafts as drafts_api
 from setvault_web.api import duplicates as duplicates_api
 from setvault_web.api import embed as embed_api
 from setvault_web.api import enrichment as enrichment_api
@@ -52,6 +53,7 @@ from setvault_web.api import wanted as wanted_api
 from setvault_web.api import watch_folders as watch_folders_api
 from setvault_web.api import webhooks as webhooks_api
 from setvault_web.api import ws as ws_api
+from setvault_web.api import ytdlp_cookies as ytdlp_cookies_api
 from setvault_web.config import get_settings
 from setvault_web.middleware.csrf import CsrfMiddleware
 from setvault_web.middleware.security_headers import (
@@ -153,6 +155,7 @@ def create_app() -> FastAPI:
     app.include_router(watch_folders_api.router)
     app.include_router(recycle_api.router)
     app.include_router(duplicates_api.router)
+    app.include_router(drafts_api.router)
     app.include_router(wanted_api.router)
     app.include_router(scheduled_tasks_api.router)
     app.include_router(webhooks_api.router)
@@ -160,6 +163,7 @@ def create_app() -> FastAPI:
     app.include_router(backups_api.router)
     app.include_router(bulk_action_api.router)
     app.include_router(monitors_api.router)
+    app.include_router(ytdlp_cookies_api.router)
     if dev_seed_api.is_enabled():
         app.include_router(dev_seed_api.router)
 

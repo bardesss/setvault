@@ -12,6 +12,7 @@ from sqlalchemy import and_, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.models.url_rip import RipJob
+from setvault_core.services.ytdlp_cookies import has_cookies, ytdlp_cookie_opts
 
 
 class DuplicateRipError(Exception):
@@ -29,6 +30,30 @@ class UnsupportedUrlError(ValueError):
     including internal services and cloud metadata endpoints, unless callers
     constrain the input to known platforms first.
     """
+
+
+class ProbeError(ValueError):
+    """Raised when yt-dlp can't read the URL (bot check, private or removed
+    video, geo block). The message is yt-dlp's own reason, without its
+    "ERROR:" prefix and colour codes, so callers can show it to the user."""
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _ytdlp_reason(exc: Exception) -> str:
+    message = _ANSI_RE.sub("", str(exc)).strip()
+    return message.removeprefix("ERROR:").strip() or "the source couldn't be read"
+
+
+def _bot_check_hint(exc: Exception) -> str:
+    """Where to fix YouTube's "Sign in to confirm you're not a bot"."""
+    if "sign in to confirm" not in str(exc).lower():
+        return ""
+    if has_cookies():
+        return (" The uploaded YouTube cookies may have expired: upload fresh ones "
+                "in Admin → Sources → YouTube cookies.")
+    return " Upload YouTube cookies in Admin → Sources → YouTube cookies."
 
 
 @dataclass
@@ -132,8 +157,12 @@ def probe_url(url: str) -> ProbeResult:
         "quiet": True, "no_warnings": True, "skip_download": True,
         "extract_flat": "in_playlist", "noplaylist": True,
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    try:
+        with ytdlp_cookie_opts() as cookie_opts, \
+                yt_dlp.YoutubeDL({**ydl_opts, **cookie_opts}) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except yt_dlp.utils.YoutubeDLError as exc:
+        raise ProbeError(_ytdlp_reason(exc) + _bot_check_hint(exc)) from exc
     if info is None:
         raise ValueError("yt-dlp returned no info")
     if info.get("_type") in {"playlist", "multi_video"}:

@@ -245,6 +245,9 @@ async def rip_discovery(
         d.decided_at = datetime.now(UTC)
         await session.commit()
         return
+    except ValueError as exc:
+        # Unsupported URL, or yt-dlp can't read it (bot check, private video).
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     d.url_rip_id = job.id
     await audit_log(
         session, actor_user_id=user.id, action="set.discovery_rip_submitted",

@@ -26,7 +26,7 @@ if [[ ! -f "$PYPROJECT" ]]; then
   exit 1
 fi
 
-current="$(grep -oE 'yt-dlp==[0-9]+\.[0-9]+\.[0-9]+' "$PYPROJECT" | head -1 | cut -d= -f3)"
+current="$(grep -oE 'yt-dlp(\[[a-z,-]+\])?==[0-9]+\.[0-9]+\.[0-9]+' "$PYPROJECT" | head -1 | sed 's/.*==//')"
 echo "current pin: ${current:-<none>}"
 
 if [[ $# -ge 1 ]]; then
@@ -53,7 +53,7 @@ import sys, pathlib
 path, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
 p = pathlib.Path(path)
 text = p.read_text()
-text = text.replace(f"yt-dlp=={old}", f"yt-dlp=={new}")
+text = text.replace(f"yt-dlp[default]=={old}", f"yt-dlp[default]=={new}")
 p.write_text(text)
 PY
 
@@ -67,7 +67,7 @@ if ! (cd "$ROOT" && uv run pytest apps/web/tests/test_url_rip*.py packages/core/
 import sys, pathlib
 path, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
 p = pathlib.Path(path)
-text = p.read_text().replace(f"yt-dlp=={old}", f"yt-dlp=={new}")
+text = p.read_text().replace(f"yt-dlp[default]=={old}", f"yt-dlp[default]=={new}")
 p.write_text(text)
 PY
   (cd "$ROOT" && uv sync --reinstall-package yt-dlp >/dev/null)

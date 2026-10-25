@@ -230,7 +230,11 @@ async def home_summary(
     window_days = 7
     since = datetime.now(UTC) - timedelta(days=window_days)
 
-    sets_total_q = select(func.count(LiveSet.id)).where(LiveSet.deleted_at.is_(None))
+    # Published only, like Library. Drafts (held duplicates, unfinished rips)
+    # still count towards audio_bytes below: their files use disk.
+    sets_total_q = select(func.count(LiveSet.id)).where(
+        LiveSet.deleted_at.is_(None), LiveSet.status == "published",
+    )
     sets_recent_q = sets_total_q.where(LiveSet.created_at >= since)
 
     # "resolved" = status is "resolved" or "acoustid_confirmed" (anything except "raw")

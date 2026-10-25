@@ -123,6 +123,7 @@ async def _download(job: RipJob, tmp_dir: Path) -> Path:
     import yt_dlp
 
     from setvault_core.services.url_rip import require_supported_url
+    from setvault_core.services.ytdlp_cookies import ytdlp_cookie_opts
 
     require_supported_url(job.source_url)
 
@@ -159,7 +160,8 @@ async def _download(job: RipJob, tmp_dir: Path) -> Path:
     }
 
     def _run() -> dict:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with ytdlp_cookie_opts() as cookie_opts, \
+                yt_dlp.YoutubeDL({**ydl_opts, **cookie_opts}) as ydl:
             return ydl.extract_info(job.source_url, download=True)
 
     info = await asyncio.to_thread(_run)
