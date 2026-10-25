@@ -564,6 +564,7 @@ async def test_admin_rips_others_discovery_as_owner(authed_admin_client, monkeyp
     """An admin accepting another user's discovery submits the rip as the
     monitor's owner (like the auto path); the rate limit counts the admin."""
     from setvault_core.models.monitors import Monitor, MonitorDiscovery
+    from setvault_core.models.system import AuditEvent
     from setvault_core.models.url_rip import RipJob
     from setvault_core.services import rip_enqueue
     from setvault_web import rip_limits
@@ -612,3 +613,8 @@ async def test_admin_rips_others_discovery_as_owner(authed_admin_client, monkeyp
         )).scalar_one()
     assert job.submitted_by == owner_id
     assert limited == [admin.id]
+    async with session_factory()() as s:
+        audit = (await s.execute(
+            select(AuditEvent).where(AuditEvent.action == "set.discovery_rip_submitted")
+        )).scalar_one()
+    assert audit.actor_user_id == admin.id

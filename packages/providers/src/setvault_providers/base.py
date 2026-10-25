@@ -42,13 +42,6 @@ class TrackRef:
 
 
 @dataclass
-class ReleaseRef:
-    title: str | None = None
-    artist_name: str | None = None
-    external_ids: dict[str, str] = field(default_factory=dict)
-
-
-@dataclass
 class TrackCandidate:
     title: str
     artist_name: str

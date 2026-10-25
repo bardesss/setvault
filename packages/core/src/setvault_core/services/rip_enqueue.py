@@ -18,22 +18,22 @@ from setvault_core.models.url_rip import RipJob
 logger = logging.getLogger(__name__)
 
 
-def _queue(url: str | None = None):
+def _queue():
     from redis import Redis
     from rq import Queue
 
-    return Queue("default", connection=Redis.from_url(url or redis_url()))
+    return Queue("default", connection=Redis.from_url(redis_url()))
 
 
 async def enqueue_rip(
-    session: AsyncSession, job: RipJob, *, redis_url: str | None = None,
+    session: AsyncSession, job: RipJob,
 ) -> bool:
     """Commit, then enqueue ``run_rip_job``. False if the enqueue failed (the
     job is then marked failed and that is committed too)."""
     job_id = job.id
     await session.commit()
     try:
-        _queue(redis_url).enqueue(
+        _queue().enqueue(
             "setvault_core.jobs.url_rip_job.run_rip_job",
             rip_job_id=str(job_id),
             job_timeout=RIP_JOB_TIMEOUT,

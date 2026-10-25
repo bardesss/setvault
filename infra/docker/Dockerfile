@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# SetVault — single all-in-one image (v0.1.1+).
+# SetVault — single all-in-one image.
 #
 # Runs these services under s6-overlay (PID 1):
 #   - web          → uvicorn: FastAPI + bundled SvelteKit on :1970

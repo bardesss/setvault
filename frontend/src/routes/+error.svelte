@@ -1,6 +1,11 @@
 <script lang="ts">
   import { _ } from "svelte-i18n";
   import { page } from "$app/state";
+  import { setupI18n } from "#lib/i18n/index.ts";
+
+  // The root layout (which normally initialises i18n) is not rendered when its
+  // own load throws, so make sure the dictionary is ready here. Idempotent.
+  setupI18n();
 </script>
 
 <section class="error-page">

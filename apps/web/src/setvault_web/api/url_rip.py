@@ -5,7 +5,6 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from setvault_core.config import redis_url
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.identity import User
 from setvault_core.models.url_rip import RipJob
@@ -69,7 +68,7 @@ async def submit_url_rip(
         target_type="rip_job", target_id=str(job.id),
         after={"url": body.url, "platform": job.source_platform},
     )
-    await enqueue_rip(session, job, redis_url=redis_url())
+    await enqueue_rip(session, job)
 
     return _to_out(job)
 

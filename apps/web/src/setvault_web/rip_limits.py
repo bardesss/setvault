@@ -17,12 +17,12 @@ async def enforce_rip_rate_limit(user_id: uuid.UUID) -> None:
     hourly = await hit(f"rip_hour:{user_id}", limit=RIP_HOURLY_LIMIT, window_seconds=3600)
     if hourly > RIP_HOURLY_LIMIT:
         raise HTTPException(
-            status_code=429, detail="too many URL rips this hour",
+            status_code=429, detail="too many rips this hour",
             headers={"Retry-After": "3600"},
         )
     daily = await hit(f"rip_day:{user_id}", limit=RIP_DAILY_LIMIT, window_seconds=86400)
     if daily > RIP_DAILY_LIMIT:
         raise HTTPException(
-            status_code=429, detail="too many URL rips today",
+            status_code=429, detail="too many rips today",
             headers={"Retry-After": "86400"},
         )

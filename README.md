@@ -322,7 +322,8 @@ Then open `http://localhost:1970`. To test under Compose, point the service's `i
 
 ```
 browsers ─▶ caddy :1970 ─┬─▶ web (uvicorn)
-                         └─▶ tusd /uploads
+(bundled mode)           └─▶ tusd /uploads
+(external mode: no caddy; uvicorn binds :1970 directly)
 
  scheduler (rqscheduler) ─▶ Redis 7 ─▶ worker (RQ) · watcher (filesystem events)
                               │
@@ -341,7 +342,7 @@ browsers ─▶ caddy :1970 ─┬─▶ web (uvicorn)
 ## 🔒 Security
 
 - Argon2 hashing · pure-ASGI CSRF + security-headers middleware · strict CSP/HSTS · HMAC-signed short-TTL URLs
-- SSRF allowlist on URL-rip ingest · Redis rate-limiting on login + URL-rip · exact-pinned `yt-dlp`
+- SSRF allowlist on URL-rip ingest · Redis rate-limiting on login, URL and discovery rips, and search · exact-pinned `yt-dlp`
 - `no-new-privileges` on every container · audit log of every state-changing admin action
 
 > **Defense-in-depth:** `yt-dlp` follows redirects without an internal-IP guard, so firewall
