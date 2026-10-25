@@ -4,6 +4,19 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0](https://github.com/bardesss/setvault/compare/v0.22.0...v0.23.0) (2026-10-25)
+
+
+### Features
+
+* **admin:** Drafts tab to publish or discard unpublished sets ([f0d1d07](https://github.com/bardesss/setvault/commit/f0d1d07455cfbaa27c584123302749940a45f8e8))
+
+
+### Bug Fixes
+
+* probe failures are a 400, and Home counts published sets only ([07016ae](https://github.com/bardesss/setvault/commit/07016ae9de2316ec80a4b3df23739364b66bb871))
+* probe failures are a 400; Home counts published sets; Admin Drafts tab ([d4e87d4](https://github.com/bardesss/setvault/commit/d4e87d455e14ea956f572ad8f05c3b356588f954))
+
 ## [0.22.0](https://github.com/bardesss/setvault/compare/v0.21.0...v0.22.0) (2026-10-24)
 
 
