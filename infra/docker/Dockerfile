@@ -2,10 +2,13 @@
 #
 # SetVault — single all-in-one image (v0.1.1+).
 #
-# Runs three processes under s6-overlay (PID 1):
-#   - uvicorn      → FastAPI + bundled SvelteKit on :1970
-#   - rq worker    → transcode / waveform / enrichment / bulk jobs
+# Runs these services under s6-overlay (PID 1):
+#   - web          → uvicorn: FastAPI + bundled SvelteKit on :1970
+#   - worker       → rq worker: transcode / waveform / enrichment / bulk jobs
 #   - watcher      → watchdog-driven WatchFolder ingest
+#   - scheduler    → rqscheduler: periodic jobs
+#   - tusd         → resumable uploads on 127.0.0.1:8080
+#   - caddy, postgres, redis → bundled mode (idle placeholders in external mode)
 #
 # Multi-arch (linux/amd64 + linux/arm64). Per-arch native deps are
 # selected from $TARGETARCH so QEMU builds don't try to install

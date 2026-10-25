@@ -1,12 +1,12 @@
 # SetVault — minimal self-host stack
 #
 # 1. curl this file + .env.example into the same directory
-# 2. fill in SECRET_KEY, POSTGRES_PASSWORD, BASE_URL in .env
+# 2. fill in POSTGRES_PASSWORD in .env (required); SECRET_KEY and BASE_URL are recommended
 # 3. docker compose pull && docker compose up -d
 #
-# Three services: setvault + postgres + redis (tusd is bundled in the app image).
-# The setvault container internally runs uvicorn + RQ worker + watcher under
-# s6-overlay (one image, three processes).
+# Three containers: setvault + postgres + redis (tusd is bundled in the app image).
+# The setvault container runs web, worker, watcher, scheduler and tusd under
+# s6-overlay (one image); caddy, postgres and redis stay idle there in external mode.
 #
 # https://github.com/Bardesss/setvault
 

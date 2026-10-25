@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env: { POSTGRES_USER: setvault, POSTGRES_PASSWORD: setvault, POSTGRES_DB: setvault }
         ports: ["5432:5432"]
         options: >-
@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env: { POSTGRES_USER: setvault, POSTGRES_PASSWORD: setvault, POSTGRES_DB: setvault }
         ports: ["5432:5432"]
         options: >-
@@ -59,7 +59,6 @@ jobs:
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-secret-key-for-e2e-only-base64-padded-padded-padded
       BASE_URL: http://localhost:1970
-      TUSD_HOOK_SECRET: ci
       SETVAULT_DEV_SEED: "1"
       SETVAULT_ALLOW_INSECURE_COOKIE: "1"
     steps:
