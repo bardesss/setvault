@@ -230,10 +230,10 @@ def run_duplicate_scan() -> dict:
 
 
 async def run_backfill_batch(
-    limit: int | None = None, deadline: float | None = None,
+    deadline: float | None = None,
     *, clock: Callable[[], float] = time.monotonic,
 ) -> dict:
-    """Process up to ``limit`` (default BATCH_MAX_SETS) sets, oldest first.
+    """Process up to BATCH_MAX_SETS sets, oldest first.
 
     Returns ``{"processed", "remaining", "errors", "error_ids",
     "fingerprinted", "measured"}``. A set that
@@ -258,7 +258,7 @@ async def run_backfill_batch(
         ids = list((await s.execute(
             select(LiveSet.id).where(pending)
             .order_by(LiveSet.created_at, LiveSet.id)
-            .limit(BATCH_MAX_SETS if limit is None else limit)
+            .limit(BATCH_MAX_SETS)
         )).scalars())
 
     processed = fingerprinted = measured = 0

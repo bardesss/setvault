@@ -16,7 +16,7 @@ from setvault_core.models.identity import User
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.services import set_upgrade
 from setvault_core.services.system_config import get_config
-from setvault_core.services.upgrade_decision import decide_arrival
+from setvault_core.services.upgrade_decision import decide
 from sqlalchemy import select
 
 
@@ -124,7 +124,7 @@ async def _held_duplicate_ids(s) -> set[uuid.UUID]:
 async def _decide(aid: uuid.UUID, **kw) -> str:
     async with session_factory()() as s:
         arrival = await s.get(LiveSet, aid)
-        return await decide_arrival(s, arrival, **kw)
+        return (await decide(s, arrival, **kw)).outcome
 
 
 async def test_better_duplicate_upload_upgrades_existing_set(tmp_path, auto_upgrades):

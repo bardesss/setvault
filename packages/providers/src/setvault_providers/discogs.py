@@ -34,7 +34,7 @@ def _strip_markup(text: str) -> str:
 class DiscogsProvider:
     kind = "discogs"
     capabilities: ClassVar[set[Capability]] = {
-        Capability.ENRICH_TRACK, Capability.ENRICH_RELEASE, Capability.ENRICH_ARTIST,
+        Capability.ENRICH_TRACK, Capability.ENRICH_ARTIST,
     }
 
     def __init__(self, token: str, base_url: str = "https://api.discogs.com"):
@@ -115,12 +115,6 @@ class DiscogsProvider:
         if socials:
             fields["socials"] = FieldValue(value=socials, confidence=0.7)
         return ProviderResult(kind=self.kind, fields=fields, raw_response=data)
-
-    async def enrich_release(self, release):
-        return None
-
-    async def lookup_by_isrc(self, isrc: str):
-        return None
 
     async def fingerprint(self, *_args, **_kwargs):
         return []

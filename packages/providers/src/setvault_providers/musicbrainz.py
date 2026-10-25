@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import ClassVar
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import urlparse
 
 import httpx
 
@@ -59,8 +59,7 @@ def _names(entry: dict) -> set[str]:
 class MusicBrainzProvider:
     kind = "musicbrainz"
     capabilities: ClassVar[set[Capability]] = {
-        Capability.ENRICH_TRACK, Capability.ENRICH_RELEASE,
-        Capability.ENRICH_ARTIST, Capability.LOOKUP_BY_ISRC,
+        Capability.ENRICH_TRACK, Capability.ENRICH_ARTIST,
     }
 
     def __init__(self, user_agent: str, base_url: str = "https://musicbrainz.org/ws/2"):
@@ -155,19 +154,6 @@ class MusicBrainzProvider:
         if data.get("annotation"):
             fields["bio"] = FieldValue(value=data["annotation"], confidence=0.7)
         return ProviderResult(kind=self.kind, fields=fields, raw_response=data)
-
-    async def enrich_release(self, release):
-        return None
-
-    async def lookup_by_isrc(self, isrc: str) -> TrackRef | None:
-        data = await self._get(f"isrc/{quote_plus(isrc)}", {"inc": "artist-credits"})
-        recs = data.get("recordings") or []
-        if not recs:
-            return None
-        rec = recs[0]
-        artist = (rec.get("artist-credit") or [{}])[0].get("artist", {}).get("name")
-        return TrackRef(title=rec.get("title"), primary_artist_name=artist,
-                        external_ids={"musicbrainz": rec.get("id", "")})
 
     async def fingerprint(self, *_args, **_kwargs):
         return []

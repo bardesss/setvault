@@ -251,20 +251,6 @@ async def scan_duplicate_pairs(
     return pairs, True
 
 
-async def find_duplicate_pairs(
-    session: AsyncSession,
-) -> list[tuple[LiveSet, LiveSet, MatchResult]]:
-    """Published, non-deleted sets that match each other, as
-    ``(older, newer, result)``. Used by the dry run."""
-    pairs, _ = await scan_duplicate_pairs(session)
-    out = []
-    for p in pairs:
-        older = await session.get(LiveSet, p.older_id)
-        newer = await session.get(LiveSet, p.newer_id)
-        out.append((older, newer, p.result))
-    return out
-
-
 # --------------------------------------------------------------------------
 # Deciding a pair
 # --------------------------------------------------------------------------

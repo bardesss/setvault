@@ -19,12 +19,6 @@ class StubProvider:
     async def enrich_artist(self, *a, **k):
         return None
 
-    async def enrich_release(self, *a, **k):
-        return None
-
-    async def lookup_by_isrc(self, *a, **k):
-        return None
-
     async def fingerprint(self, *a, **k):
         return []
 

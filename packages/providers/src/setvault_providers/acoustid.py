@@ -100,9 +100,3 @@ class AcoustIdProvider:
 
     async def enrich_track(self, track):
         return None
-
-    async def enrich_release(self, release):
-        return None
-
-    async def lookup_by_isrc(self, isrc):
-        return None

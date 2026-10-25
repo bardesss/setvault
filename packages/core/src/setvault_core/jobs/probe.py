@@ -8,7 +8,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
-from setvault_core.db import init_engine, run_job, session_factory
+from setvault_core.db import init_engine, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.progress import ProgressEvent, publish
 from setvault_core.services.audio_quality import apply_quality, measure_quality
@@ -55,7 +55,3 @@ async def probe_audio(live_set_id: str) -> None:
 
         publish(ProgressEvent(kind="probe", live_set_id=live_set_id, job_id=live_set_id,
                               progress_pct=10, message=f"duration={live.duration_seconds}s"))
-
-
-def probe_audio_sync(live_set_id: str) -> None:
-    run_job(probe_audio(live_set_id))

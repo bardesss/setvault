@@ -127,10 +127,6 @@ async def list_monitors(
     return list((await session.execute(q)).scalars())
 
 
-async def get_monitor(session: AsyncSession, monitor_id: uuid.UUID) -> Monitor | None:
-    return await session.get(Monitor, monitor_id)
-
-
 def _owned(m: Monitor | None, owner_user_id: uuid.UUID | None) -> bool:
     """True if the monitor exists and the caller may act on it. ``None`` owner
     means an unrestricted (admin) caller."""

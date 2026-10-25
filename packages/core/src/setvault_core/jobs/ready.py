@@ -76,7 +76,7 @@ async def publish_live_set(s: AsyncSession, live: LiveSet) -> None:
 @dataclass(frozen=True)
 class ArrivalResult:
     """What the final stage did with a set: ``outcome`` is the
-    ``decide_arrival`` result, ``message`` the line shown in progress/jobs."""
+    ``decide`` outcome, ``message`` the line shown in progress/jobs."""
     outcome: str
     message: str
 
@@ -125,11 +125,8 @@ async def finish_arrival(
 
 
 async def mark_ready(
-    live_set_id: str, *, upgrade_target_id: uuid.UUID | None = None,
-    trigger: str = "upload",
+    live_set_id: str, *, trigger: str = "upload",
 ) -> bool:
     """:func:`finish_arrival`, returning whether the set was published."""
-    result = await finish_arrival(
-        live_set_id, upgrade_target_id=upgrade_target_id, trigger=trigger,
-    )
+    result = await finish_arrival(live_set_id, trigger=trigger)
     return result.outcome == "publish"

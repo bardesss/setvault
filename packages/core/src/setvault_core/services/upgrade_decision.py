@@ -3,7 +3,7 @@
 Every ingest path fingerprints its arrival, which flags ``duplicate_of`` when
 the audio matches an existing set (an upgrade-attempt rip is compared with its
 target only, R28). The final pipeline stage then asks
-:func:`decide_arrival`:
+:func:`decide`:
 
 - **Upgrade-attempt rip** (the rip was downloaded for a target set): the
   arrival either upgrades the target or is discarded, so a rejected candidate
@@ -169,7 +169,9 @@ async def decide(
     trigger: str, candidate_source_kind: str | None = None,
     candidate_external_id: str | None = None,
 ) -> Decision:
-    """:func:`decide_arrival` with the reason and target title attached."""
+    """Upgrade, hold, discard or publish ``arrival`` (see the module doc), with
+    the reason and target title attached. Only ``publish`` leaves work for the
+    caller: flipping the set to published."""
     if arrival.deleted_at is not None:
         # The fingerprint stage recycled it (same audio as a recycled
         # original, and not better): never upgrade from it, never publish it.
@@ -200,19 +202,3 @@ async def decide(
     ):
         return Decision("held", "duplicate")
     return await _upgrade(session, arrival, target, trigger=trigger, **candidate)
-
-
-async def decide_arrival(
-    session: AsyncSession, arrival: LiveSet, *, upgrade_target_id: uuid.UUID | None,
-    trigger: str, candidate_source_kind: str | None = None,
-    candidate_external_id: str | None = None,
-) -> Outcome:
-    """Upgrade, hold, discard or publish ``arrival`` (see the module doc).
-    Only ``publish`` leaves work for the caller: flipping the set to published.
-    """
-    decision = await decide(
-        session, arrival, upgrade_target_id=upgrade_target_id, trigger=trigger,
-        candidate_source_kind=candidate_source_kind,
-        candidate_external_id=candidate_external_id,
-    )
-    return decision.outcome

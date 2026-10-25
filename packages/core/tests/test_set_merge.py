@@ -493,11 +493,7 @@ async def test_dry_run_reports_pairs_without_changing_anything(lib):
     await lib.add(_items(11))
     async with session_factory()() as s:
         counts = await qb.duplicate_pair_counts(s)
-        pairs = await set_merge.find_duplicate_pairs(s)
     assert counts == {"duplicate_pairs": 1, "duplicate_pairs_complete": True}
-    ((o, n, result),) = pairs
-    assert (o.id, n.id) == (older, newer)
-    assert result.offset_seconds == pytest.approx(OFFSET, abs=0.5)
     for sid in (older, newer):
         live = await _get(sid)
         assert live.deleted_at is None and live.duplicate_of is None
