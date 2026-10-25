@@ -238,6 +238,9 @@ async def rip_discovery(
         d.decided_at = datetime.now(UTC)
         await session.commit()
         return
+    except ValueError as exc:
+        # Unsupported URL, or yt-dlp can't read it (bot check, private video).
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     d.url_rip_id = job.id
     # enqueue_rip commits the RipJob and the discovery's link before enqueueing.
     # If the enqueue fails the job is left failed (visible in Downloads) and the

@@ -31,6 +31,20 @@ class UnsupportedUrlError(ValueError):
     """
 
 
+class ProbeError(ValueError):
+    """Raised when yt-dlp can't read the URL (bot check, private or removed
+    video, geo block). The message is yt-dlp's own reason, without its
+    "ERROR:" prefix and colour codes, so callers can show it to the user."""
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _ytdlp_reason(exc: Exception) -> str:
+    message = _ANSI_RE.sub("", str(exc)).strip()
+    return message.removeprefix("ERROR:").strip() or "the source couldn't be read"
+
+
 @dataclass
 class ProbeResult:
     platform: str
@@ -132,8 +146,11 @@ def probe_url(url: str) -> ProbeResult:
         "quiet": True, "no_warnings": True, "skip_download": True,
         "extract_flat": "in_playlist", "noplaylist": True,
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except yt_dlp.utils.YoutubeDLError as exc:
+        raise ProbeError(_ytdlp_reason(exc)) from exc
     if info is None:
         raise ValueError("yt-dlp returned no info")
     if info.get("_type") in {"playlist", "multi_video"}:

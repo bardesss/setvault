@@ -38,6 +38,30 @@ async def test_submit_url_rip_returns_201(authed_admin_client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_submit_url_rip_probe_failure_returns_400(authed_admin_client, monkeypatch):
+    """yt-dlp refusing the URL (here YouTube's bot check) is a 400 carrying
+    yt-dlp's reason, not a 500."""
+    from unittest.mock import MagicMock
+
+    from setvault_core.services import url_rip as _service
+    from yt_dlp.utils import DownloadError
+
+    ctx = MagicMock()
+    ctx.__enter__.return_value.extract_info.side_effect = DownloadError(
+        "ERROR: [youtube] bk6Xst6euQk: Sign in to confirm you're not a bot."
+    )
+    monkeypatch.setattr(_service.yt_dlp, "YoutubeDL", MagicMock(return_value=ctx))
+
+    r = await authed_admin_client.post(
+        "/api/sets/url-rip",
+        json={"url": f"https://www.youtube.com/watch?v={uuidmod.uuid4().hex[:11]}",
+              "trigger": "source_search"},
+    )
+    assert r.status_code == 400, r.text
+    assert "not a bot" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_submit_duplicate_url_returns_409(authed_admin_client, monkeypatch):
     """POST /api/sets/url-rip when a duplicate exists returns 409 with a pointer."""
     from setvault_core.models.url_rip import RipJob
