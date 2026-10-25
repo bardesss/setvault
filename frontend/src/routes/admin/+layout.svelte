@@ -20,6 +20,7 @@
     { href: "/admin/storage", label: "Storage" },
     { href: "/admin/watch-folders", label: "Watch folders" },
     { href: "/admin/unmatched", label: "Unmatched" },
+    { href: "/admin/drafts", label: "Drafts" },
     { href: "/admin/duplicates", label: "Duplicates" },
     { href: "/admin/quality", label: "Quality" },
     { href: "/admin/wanted", label: "Wanted" },
