@@ -1,0 +1,13 @@
+#!/usr/bin/with-contenv bash
+# bgutil PO-token server: mints the YouTube proof-of-origin tokens that the
+# bgutil-ytdlp-pot-provider yt-dlp plugin fetches from its default
+# http://127.0.0.1:4416, so YouTube rips and searches pass the bot check more
+# often without cookies. Loopback only.
+cd /opt/bgutil/server/node_modules
+# The image's Deno cache (filled at build time); Deno may add to it.
+export DENO_DIR=/opt/bgutil/.deno DENO_NO_UPDATE_CHECK=1
+chown -R "${PUID:-1000}:${PGID:-1000}" "${DENO_DIR}" 2>/dev/null || true
+exec s6-setuidgid "${PUID:-1000}:${PGID:-1000}" \
+  /usr/local/bin/deno run \
+    --allow-env --allow-net --allow-ffi=. --allow-read=. \
+    ../src/main.ts --host 127.0.0.1 --port 4416

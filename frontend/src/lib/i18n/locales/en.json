@@ -425,7 +425,24 @@
     "admin_empty": "No ingest sources.",
     "col_rate_max": "Rate limit",
     "col_rate_window": "Window (s)",
-    "save": "Save"
+    "save": "Save",
+    "cookies": {
+      "title": "YouTube cookies",
+      "intro": "When YouTube asks SetVault to \"sign in to confirm you're not a bot\", yt-dlp can send the cookies of a browser that is logged in to YouTube. Only needed if YouTube rips or searches fail with that message.",
+      "status_set": "Cookies set: {count, plural, one {# YouTube cookie} other {# YouTube cookies}}, uploaded {when}.",
+      "status_unset": "No cookies set.",
+      "file_label": "cookies.txt file",
+      "upload": "Upload cookies.txt",
+      "replace": "Replace",
+      "remove": "Remove",
+      "uploaded": "YouTube cookies saved",
+      "removed": "YouTube cookies removed",
+      "remove_title": "Remove YouTube cookies?",
+      "remove_message": "yt-dlp will stop sending them, and YouTube may ask to confirm you're not a bot again.",
+      "help_export": "Export them in Netscape (cookies.txt) format with a browser extension such as \"Get cookies.txt LOCALLY\", from a window logged in to YouTube.",
+      "help_account": "Use a throwaway Google account: anyone holding these cookies is logged in as it.",
+      "help_expire": "Cookies expire or get revoked; when the bot check comes back, export and upload them again."
+    }
   },
   "comments": {
     "heading": "Comments",

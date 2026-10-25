@@ -24,7 +24,12 @@ dependencies = [
   "markdown>=3.6",
   # Pinned exactly; bump via infra/scripts/update-yt-dlp.sh after a monthly
   # release-extractor check or when a user reports a URL-rip regression.
-  "yt-dlp==2026.8.19",
+  # [default] brings yt-dlp-ejs, the YouTube JS-challenge solver (run by the
+  # image's Deno).
+  "yt-dlp[default]==2026.10.21",
+  # yt-dlp plugin fetching YouTube PO tokens from the bgutil server the image
+  # runs on 127.0.0.1:4416. Keep in step with BGUTIL_VERSION in the Dockerfile.
+  "bgutil-ytdlp-pot-provider==2.0.2",
   "watchdog>=4.0",
 ]
 
