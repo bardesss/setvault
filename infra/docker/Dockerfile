@@ -8,6 +8,7 @@
 #   - watcher      → watchdog-driven WatchFolder ingest
 #   - scheduler    → rqscheduler: periodic jobs
 #   - tusd         → resumable uploads on 127.0.0.1:8080
+#   - pot-provider → bgutil YouTube PO-token server on 127.0.0.1:4416
 #   - caddy, postgres, redis → bundled mode (idle placeholders in external mode)
 #
 # Multi-arch (linux/amd64 + linux/arm64). Per-arch native deps are
