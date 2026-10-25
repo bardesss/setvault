@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import os
 from typing import Literal
 
 from pydantic import BaseModel
 from redis import Redis
+
+from setvault_core.config import redis_url
 
 
 def channel_for_set(live_set_id: str) -> str:
@@ -28,7 +29,7 @@ _publisher: Redis | None = None
 def publisher() -> Redis:
     global _publisher
     if _publisher is None:
-        _publisher = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+        _publisher = Redis.from_url(redis_url())
     return _publisher
 
 

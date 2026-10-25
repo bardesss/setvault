@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from setvault_core.models.identity import EmailToken, User
+from setvault_core.services.email_dispatch import enqueue_email
 from setvault_core.services.password_policy import MIN_PASSWORD_LENGTH
 from setvault_core.services.passwords import hash_password
 from setvault_core.services.tokens import expires, generate_token, hash_token, now_utc
@@ -15,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from setvault_web.config import Settings, get_settings
 from setvault_web.deps import db_session, require_admin
 from setvault_web.rate_limit import enforce_auth_strict
-from setvault_web.services.notifications import enqueue_email
 from setvault_web.services.reset_tokens import mint_reset_token
 
 router = APIRouter(prefix="/api/password-reset", tags=["auth"])
@@ -47,7 +47,7 @@ async def request_reset(
     link = f"{settings.base_url}/reset/{plaintext}"
     await enqueue_email(
         session,
-        settings,
+        redis_url=settings.redis_url,
         to=user.email,
         subject="SetVault password reset",
         text=f"Open this link to reset your password (expires in 1 hour):\n\n{link}\n",

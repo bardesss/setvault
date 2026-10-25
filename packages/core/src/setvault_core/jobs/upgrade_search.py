@@ -24,6 +24,7 @@ from sqlalchemy import ColumnElement, and_, exists, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.config import redis_url
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.models.identity import User
@@ -366,7 +367,7 @@ def _enqueue_rip(rip_job_id: uuid.UUID) -> None:
 
     from setvault_core.jobs.url_rip_job import RIP_JOB_TIMEOUT
 
-    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis = Redis.from_url(redis_url())
     Queue(UPGRADE_QUEUE, connection=redis).enqueue(
         "setvault_core.jobs.url_rip_job.run_rip_job", rip_job_id=str(rip_job_id),
         job_timeout=RIP_JOB_TIMEOUT,
@@ -546,7 +547,7 @@ def enqueue_search_upgrade_now(live_set_id: uuid.UUID) -> bool:
     from rq import Queue
     from rq.job import Job
 
-    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis = Redis.from_url(redis_url())
     job_id = _search_now_job_id(live_set_id)
     existing = Job.fetch_many([job_id], connection=redis)[0]
     if existing is not None and existing.get_status(refresh=True) in _IN_FLIGHT:

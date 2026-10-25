@@ -7,7 +7,6 @@ Production / CI images ship ``libmagic1``.
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import unicodedata
 from pathlib import Path
@@ -91,13 +90,6 @@ ALLOWED_MIMES = {
     "audio/aac",
     "audio/x-m4a",
 }
-_SLUG_RE = re.compile(r"[^a-z0-9-]+")
-
-
-def slugify(text: str) -> str:
-    norm = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
-    slug = _SLUG_RE.sub("-", norm.lower()).strip("-")
-    return slug or "set"
 
 
 def normalize_filename(raw: str) -> str:

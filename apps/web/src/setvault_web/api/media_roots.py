@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from setvault_core.config import redis_url
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
 from setvault_core.schemas.media_root import (
@@ -251,7 +252,6 @@ async def reapply_naming(
 
     Returns 202 immediately; the actual work + per-set audit happens in the
     worker. Admin can watch progress on the scheduled-tasks tab (5C)."""
-    import os as _os
 
     from redis import Redis
     from rq import Queue
@@ -264,7 +264,7 @@ async def reapply_naming(
             status_code=400, detail="root has no naming_template configured",
         )
 
-    redis = Redis.from_url(_os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis = Redis.from_url(redis_url())
     Queue("default", connection=redis).enqueue(
         "setvault_core.jobs.reapply_naming.run_reapply_naming_template",
         str(row.id),

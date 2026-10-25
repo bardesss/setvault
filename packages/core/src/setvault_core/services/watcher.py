@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
+from setvault_core.config import redis_url
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.watch_folder import UnmatchedFile, WatchFolder
@@ -154,13 +155,11 @@ class _PendingFiles:
 def _make_enqueue_callable():
     """Build the actual enqueue function. Imported here so unit tests can
     monkeypatch the queue or substitute a synchronous fake."""
-    import os as _os
 
     from redis import Redis
     from rq import Queue
 
-    redis_url = _os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    queue = Queue("default", connection=Redis.from_url(redis_url))
+    queue = Queue("default", connection=Redis.from_url(redis_url()))
 
     def _enqueue(watch_folder_id: uuid.UUID, file_path: str) -> None:
         # Suspended files (.tmp suffix, in-flight copies) get skipped; the

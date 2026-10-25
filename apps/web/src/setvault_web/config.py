@@ -2,6 +2,7 @@ from functools import lru_cache
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from setvault_core.config import DEFAULT_REDIS_URL
 
 
 class Settings(BaseSettings):
@@ -9,7 +10,7 @@ class Settings(BaseSettings):
 
     secret_key: str = Field(default="dev-only-do-not-use-in-prod", min_length=16)
     database_url: str = "postgresql+asyncpg://setvault:setvault@localhost:5432/setvault"
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = DEFAULT_REDIS_URL
     # No default on purpose: BASE_URL is required, and the session-cookie
     # ``Secure`` flag is derived from its scheme (see cookies.cookie_secure).
     # A silent ``http://`` default would fail *open* — a public deployment that

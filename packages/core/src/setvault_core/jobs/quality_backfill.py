@@ -33,6 +33,7 @@ from pathlib import Path
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.config import redis_url
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.jobs.fingerprint import store_fingerprint
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
@@ -346,7 +347,7 @@ _COUNT_KEYS = ("fingerprinted", "measured", "merged", "skipped", "errors")
 def _redis():
     from redis import Redis
 
-    return Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    return Redis.from_url(redis_url())
 
 
 def enqueue_quality_backfill(**state):

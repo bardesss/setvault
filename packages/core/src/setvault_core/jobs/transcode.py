@@ -12,6 +12,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.config import redis_url
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.progress import ProgressEvent, publish
@@ -227,7 +228,7 @@ def enqueue_transcode(set_id: uuid.UUID) -> bool:
         from redis import Redis
         from rq import Queue
 
-        redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+        redis = Redis.from_url(redis_url())
         Queue("default", connection=redis).enqueue(
             "setvault_core.jobs.transcode.transcode_audio_sync", str(set_id),
             job_timeout=TRANSCODE_JOB_TIMEOUT,

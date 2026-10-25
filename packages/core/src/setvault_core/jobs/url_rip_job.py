@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -34,6 +33,7 @@ from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
+from setvault_core.services.catalog import slugify
 from setvault_core.services.storage import path_in_use
 
 if TYPE_CHECKING:
@@ -178,18 +178,13 @@ async def _download(job: RipJob, tmp_dir: Path) -> Path:
     return Path(filepath)
 
 
-def _slugify(text: str) -> str:
-    s = re.sub(r"[^a-zA-Z0-9-]+", "-", text.lower()).strip("-")
-    return s[:60] or "untitled"
-
-
 async def _create_draft_live_set(
     session: AsyncSession, job: RipJob, *, root: MediaRoot, audio_relpath: str,
 ) -> LiveSet:
     """Materialise a draft LiveSet for this rip pointing at the downloaded file."""
     meta = job.probed_metadata or {}
     title = meta.get("title") or "(untitled)"
-    slug = _slugify(title) + "-" + uuid.uuid4().hex[:6]
+    slug = slugify(title, fallback="untitled", max_len=60) + "-" + uuid.uuid4().hex[:6]
     if job.submitted_by is None:
         raise RuntimeError("rip job has no submitted_by user")
     live = LiveSet(

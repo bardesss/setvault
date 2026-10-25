@@ -735,3 +735,26 @@ async def test_failed_plain_rip_records_no_upgrade_event(session, monkeypatch, t
     await _run_rip_job(session, job_id)
     after = await session.scalar(select(func.count()).select_from(SetUpgradeEvent))
     assert after == before
+
+
+@pytest.mark.asyncio
+async def test_rip_draft_slug_folds_accents(session, tmp_path):
+    import re
+
+    from setvault_core.jobs.url_rip_job import _create_draft_live_set
+    from setvault_core.models.catalog import MediaRoot
+
+    user = await _make_user(session)
+    root = MediaRoot(name=f"r-{uuid.uuid4().hex[:6]}", host_path=str(tmp_path),
+                     default_for_ingest=True)
+    session.add(root)
+    job = RipJob(
+        submitted_by=user.id, source_url="https://x.bandcamp.com/track/t", status="queued",
+        progress_pct=0, probed_metadata={"title": "Âme Live"},
+        created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+    )
+    session.add(job)
+    await session.commit()
+
+    live = await _create_draft_live_set(session, job, root=root, audio_relpath="originals/a.flac")
+    assert re.fullmatch(r"ame-live-[0-9a-f]{6}", live.slug)

@@ -122,3 +122,22 @@ async def test_ingest_falls_back_to_an_active_admin(session, tmp_path):
     wf.created_by = None  # folders created before the column existed
     actor = await _ingest_actor(session, wf)
     assert actor.role == "admin" and actor.disabled_at is None
+
+
+async def test_ingest_draft_slug_folds_accents(session, tmp_path):
+    import re
+
+    from setvault_core.jobs.watch_folder_ingest import _make_draft_set
+
+    wf, _first, _creator = await _attribution_fixture(session, tmp_path)
+    src = tmp_path / "Ame Live.flac"
+    src.write_bytes(b"x")
+    live = await _make_draft_set(
+        session, watch_folder=wf, parsed={"title": "Âme Live"}, source_path=src,
+        audio_info={},
+    )
+    try:
+        assert re.fullmatch(r"ame-live-[0-9a-f]{6}", live.slug)
+    finally:  # committed by the job code; the fixtures only clear media roots
+        await session.delete(wf)
+        await session.commit()

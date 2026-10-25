@@ -17,6 +17,7 @@ from pathlib import Path
 from sqlalchemy import and_, exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.config import redis_url
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 
@@ -126,7 +127,7 @@ def _redis():
 
     # Bounded, so a caller at worker start can't hang on an unreachable Redis.
     return Redis.from_url(
-        os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+        redis_url(),
         socket_connect_timeout=REDIS_TIMEOUT_SECONDS, socket_timeout=REDIS_TIMEOUT_SECONDS,
     )
 

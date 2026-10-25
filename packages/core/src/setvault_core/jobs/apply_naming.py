@@ -36,6 +36,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.config import redis_url
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.services.naming import render_filename
@@ -224,7 +225,7 @@ def enqueue_apply_naming(set_id: uuid.UUID) -> None:
         from redis import Redis
         from rq import Queue
 
-        redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+        redis = Redis.from_url(redis_url())
         Queue("default", connection=redis).enqueue(
             "setvault_core.jobs.apply_naming.run_apply_naming_one", str(set_id),
         )

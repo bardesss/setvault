@@ -8,22 +8,21 @@ RipJob is marked failed so it shows up in Downloads and can be retried.
 from __future__ import annotations
 
 import logging
-import os
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.config import redis_url
 from setvault_core.jobs.url_rip_job import RIP_JOB_TIMEOUT
 from setvault_core.models.url_rip import RipJob
 
 logger = logging.getLogger(__name__)
 
 
-def _queue(redis_url: str | None = None):
+def _queue(url: str | None = None):
     from redis import Redis
     from rq import Queue
 
-    url = redis_url or os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    return Queue("default", connection=Redis.from_url(url))
+    return Queue("default", connection=Redis.from_url(url or redis_url()))
 
 
 async def enqueue_rip(

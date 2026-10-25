@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from setvault_core.config import redis_url
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.identity import User
 from setvault_core.models.url_rip import RipJob
@@ -43,10 +43,6 @@ async def _enforce_rip_rate_limit(user_id: uuid.UUID) -> None:
             status_code=429, detail="too many URL rips today",
             headers={"Retry-After": "86400"},
         )
-
-
-def _redis_url() -> str:
-    return os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 
 def _to_out(job: RipJob, *, live_set_slug: str | None = None) -> RipJobOut:
@@ -94,7 +90,7 @@ async def submit_url_rip(
         target_type="rip_job", target_id=str(job.id),
         after={"url": body.url, "platform": job.source_platform},
     )
-    await enqueue_rip(session, job, redis_url=_redis_url())
+    await enqueue_rip(session, job, redis_url=redis_url())
 
     return _to_out(job)
 

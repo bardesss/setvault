@@ -9,6 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
+from setvault_core.config import redis_url
 from setvault_core.jobs.upgrade_search import normalize_schedule
 from setvault_core.models.api_token import ApiToken
 from setvault_core.models.catalog import LiveSet, MediaRoot
@@ -208,7 +209,7 @@ async def remeasure_loudness(
         select(func.count()).select_from(LiveSet)
         .where(LiveSet.normalized_lufs == BOGUS_LUFS)
     )).scalar_one()
-    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis = Redis.from_url(redis_url())
     rq_job = Queue("default", connection=redis).enqueue(
         "setvault_core.jobs.loudness_backfill.run_remeasure_bogus_loudness",
         job_timeout="6h",
@@ -235,7 +236,7 @@ async def regain_library(
     from rq import Queue
     from setvault_core.jobs.regain import REGAIN_JOB_FUNC, REGAIN_JOB_TIMEOUT
 
-    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis = Redis.from_url(redis_url())
     rq_job = Queue("low", connection=redis).enqueue(
         REGAIN_JOB_FUNC, job_timeout=REGAIN_JOB_TIMEOUT,
     )

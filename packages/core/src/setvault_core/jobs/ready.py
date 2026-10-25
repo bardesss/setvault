@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.config import redis_url
 from setvault_core.db import init_engine, session_factory
 from setvault_core.jobs.apply_naming import enqueue_apply_naming
 from setvault_core.models.catalog import LiveSet, MediaRoot
@@ -34,7 +35,7 @@ async def fan_out_webhooks(live: LiveSet, event: str) -> None:
         if not rows:
             return
 
-        redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+        redis = Redis.from_url(redis_url())
         queue = Queue("default", connection=redis)
         for wh in rows:
             if event not in (wh.events or []):
