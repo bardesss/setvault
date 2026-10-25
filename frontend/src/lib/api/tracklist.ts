@@ -57,12 +57,6 @@ export const patchEntry = (
     body: JSON.stringify(body),
   });
 
-export const moveEntry = (slug: string, id: string, afterPosition: number) =>
-  api<void>(`${base(slug)}/entries/${id}/move`, {
-    method: "PATCH",
-    body: JSON.stringify({ after_position: afterPosition }),
-  });
-
 export const deleteEntry = (slug: string, id: string) =>
   api<void>(`${base(slug)}/entries/${id}`, { method: "DELETE" });
 

@@ -59,7 +59,6 @@
     "saving": "Saving…",
     "password_updated": "password updated",
     "failed": "failed",
-    "notifications": "Notification preferences",
     "loading": "Loading…",
     "tabs": {
       "profile": "Profile",
@@ -118,21 +117,14 @@
     }
   },
   "nav": {
-    "home": "Home",
-    "library": "Library",
     "browse": "Browse",
     "artists": "Artists",
     "parties": "Parties",
     "venues": "Venues",
     "series": "Series",
     "add_set": "Add set",
-    "upload": "Upload",
-    "search": "Search",
     "favorites": "Favorites",
-    "discoveries": "Discoveries",
-    "settings": "Settings",
-    "admin": "Admin",
-    "sign_out": "Sign out"
+    "discoveries": "Discoveries"
   },
   "browse": {
     "artists": "Artists",
@@ -148,7 +140,6 @@
     "sets_count": "{count, plural, one {# set} other {# sets}}",
     "showing": "Showing {shown} of {total}",
     "load_more": "Load more",
-    "load_more_failed": "Could not load more. Try again.",
     "none": "Nothing matches.",
     "track_chip": "Track: {title}",
     "track_chip_unknown": "Track: unknown",
@@ -287,7 +278,6 @@
     },
     "backups": {
       "title": "Backups",
-      "status_label": "Last backup",
       "never": "No backup has run yet.",
       "status_ok": "Last backup {when}, {size}.",
       "status_failed": "Last backup failed {when}: {error}",
@@ -485,7 +475,6 @@
   "monitors": {
     "admin_title": "Monitors",
     "query_placeholder": "Artist, party, or venue name",
-    "source_optional": "Source (optional)",
     "all_sources": "all sources",
     "add": "Add monitor",
     "empty": "No monitors yet.",
@@ -515,8 +504,7 @@
     "cap_label": "Per-poll cap (1-50)",
     "linked_to": "Linked to",
     "never": "never",
-    "load_sources_error": "Could not load sources.",
-    "save_error": "Could not save the change."
+    "load_sources_error": "Could not load sources."
   },
   "discoveries": {
     "title": "Discoveries",
@@ -562,7 +550,6 @@
     }
   },
   "feeds": {
-    "heading": "RSS feeds",
     "description": "Subscribe in any podcast app.",
     "favorites": "Favorites",
     "recent": "Recent",

@@ -1,14 +1,12 @@
-/* Responsive breakpoint tokens.
+/* Responsive breakpoints.
  *
- *   --bp-phone   : 0..600px           — phone portrait
- *   --bp-tablet  : 600..900px         — tablet / small landscape phone
- *   --bp-desktop : 900px+             — desktop / wide tablet
+ * Every media query in the app is a `max-width` query. The widths in use:
  *
- * Use as `@media (max-width: 600px) { ... }`. The tokens themselves are
- * documentation; media-query syntax doesn't accept var().
+ *   600px   phone
+ *   760px   nav rail collapses
+ *   980px
+ *   1024px
+ *   1180px
+ *
+ * Media-query syntax doesn't accept var(), so write the pixel value in place.
  */
-:root {
-  --bp-phone: 600px;
-  --bp-tablet: 900px;
-  --bp-desktop: 1200px;
-}
