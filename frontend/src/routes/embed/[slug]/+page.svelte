@@ -1,16 +1,11 @@
 <script lang="ts">
   import { _ } from "svelte-i18n";
   import type { PageData } from "./$types";
+  import { fmtDuration } from "#lib/format.ts";
 
   export let data: PageData;
   $: set = data.set;
 
-  function fmt(s: number | null): string {
-    if (s === null) return "";
-    const m = Math.floor(s / 60);
-    const ss = Math.floor(s % 60);
-    return `${m}:${String(ss).padStart(2, "0")}`;
-  }
 </script>
 
 <svelte:head><title>{set.title} — SetVault</title></svelte:head>
@@ -31,7 +26,7 @@
       <ol class="tracklist">
         {#each set.tracklist as t (t.position)}
           <li>
-            <span class="ts">{fmt(t.start_seconds)}</span>
+            <span class="ts">{t.start_seconds == null ? "" : fmtDuration(t.start_seconds)}</span>
             {t.label ?? `Track ${t.position}`}
           </li>
         {/each}

@@ -4,6 +4,7 @@
   import { acceptImport, importTracklist, type ImportJob } from "#lib/api/tracklist.ts";
   import { ApiError } from "#lib/api/client.ts";
   import { setEntries } from "#lib/stores/tracklist.ts";
+  import { fmtDuration } from "#lib/format.ts";
 
   export let slug: string;
 
@@ -92,11 +93,6 @@
     }
   }
 
-  function fmt(s: number): string {
-    const m = Math.floor(s / 60);
-    const ss = s % 60;
-    return `${m}:${String(ss).padStart(2, "0")}`;
-  }
 </script>
 
 <div
@@ -145,7 +141,7 @@
       {#each job.parsed as p, i (i)}
         <li>
           <input type="checkbox" checked={accepted.has(i)} on:change={() => toggle(i)} />
-          <span class="t mono">{fmt(p.start_seconds)}</span>
+          <span class="t mono">{fmtDuration(p.start_seconds)}</span>
           <span>{p.raw_label}</span>
         </li>
       {/each}

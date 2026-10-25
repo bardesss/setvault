@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
+  import { fmtBytes } from "#lib/format.ts";
   import {
     clearAudioCache,
     offline,
@@ -23,13 +24,6 @@
   let clearing = false;
 
   onMount(refreshUsage);
-
-  function fmtBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
 
   async function doClear() {
     clearing = true;

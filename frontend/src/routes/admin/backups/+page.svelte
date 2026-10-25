@@ -18,6 +18,7 @@
     type AdminSettings,
   } from "#lib/api/settings.ts";
   import { toast } from "#lib/stores/toast.ts";
+  import { fmtBytes } from "#lib/format.ts";
 
   export let data: PageData;
 
@@ -27,19 +28,6 @@
   let busy = false;
   let formError: string | null = null;
   let pendingDelete: string | null = null;
-
-  function fmtBytes(n: number | null): string {
-    if (n === null || n === undefined) return "–";
-    if (n < 1024) return `${n} B`;
-    const units = ["KB", "MB", "GB", "TB"];
-    let v = n / 1024;
-    let i = 0;
-    while (v >= 1024 && i < units.length - 1) {
-      v /= 1024;
-      i += 1;
-    }
-    return `${v.toFixed(1)} ${units[i]}`;
-  }
 
   function fmtWhen(iso: string | null): string {
     return iso ? new Date(iso).toLocaleString() : "–";

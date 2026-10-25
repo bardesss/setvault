@@ -10,6 +10,7 @@
   import TracklistEditDrawer from "./TracklistEditDrawer.svelte";
   import TracklistImportModal from "./TracklistImportModal.svelte";
   import TimeShiftDialog from "./TimeShiftDialog.svelte";
+  import { fmtDuration } from "#lib/format.ts";
 
   export let slug: string;
 
@@ -56,15 +57,6 @@
       removeEntry(tentative.id);
       console.error("add failed", e);
     }
-  }
-
-  function fmtTime(s: number): string {
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const ss = s % 60;
-    return h > 0
-      ? `${h}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`
-      : `${m}:${String(ss).padStart(2, "0")}`;
   }
 
   function indexAtPlayhead(): number {
@@ -126,7 +118,7 @@
     <div>
       {#each $tracklist.entries as entry, idx (entry.id)}
         <div class="track-row" class:now={idx === currentIdx}>
-          <button class="ts seek-cell" on:click={() => seekTo(entry.start_seconds)}>{fmtTime(entry.start_seconds)}</button>
+          <button class="ts seek-cell" on:click={() => seekTo(entry.start_seconds)}>{fmtDuration(entry.start_seconds)}</button>
           <span class="pos">{String(idx + 1).padStart(2, "0")}.</span>
           <div class="track-main">
             <div class="tn">{entry.raw_label}</div>

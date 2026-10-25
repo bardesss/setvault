@@ -3,6 +3,8 @@
   import { api, ApiError } from "#lib/api/client.ts";
   import AdminTable from "#lib/components/AdminTable.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
+  import { _, locale } from "svelte-i18n";
+  import { fmtLocalDateTime } from "#lib/format.ts";
 
   interface ScheduledTask {
     id: string;
@@ -58,11 +60,6 @@
     return `${Math.round(secs / 86400)}d`;
   }
 
-  function fmtDate(iso: string | null): string {
-    if (!iso) return "—";
-    return iso.slice(0, 16).replace("T", " ");
-  }
-
   onMount(load);
 </script>
 
@@ -79,7 +76,7 @@
   {#if notice}<p class="admin-msg is-success" role="status">{notice}</p>{/if}
 
   {#if loading}
-    <p class="loading">Loading…</p>
+    <p class="loading">{$_("common.loading")}</p>
   {:else if items.length === 0}
     <EmptyState message="No scheduled jobs registered." />
   {:else}
@@ -90,8 +87,8 @@
         <tr>
           <td class="mono">{task.short_name}</td>
           <td class="mono">{fmtInterval(task.interval_seconds)}</td>
-          <td class="mono">{fmtDate(task.next_run_at)}</td>
-          <td class="mono">{fmtDate(task.last_run_at)}</td>
+          <td class="mono">{fmtLocalDateTime(task.next_run_at, $locale) || "—"}</td>
+          <td class="mono">{fmtLocalDateTime(task.last_run_at, $locale) || "—"}</td>
           <td class="mono">{task.last_status ?? "—"}</td>
           <td class="cell-actions">
             <button

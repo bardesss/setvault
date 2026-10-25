@@ -3,6 +3,7 @@
   import { _ } from "svelte-i18n";
   import FilterBar from "#lib/components/FilterBar.svelte";
   import { listMyBookmarks, type Bookmark } from "#lib/api/bookmarks.ts";
+  import { fmtDuration } from "#lib/format.ts";
 
   let items: Bookmark[] = [];
   let loaded = false;
@@ -16,12 +17,6 @@
       loaded = true;
     }
   });
-
-  function fmt(s: number): string {
-    const m = Math.floor(s / 60);
-    const ss = s % 60;
-    return `${m}:${String(ss).padStart(2, "0")}`;
-  }
 
   $: filtered = (() => {
     let out = items;
@@ -83,7 +78,7 @@
               >
                 {b.position_seconds === null
                   ? $_("bookmarks.entire_set")
-                  : fmt(b.position_seconds)}
+                  : fmtDuration(b.position_seconds)}
               </a>
               {#if b.label}<span class="label">{b.label}</span>{/if}
             </li>

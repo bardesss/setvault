@@ -5,7 +5,12 @@
     "confirm": "Confirm",
     "dismiss": "Dismiss",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "loading": "Loading…"
+  },
+  "error": {
+    "title": "Something went wrong",
+    "back_home": "Back to home"
   },
   "picker": {
     "create": "Create \"{name}\"",

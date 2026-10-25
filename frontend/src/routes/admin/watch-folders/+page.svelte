@@ -4,6 +4,8 @@
   import AdminTable from "#lib/components/AdminTable.svelte";
   import AdminForm from "#lib/components/AdminForm.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
+  import { _, locale } from "svelte-i18n";
+  import { fmtLocalDateTime } from "#lib/format.ts";
 
   interface WatchFolder {
     id: string;
@@ -126,11 +128,6 @@
     return roots.find((r) => r.id === id)?.name ?? id.slice(0, 8);
   }
 
-  function fmtDate(iso: string | null): string {
-    if (!iso) return "—";
-    return iso.slice(0, 16).replace("T", " ");
-  }
-
   onMount(load);
 </script>
 
@@ -178,7 +175,7 @@
   {/if}
 
   {#if loading}
-    <p class="loading">Loading…</p>
+    <p class="loading">{$_("common.loading")}</p>
   {:else if items.length === 0}
     <EmptyState message="No watch folders configured yet." />
   {:else}
@@ -200,7 +197,7 @@
           <td>{rootName(wf.target_media_root_id)}</td>
           <td>{wf.enabled ? "✓" : "—"}</td>
           <td class="mono">{wf.last_health_status}</td>
-          <td class="mono">{fmtDate(wf.last_event_at)}</td>
+          <td class="mono">{fmtLocalDateTime(wf.last_event_at, $locale) || "—"}</td>
           <td class="cell-actions">
             <button type="button" class="btn btn-sm" disabled={busy[wf.id]} on:click={() => healthCheck(wf)}>Probe</button>
             <button type="button" class="btn btn-sm" disabled={busy[wf.id]} on:click={() => toggle(wf)}>
