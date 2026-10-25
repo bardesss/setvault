@@ -106,6 +106,32 @@ async def test_home_summary_audio_bytes_sums_sizes(authed_admin_client, seeded_l
     assert body["audio_bytes"] == 150
 
 
+async def test_home_summary_counts_only_published_sets(authed_admin_client, seeded_live_set):
+    """"Sets in vault" matches what Library lists: a draft (a held duplicate,
+    or a rip that never finished) isn't counted, though its files still are."""
+    import uuid
+
+    from setvault_core.db import session_factory
+    from setvault_core.models.catalog import LiveSet
+
+    async with session_factory()() as s:
+        a = await s.get(LiveSet, uuid.UUID(seeded_live_set["id"]))
+        s.add(LiveSet(
+            slug=f"draft-{uuid.uuid4().hex[:6]}", title="draft",
+            media_root_id=a.media_root_id, audio_path="originals/draft.flac",
+            status="draft", source_type="url_rip", uploaded_by=a.uploaded_by,
+            audio_bytes=70,
+        ))
+        await s.commit()
+
+    response = await authed_admin_client.get("/api/me/home-summary")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sets_count"] == 1
+    assert body["sets_delta"] == 1
+    assert body["audio_bytes"] == 70
+
+
 async def _patch_live_set(set_id: str, **fields) -> None:
     import uuid
 

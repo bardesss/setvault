@@ -279,6 +279,28 @@ async def test_rip_discovery_status_ingested_only_after_enqueue(authed_admin_cli
         assert d.status == "ingested" and d.decided_at is not None
 
 
+@pytest.mark.asyncio
+async def test_rip_discovery_probe_failure_returns_400(authed_admin_client, monkeypatch):
+    """A URL yt-dlp can't probe is a 400 with the reason, and the discovery
+    stays pending_review so it can be tried again later."""
+    from setvault_core.models.monitors import MonitorDiscovery
+    from setvault_core.services.url_rip import ProbeError
+    from setvault_web.api import monitors as monitors_api
+
+    async def _failing_submit(session, *, user_id, url, trigger=None):
+        raise ProbeError("[youtube] abc: Sign in to confirm you're not a bot.")
+
+    monkeypatch.setattr(monitors_api, "submit_rip", _failing_submit)
+    discovery_id = await _seed_discovery(authed_admin_client)
+
+    r = await authed_admin_client.post(f"/api/me/discoveries/{discovery_id}/rip")
+    assert r.status_code == 400, r.text
+    assert "not a bot" in r.json()["detail"]
+    async with session_factory()() as s:
+        d = await s.get(MonitorDiscovery, discovery_id)
+        assert d.status == "pending_review" and d.url_rip_id is None
+
+
 async def _artist(client, name: str = "Linkable") -> dict:
     r = await client.post("/api/catalog/artists", json={"name": name})
     assert r.status_code == 201, r.text

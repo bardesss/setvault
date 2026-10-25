@@ -8,6 +8,7 @@ const tabs: { href: string; expectedHeading: RegExp }[] = [
   { href: "/admin/webhooks", expectedHeading: /Library refresh webhooks/i },
   { href: "/admin/watch-folders", expectedHeading: /Watch folders/i },
   { href: "/admin/unmatched", expectedHeading: /Unmatched inbox/i },
+  { href: "/admin/drafts", expectedHeading: /^Drafts$/i },
   { href: "/admin/duplicates", expectedHeading: /^Duplicates$/i },
   { href: "/admin/quality", expectedHeading: /^Quality$/i },
   { href: "/admin/wanted", expectedHeading: /^Wanted$/i },

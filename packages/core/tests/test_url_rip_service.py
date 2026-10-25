@@ -119,6 +119,23 @@ def test_probe_url_rejects_playlists_and_live_streams(info: dict, message: str):
     assert message in str(result)
 
 
+def test_probe_url_turns_ytdlp_errors_into_probe_error():
+    """A yt-dlp failure (bot check, private video, geo block) is a bad URL for
+    the caller, not a crash: ProbeError (a ValueError) with yt-dlp's message."""
+    from setvault_core.services.url_rip import ProbeError
+    from yt_dlp.utils import DownloadError
+
+    ctx = MagicMock()
+    ctx.__enter__.return_value.extract_info.side_effect = DownloadError(
+        "\x1b[0;31mERROR:\x1b[0m [youtube] abc: Sign in to confirm you're not a bot."
+    )
+    with patch("setvault_core.services.url_rip.yt_dlp.YoutubeDL", return_value=ctx):
+        with pytest.raises(ProbeError) as exc_info:
+            probe_url("https://www.youtube.com/watch?v=abc")
+    assert isinstance(exc_info.value, ValueError)
+    assert str(exc_info.value) == "[youtube] abc: Sign in to confirm you're not a bot."
+
+
 async def test_submit_rip_probes_off_the_event_loop(monkeypatch):
     """yt-dlp's probe blocks for seconds; it must not run on the loop thread."""
     import threading
