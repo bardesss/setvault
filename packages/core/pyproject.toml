@@ -6,7 +6,7 @@ dependencies = [
   "setvault-providers",
   "sqlalchemy[asyncio]>=2.1.5",
   "asyncpg>=0.29",
-  "alembic>=1.13",
+  "alembic>=1.20.1",
   "pydantic>=2.7",
   "argon2-cffi>=23.1",
   "itsdangerous>=2.2",

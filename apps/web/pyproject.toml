@@ -6,7 +6,7 @@ dependencies = [
   "setvault-core",
   "setvault-providers",
   "setvault-ingest-sources",
-  "fastapi>=0.143.3",
+  "fastapi>=0.161.1",
   "uvicorn[standard]>=0.54.0",
   "pydantic-settings>=2.16.0",
   "rq>=1.16",
