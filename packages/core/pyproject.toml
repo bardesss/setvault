@@ -4,7 +4,7 @@ version = "0.24.0"
 requires-python = ">=3.12"
 dependencies = [
   "setvault-providers",
-  "sqlalchemy[asyncio]>=2.1.5",
+  "sqlalchemy[asyncio]>=2.1.6",
   "asyncpg>=0.29",
   "alembic>=1.13",
   "pydantic>=2.7",
