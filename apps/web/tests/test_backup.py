@@ -7,6 +7,7 @@ PATH (CI has them; some dev hosts don't).
 
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import shutil
@@ -308,7 +309,8 @@ async def test_backup_restore_round_trip(client, tmp_path, monkeypatch):
     restore_mod = _patch_restore_cli(
         monkeypatch, [MediaRootSpec(name=marker, host_path=str(restore_dest))],
     )
-    restore_mod.main([str(tar_path), "--yes"])
+    # main() calls asyncio.run(), so it can't run on this test's event loop.
+    await asyncio.to_thread(restore_mod.main, [str(tar_path), "--yes"])
 
     # The pg_dump used --no-owner --no-privileges and the dump includes the
     # full table contents, so the row is back.
