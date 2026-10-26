@@ -4,6 +4,8 @@
   import AdminTable from "#lib/components/AdminTable.svelte";
   import StatusBlock from "#lib/components/StatusBlock.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
+  import { _, locale } from "svelte-i18n";
+  import { fmtBytes, fmtLocalDateTime } from "#lib/format.ts";
 
   interface HealthPayload {
     version: {
@@ -57,14 +59,6 @@
     }
   }
 
-  function fmtBytes(n: number | undefined): string {
-    if (!n) return "—";
-    const gb = n / (1024 ** 3);
-    if (gb >= 1) return `${gb.toFixed(1)} GB`;
-    const mb = n / (1024 ** 2);
-    return `${mb.toFixed(1)} MB`;
-  }
-
   function fmtPct(used: number | undefined, total: number | undefined): string {
     if (!used || !total) return "";
     return `${((used / total) * 100).toFixed(0)}%`;
@@ -76,11 +70,6 @@
     return "bad";
   }
 
-  function fmtDate(iso: string | null): string {
-    if (!iso) return "—";
-    return iso.slice(0, 16).replace("T", " ");
-  }
-
   onMount(load);
 </script>
 
@@ -90,7 +79,7 @@
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
 
   {#if loading}
-    <p class="loading">Loading…</p>
+    <p class="loading">{$_("common.loading")}</p>
   {:else if data}
     <StatusBlock title="Version">
       <div class="stat-line"><span class="k">Running</span><span class="v mono">{data.version.current}</span></div>
@@ -103,7 +92,7 @@
           {/if}
         </span>
       </div>
-      <div class="stat-line"><span class="k">Last checked</span><span class="v mono">{fmtDate(data.version.latest_checked_at)}</span></div>
+      <div class="stat-line"><span class="k">Last checked</span><span class="v mono">{fmtLocalDateTime(data.version.latest_checked_at, $locale) || "—"}</span></div>
       <div class="stat-line"><span class="k">Audit retention</span><span class="v mono">{data.audit_retention_days} days</span></div>
     </StatusBlock>
 
@@ -138,7 +127,7 @@
               <td>{c.name}</td>
               <td class="mono">{c.kind}</td>
               <td>{c.enabled ? "✓" : "—"}</td>
-              <td class="mono">{fmtDate(c.last_used_at)}</td>
+              <td class="mono">{fmtLocalDateTime(c.last_used_at, $locale) || "—"}</td>
               <td class="mono">{c.last_status ?? "—"}</td>
             </tr>
           {/each}

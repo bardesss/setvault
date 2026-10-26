@@ -8,7 +8,7 @@
     updateSettings,
     type AdminSettings,
   } from "#lib/api/settings.ts";
-  import { fmtLocalDateTime } from "#lib/wanted.ts";
+  import { fmtLocalDateTime } from "#lib/format.ts";
   import ConfirmDialog from "#lib/components/ConfirmDialog.svelte";
   import { toast } from "#lib/stores/toast.ts";
 
@@ -246,7 +246,7 @@
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
 
   {#if loading}
-    <p class="muted">Loading…</p>
+    <p class="muted">{$_("common.loading")}</p>
   {:else if settings}
     <div class="card">
       <h3>Quality order</h3>

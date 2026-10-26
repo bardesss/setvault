@@ -94,8 +94,6 @@ export const listSets = (params: ListSetsParams = {}) =>
 
 export const getFacets = () => api<SetFacets>("/api/sets/facets");
 
-export const getSet = (slug: string) => api<SetDetail>(`/api/sets/${slug}`);
-
 /** PATCH body. Omitted keys are left alone; `null` clears party, venue, date
  * and description. `artists` wins over `artist_ids`. */
 export interface SetPatch {

@@ -39,6 +39,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core import triggers
 from setvault_core.db import session_factory
 from setvault_core.models.catalog import LiveSet, LiveSetArtist, LiveSetTag, SetFingerprint
 from setvault_core.models.engagement import Favorite, ListeningHistory, UserSetState
@@ -49,9 +50,9 @@ from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
 from setvault_core.models.watch_folder import UnmatchedFile
 from setvault_core.services.audio_match import (
-    MATCHER_VERSION,
     MatchResult,
     compare,
+    current_fingerprint,
     is_same_audio,
     raw_from_bytes,
 )
@@ -70,13 +71,16 @@ from setvault_core.services.set_upgrade import (
     _lock_sets,
     apply_upgrade,
     audio_is_better,
+    build_upgrade_event,
+    event_audio,
     may_replace_audio,
     upgrade_refusal,
+    whole_seconds,
 )
 
 logger = logging.getLogger(__name__)
 
-TRIGGER = "backfill"
+TRIGGER = triggers.BACKFILL
 REASON_BACKFILL = "matched by backfill"
 TRACKLIST_KEPT = "tracklist kept with the recycled copy"
 _MERGED_SUFFIX = " (merged copy)"
@@ -142,8 +146,7 @@ async def _load_index(session: AsyncSession) -> list[_Entry]:
         select(
             LiveSet.id, LiveSet.created_at, SetFingerprint.id,
             SetFingerprint.fingerprint_hash, SetFingerprint.duration_seconds,
-            and_(SetFingerprint.raw.is_not(None),
-                 SetFingerprint.raw_version == MATCHER_VERSION),
+            current_fingerprint(),
         )
         .join(SetFingerprint, SetFingerprint.live_set_id == LiveSet.id)
         .where(_eligible())
@@ -251,20 +254,6 @@ async def scan_duplicate_pairs(
     return pairs, True
 
 
-async def find_duplicate_pairs(
-    session: AsyncSession,
-) -> list[tuple[LiveSet, LiveSet, MatchResult]]:
-    """Published, non-deleted sets that match each other, as
-    ``(older, newer, result)``. Used by the dry run."""
-    pairs, _ = await scan_duplicate_pairs(session)
-    out = []
-    for p in pairs:
-        older = await session.get(LiveSet, p.older_id)
-        newer = await session.get(LiveSet, p.newer_id)
-        out.append((older, newer, p.result))
-    return out
-
-
 # --------------------------------------------------------------------------
 # Deciding a pair
 # --------------------------------------------------------------------------
@@ -369,8 +358,7 @@ async def _confirm_match(
         raw = (await session.execute(
             select(SetFingerprint.raw).where(
                 SetFingerprint.live_set_id == set_id,
-                SetFingerprint.raw.is_not(None),
-                SetFingerprint.raw_version == MATCHER_VERSION,
+                current_fingerprint(),
             ).order_by(SetFingerprint.created_at, SetFingerprint.id).limit(1)
         )).scalar_one_or_none()
         if raw is None:
@@ -439,7 +427,7 @@ async def _merge_rows(
     """
     s_id, l_id = survivor.id, loser.id
     off = offset_seconds if abs(offset_seconds) >= MIN_SHIFT_SECONDS else 0.0
-    whole = round(off)
+    whole = whole_seconds(off)
     # Shifted positions stay inside the survivor's audio (when its length is known).
     upper = survivor.duration_seconds
     moved: dict[str, int] = {}
@@ -560,6 +548,8 @@ async def _merge_rows(
 
     # The loser goes to the recycle bin as a duplicate of the survivor, so
     # a restore lands on the Duplicates page (as after a swap, R31).
+    # Not shared with apply_upgrade's recycle block: the title, suffix and
+    # match_offset_seconds differ.
     now = datetime.now(UTC)
     if not after_upgrade:
         base = loser.title[: _TITLE_MAX - len(_MERGED_SUFFIX)]
@@ -577,15 +567,10 @@ async def _merge_rows(
     # Just after the transaction's now(), i.e. after the swap's own
     # "upgraded" event in the same transaction (server default now()).
     db_now = (await session.execute(select(func.now()))).scalar_one()
-    event = SetUpgradeEvent(
+    event = build_upgrade_event(
         live_set_id=s_id, trigger=trigger, outcome="merged",
         reason=TRACKLIST_KEPT if tracklist == "kept" else None,
-        from_tier=merged_copy.quality_tier, from_codec=merged_copy.audio_codec,
-        from_bitrate_kbps=merged_copy.audio_bitrate_kbps,
-        from_source_type=merged_copy.source_type, from_source_url=merged_copy.source_url,
-        to_tier=survivor.quality_tier, to_codec=survivor.audio_codec,
-        to_bitrate_kbps=survivor.audio_bitrate_kbps,
-        to_source_type=survivor.source_type, to_source_url=survivor.source_url,
+        **event_audio("from", merged_copy), **event_audio("to", survivor),
         offset_seconds=offset_seconds,
         created_at=db_now + timedelta(milliseconds=1),
     )

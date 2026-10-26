@@ -15,6 +15,7 @@ from setvault_ingest_sources.base import Candidate
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core import triggers
 from setvault_core.models.engagement_3c import InAppNotification
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
 from setvault_core.models.url_rip import RipJob
@@ -48,7 +49,7 @@ async def _ingest_candidate(
     try:
         job = await submit_rip(
             session, user_id=monitor.owner_user_id, url=candidate.webpage_url,
-            trigger="monitor",
+            trigger=triggers.MONITOR,
         )
     except DuplicateRipError as e:
         return e.existing, False

@@ -11,11 +11,6 @@ export interface ProviderConfig {
   field_priority: Record<string, string[]>;
 }
 
-export async function listProviders(): Promise<ProviderConfig[]> {
-  const { items } = await api<{ items: ProviderConfig[] }>("/api/admin/providers");
-  return items;
-}
-
 export const upsertProvider = (
   kind: ProviderKind,
   body: {

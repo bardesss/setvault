@@ -15,6 +15,8 @@ vi.mock("#lib/api/sets.ts", () => ({
 }));
 vi.mock("#lib/api/tracklist.ts", () => ({ listTracklist: async () => [] }));
 
+let lastAudio: FakeAudio | null = null;
+
 class FakeAudio extends EventTarget {
   src = "";
   preload = "";
@@ -33,6 +35,10 @@ class FakeAudio extends EventTarget {
     this.dispatchEvent(new Event("pause"));
   }
   remove(): void { /* detached */ }
+  constructor() {
+    super();
+    lastAudio = this;
+  }
 }
 
 let win: EventTarget;
@@ -56,6 +62,7 @@ async function engine() {
 
 beforeEach(() => {
   vi.resetModules();
+  lastAudio = null;
   vi.useFakeTimers();
   putSetState.mockClear();
   getSetState.mockReset();
@@ -65,8 +72,7 @@ beforeEach(() => {
   vi.stubGlobal("document", { body: { appendChild: () => undefined } });
 });
 
-afterEach(async () => {
-  (await engine()).dispose();
+afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -92,7 +98,7 @@ describe("audio engine save guard", () => {
     remote.resolve({ position_seconds: 120, completed: false, playback_rate: 1 });
     await loading;
     expect(get(audio.player).position).toBe(120);
-    expect(audio.getElement()?.currentTime).toBe(120);
+    expect(lastAudio?.currentTime).toBe(120);
     expect(putSetState).not.toHaveBeenCalled();
 
     await audio.play();

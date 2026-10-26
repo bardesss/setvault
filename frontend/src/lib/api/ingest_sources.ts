@@ -26,6 +26,8 @@ export interface SourceState {
 export interface SourceSearchResult {
   items: SourceCandidate[];
   errored_sources: string[];
+  /** Sources skipped because their rate-limit budget is spent this window. */
+  throttled_kinds: string[];
 }
 
 export async function searchSources(q: string): Promise<SourceSearchResult> {

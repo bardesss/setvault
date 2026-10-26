@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.config import redis_url
 from setvault_core.models.engagement_3c import InAppNotification
 from setvault_core.models.identity import NotificationPreference, User
 from setvault_core.services.audio_quality import quality_label
@@ -43,10 +44,6 @@ _EMAIL_SUBJECTS = {
     "comment_reply": "Someone replied to your comment on SetVault",
     "set_upgraded": "A set in your SetVault library was upgraded",
 }
-
-
-def _redis_url() -> str:
-    return os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 
 def _base_url() -> str:
@@ -107,7 +104,7 @@ async def _deliver_email(
         )
         try:
             await enqueue_email(
-                session, redis_url=_redis_url(), to=user.email, subject=subject, text=body,
+                session, redis_url=redis_url(), to=user.email, subject=subject, text=body,
             )
         except Exception:
             logger.exception("notification email enqueue failed")
@@ -120,7 +117,7 @@ async def _deliver_email(
     )
     try:
         await enqueue_email(
-            session, redis_url=_redis_url(), to=user.email, subject=subject, text=body,
+            session, redis_url=redis_url(), to=user.email, subject=subject, text=body,
         )
     except Exception:
         logger.exception("notification email enqueue failed")

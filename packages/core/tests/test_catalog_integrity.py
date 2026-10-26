@@ -164,3 +164,19 @@ async def test_unique_slug_fallback_item_gets_name_hash(session):
     # a name that genuinely slugs to "item" is not hashed
     plain = await unique_slug(s, Artist, slugify("Item"), name="Item")
     assert re.fullmatch(r"item(-\d+)?", plain)
+
+
+def test_slugify_folds_accents():
+    assert slugify("Âme") == "ame"
+    assert slugify("Röyksopp") == "royksopp"
+    assert slugify("DJ Koze & Friends") == "dj-koze-friends"
+
+
+def test_slugify_fallback_and_truncate():
+    assert slugify("日本語", fallback="untitled") == "untitled"
+    assert slugify("!!!", fallback="untitled") == "untitled"
+    assert slugify("日本語") == "item"
+    cut = slugify("a" * 59 + " b" * 20, max_len=60)
+    assert len(cut) <= 60
+    assert not cut.endswith("-")
+    assert cut == "a" * 59

@@ -179,3 +179,42 @@ async def test_bandcamp_seeded_with_hourly_rate_limit(session):
     await svc.ensure_seed_states(session)
     st = await svc.get_state(session, "bandcamp")
     assert (st.rate_limit_max, st.rate_limit_window_seconds) == (30, 3600)
+
+
+@pytest.mark.asyncio
+async def test_throttled_source_reported(session, monkeypatch):
+    """A source whose rate-limit budget is spent is reported as throttled and
+    is not marked healthy: it never ran."""
+    await svc.ensure_seed_states(session)
+    from setvault_ingest_sources.base import Candidate
+
+    searched: list[str] = []
+
+    def fake_get_source(kind):
+        class _S:
+            def __init__(self, k):
+                self.kind = k
+                self.name = k
+
+            def search(self, q, *, limit=20):
+                searched.append(self.kind)
+                return [Candidate(self.kind, f"{self.kind}1", "T", "U", 60, None, "https://x")]
+        return _S(kind)
+
+    async def fake_allow(kind, *, limit, window_seconds):
+        return kind != "mixcloud"
+
+    monkeypatch.setattr(svc, "get_source", fake_get_source)
+    monkeypatch.setattr(svc, "_source_allow", fake_allow)
+    mix = await svc.get_state(session, "mixcloud")
+    mix.state = "degraded"
+    mix.consecutive_failures = 2
+    await session.flush()
+
+    result = await svc.search_all_sources(session, query="x")
+    assert result.throttled_kinds == ["mixcloud"]
+    assert "mixcloud" not in result.errored_kinds
+    assert "mixcloud" not in searched
+    assert all(c.source_kind != "mixcloud" for c in result.candidates)
+    mix = await svc.get_state(session, "mixcloud")
+    assert mix.state == "degraded" and mix.consecutive_failures == 2

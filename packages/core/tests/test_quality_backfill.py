@@ -404,3 +404,29 @@ def test_duplicate_scan_enqueue_is_locked_and_not_stacked(monkeypatch):
         assert redis.get(qb.SCAN_LOCK_KEY) is None  # released after queueing
     finally:
         redis.delete(qb.SCAN_LOCK_KEY, qb.SCAN_JOB_KEY)
+
+
+async def test_backfill_requeues_other_matcher_version(tmp_path: Path, monkeypatch):
+    """A fingerprint from another matcher version can't be compared, so the
+    backfill redoes it; once redone it is current and not picked again."""
+    (tmp_path / "newer.flac").write_bytes(b"x")
+    ids = await _seed(tmp_path, ["newer.flac"])
+    async with session_factory()() as s:
+        live = await s.get(LiveSet, ids["newer.flac"])
+        live.quality_measured_at = datetime.now(UTC)
+        s.add(SetFingerprint(live_set_id=live.id, fingerprint_hash="h", duration_seconds=1.0,
+                             raw=b"\x01\x00\x00\x00", raw_version=MATCHER_VERSION + 1))
+        await s.commit()
+    _stub_tools(monkeypatch)
+
+    async with session_factory()() as s:
+        assert (await qb.backfill_candidates(s))["to_fingerprint"] == 1
+    res = await qb.run_backfill_batch()
+    assert (res["processed"], res["errors"], res["remaining"]) == (1, 0, 0)
+
+    async with session_factory()() as s:
+        fp = (await s.execute(select(SetFingerprint).where(
+            SetFingerprint.live_set_id == ids["newer.flac"]))).scalar_one()
+        assert fp.raw_version == MATCHER_VERSION
+    res = await qb.run_backfill_batch()
+    assert (res["processed"], res["errors"], res["remaining"]) == (0, 0, 0)

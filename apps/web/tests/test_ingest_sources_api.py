@@ -67,7 +67,8 @@ async def test_search_merges_and_flags_in_library(
         Candidate("mixcloud", "dj-m/fresh", "MC fresh", "U", 60, None,
                   "https://www.mixcloud.com/dj-m/fresh/"),
     ]
-    result = SimpleNamespace(candidates=cands, errored_kinds=["internet_archive"])
+    result = SimpleNamespace(candidates=cands, errored_kinds=["internet_archive"],
+                             throttled_kinds=[])
     with patch("setvault_web.api.ingest_sources.search_all_sources", return_value=result):
         r = await authed_admin_client.post("/api/ingest-sources/search", json={"q": "set"})
     assert r.status_code == 200
@@ -107,7 +108,7 @@ async def test_discarded_upgrade_attempts_do_not_count_as_in_library(
         Candidate("youtube", "discarded", "d", "U", 60, None, "https://youtu.be/discarded"),
         Candidate("youtube", "upgraded", "u", "U", 60, None, "https://youtu.be/upgraded"),
     ]
-    result = SimpleNamespace(candidates=cands, errored_kinds=[])
+    result = SimpleNamespace(candidates=cands, errored_kinds=[], throttled_kinds=[])
     with patch("setvault_web.api.ingest_sources.search_all_sources", return_value=result):
         r = await authed_admin_client.post("/api/ingest-sources/search", json={"q": "set"})
     assert r.status_code == 200, r.text
@@ -129,7 +130,7 @@ async def test_search_proxies_external_thumbnails(authed_admin_client):
                   "https://youtu.be/thumbed"),
         Candidate("youtube", "nothumb", "YT2", "U", 60, None, "https://youtu.be/nothumb"),
     ]
-    result = SimpleNamespace(candidates=cands, errored_kinds=[])
+    result = SimpleNamespace(candidates=cands, errored_kinds=[], throttled_kinds=[])
     with patch("setvault_web.api.ingest_sources.search_all_sources", return_value=result):
         r = await authed_admin_client.post("/api/ingest-sources/search", json={"q": "x"})
     assert r.status_code == 200
@@ -160,7 +161,7 @@ async def test_search_results_ranked_by_expected_quality(authed_admin_client):
 
     cands = [mk("unk", None), mk("low", "low"), mk("ll", "lossless"),
              mk("hi", "high"), mk("unk2", None)]
-    result = SimpleNamespace(candidates=cands, errored_kinds=[])
+    result = SimpleNamespace(candidates=cands, errored_kinds=[], throttled_kinds=[])
     with patch("setvault_web.api.ingest_sources.search_all_sources", return_value=result):
         r = await authed_admin_client.post("/api/ingest-sources/search", json={"q": "x"})
     assert r.status_code == 200
@@ -237,3 +238,27 @@ async def test_put_enabled_unchanged_does_not_reset(authed_admin_client):
         assert body["consecutive_failures"] == 0 and body["last_error"] is None
     finally:
         await _reset("youtube")
+
+
+@pytest.mark.asyncio
+async def test_search_response_has_throttled_kinds(authed_admin_client):
+    result = SimpleNamespace(candidates=[], errored_kinds=[], throttled_kinds=["bandcamp"])
+    with patch("setvault_web.api.ingest_sources.search_all_sources", return_value=result):
+        r = await authed_admin_client.post("/api/ingest-sources/search", json={"q": "x"})
+    assert r.status_code == 200, r.text
+    assert r.json()["throttled_kinds"] == ["bandcamp"]
+
+
+@pytest.mark.asyncio
+async def test_search_rate_limited(authed_admin_client, monkeypatch):
+    from setvault_web.api import ingest_sources as api
+
+    monkeypatch.setattr(api, "SEARCH_LIMIT", 2)
+    result = SimpleNamespace(candidates=[], errored_kinds=[], throttled_kinds=[])
+    with patch("setvault_web.api.ingest_sources.search_all_sources", return_value=result):
+        for _ in range(2):
+            r = await authed_admin_client.post("/api/ingest-sources/search", json={"q": "x"})
+            assert r.status_code == 200, r.text
+        r = await authed_admin_client.post("/api/ingest-sources/search", json={"q": "x"})
+    assert r.status_code == 429, r.text
+    assert r.headers["Retry-After"] == "60"

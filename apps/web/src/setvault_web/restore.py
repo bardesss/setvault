@@ -161,47 +161,6 @@ def _safe_extract(tar_path: Path, dest: Path) -> None:
         tar.extractall(dest)  # noqa: S202 — members validated above
 
 
-def restore_from_tar(
-    tar_path: str | Path,
-    database_url: str,
-    media_roots: list[MediaRootSpec],
-    *,
-    confirm: bool,
-) -> dict[str, int]:
-    """Restore a backup tar produced by ``backup._stream_tar``.
-
-    Extracts the tar, loads ``db.sql`` into ``database_url`` via ``psql``, and
-    copies media back under each root's ``host_path``. Destructive — refuses
-    to run unless ``confirm`` is True.
-
-    Returns a summary dict, e.g. ``{"media_files": 3}``. Raises
-    :class:`RestoreError` on any failure.
-    """
-    if not confirm:
-        raise RestoreError(
-            "restore is destructive and was not confirmed — pass --yes "
-            "(or set RESTORE_CONFIRM=1) to overwrite the database and media"
-        )
-
-    tar_path = Path(tar_path)
-    if not tar_path.is_file():
-        raise RestoreError(f"backup file not found: {tar_path}")
-
-    with tempfile.TemporaryDirectory(prefix="setvault-restore-") as tmp:
-        extract_dir = Path(tmp)
-        _safe_extract(tar_path, extract_dir)
-
-        db_sql = extract_dir / "db.sql"
-        if not db_sql.is_file():
-            raise RestoreError("archive is missing db.sql — not a SetVault backup")
-        _restore_database(db_sql, database_url)
-
-        copied = _restore_media(extract_dir, media_roots)
-
-    print(f"restore: complete — {copied} media file(s) restored")
-    return {"media_files": copied}
-
-
 def restore_from_sql_gz(
     gz_path: str | Path, database_url: str, *, confirm: bool,
 ) -> None:

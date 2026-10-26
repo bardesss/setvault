@@ -19,9 +19,6 @@
   --ts-xl:   20px;    /* subheads */
   --ts-2xl:  28px;    /* section heads */
   --ts-3xl:  38px;    /* page hero */
-  --ts-4xl:  56px;    /* display hero */
-  --ts-5xl:  76px;    /* landing hero */
-  --ts-6xl:  112px;   /* landing hero massive */
 
   /* ------ Line heights ------ */
   --lh-tight:    0.96;
@@ -31,12 +28,9 @@
 
   /* ------ Letter spacing ------ */
   --ls-tight:   -0.025em;
-  --ls-default: 0;
-  --ls-loose:    0.04em;
   --ls-uppercase: 0.18em;
 
   /* ------ Spacing (4px base) ------ */
-  --sp-0:  0;
   --sp-1:  4px;
   --sp-2:  8px;
   --sp-3:  12px;
@@ -44,28 +38,18 @@
   --sp-5:  20px;
   --sp-6:  24px;
   --sp-8:  32px;
-  --sp-10: 40px;
-  --sp-12: 48px;
-  --sp-16: 64px;
-  --sp-20: 80px;
-  --sp-24: 96px;
 
   /* ------ Radius ------ */
-  --r-sharp: 0;
   --r-xs:    2px;
   --r-sm:    4px;
   --r-md:    6px;
   --r-lg:    10px;
-  --r-xl:    16px;
   --r-pill:  999px;
 
   /* ------ Motion ------ */
   --dur-fast:    100ms;
   --dur-default: 180ms;
-  --dur-slow:    320ms;
   --ease-default: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --ease-in:      cubic-bezier(0.4, 0, 1, 1);
-  --ease-out:     cubic-bezier(0, 0, 0.2, 1);
 
   /* ------ Z-index layers ------ */
   --z-base:    0;
@@ -77,7 +61,6 @@
 
   /* ------ Layout ------ */
   --shell-rail: 240px;
-  --shell-rail-collapsed: 64px;
   --shell-topbar: 56px;
   --shell-mini-player: 80px;
 
@@ -91,13 +74,11 @@
   --bg-overlay:   #1a1c22;
   --bg-input:     #14161b;
   --bg-hover:     #1a1c22;
-  --bg-pressed:   #1f2228;
   --bg-now:       #0d1612;     /* "now playing" subtle mint tint */
 
   --border-subtle:  #14161b;
   --border-default: #1d1f25;
   --border-strong:  #292c34;
-  --border-emphasis:#3d4150;
   --border-focus:   var(--accent);
 
   --text-strong:   #f4f6fb;
@@ -121,11 +102,8 @@
   --playhead: var(--accent);
 
   /* shadows - terminal direction prefers borders + glow over fluffy shadows */
-  --shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-md:    0 4px 16px rgba(0, 0, 0, 0.50);
   --shadow-lg:    0 12px 48px rgba(0, 0, 0, 0.65);
-  --shadow-inset-top: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  --shadow-mint:  var(--accent-glow);
 
   /* scanline & grain overlays */
   --scanline:  linear-gradient(rgba(0, 255, 178, 0.025) 1px, transparent 1px) 0 0 / 100% 3px;
@@ -150,13 +128,11 @@
     --bg-overlay:   #ffffff;
     --bg-input:     #ffffff;
     --bg-hover:     #ebeae3;
-    --bg-pressed:   #ddddd2;
     --bg-now:       #e5f5ed;
 
     --border-subtle:  #e0dfd6;
     --border-default: #cdcbbe;
     --border-strong:  #888a82;
-    --border-emphasis:#3d3f3a;
     --border-focus:   var(--accent);
 
     --text-strong:   #08090a;
@@ -178,7 +154,6 @@
     --waveform-played: rgba(0, 122, 85, 0.95);
     --waveform-unplayed: rgba(108, 110, 116, 0.45);
 
-    --shadow-sm:    0 1px 2px rgba(8, 9, 10, 0.06);
     --shadow-md:    0 4px 16px rgba(8, 9, 10, 0.08);
     --shadow-lg:    0 12px 48px rgba(8, 9, 10, 0.12);
     --scanline: none;
@@ -193,12 +168,10 @@
   --bg-overlay:   #ffffff;
   --bg-input:     #ffffff;
   --bg-hover:     #ebeae3;
-  --bg-pressed:   #ddddd2;
   --bg-now:       #e5f5ed;
   --border-subtle:  #e0dfd6;
   --border-default: #cdcbbe;
   --border-strong:  #888a82;
-  --border-emphasis:#3d3f3a;
   --text-strong:   #08090a;
   --text-default:  #1d1f21;
   --text-muted:    #4d5057;
@@ -212,7 +185,6 @@
   --accent-error:     #b41d34;
   --waveform-played: rgba(0, 122, 85, 0.95);
   --waveform-unplayed: rgba(108, 110, 116, 0.45);
-  --shadow-sm:    0 1px 2px rgba(8, 9, 10, 0.06);
   --shadow-md:    0 4px 16px rgba(8, 9, 10, 0.08);
   --shadow-lg:    0 12px 48px rgba(8, 9, 10, 0.12);
   --scanline: none;
@@ -223,6 +195,5 @@
   :root {
     --dur-fast:    1ms;
     --dur-default: 1ms;
-    --dur-slow:    1ms;
   }
 }

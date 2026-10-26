@@ -522,3 +522,121 @@ async def test_discoveries_repeated_status_filter(authed_admin_client):
     assert {d["status"] for d in r.json()["items"]} == {"ingested", "auto_ingested"}
     r = await authed_admin_client.get("/api/me/discoveries", params={"status": "dismissed"})
     assert [d["status"] for d in r.json()["items"]] == ["dismissed"]
+
+
+class _UpQueue:
+    def enqueue(self, *_a, **_kw):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_discovery_rip_rate_limited(authed_admin_client, monkeypatch):
+    """Manual discovery rips share the URL-rip per-user limit."""
+    from setvault_core.services import rip_enqueue
+    from setvault_web import rip_limits
+    from setvault_web.api import monitors as monitors_api
+
+    monkeypatch.setattr(rip_limits, "RIP_HOURLY_LIMIT", 1)
+    monkeypatch.setattr(monitors_api, "submit_rip", _fake_submit)
+    monkeypatch.setattr(rip_enqueue, "_queue", lambda url=None: _UpQueue())
+
+    first = await _seed_discovery(authed_admin_client)
+    r = await authed_admin_client.post(f"/api/me/discoveries/{first}/rip")
+    assert r.status_code == 204, r.text
+
+    second = await _seed_discovery(authed_admin_client)
+    r = await authed_admin_client.post(f"/api/me/discoveries/{second}/rip")
+    assert r.status_code == 429, r.text
+    assert r.headers["Retry-After"] == "3600"
+
+
+@pytest.mark.asyncio
+async def test_discovery_rip_audited(authed_admin_client, monkeypatch):
+    from setvault_core.models.monitors import MonitorDiscovery
+    from setvault_core.models.system import AuditEvent
+    from setvault_core.services import rip_enqueue
+    from setvault_web.api import monitors as monitors_api
+    from sqlalchemy import select
+
+    monkeypatch.setattr(monitors_api, "submit_rip", _fake_submit)
+    monkeypatch.setattr(rip_enqueue, "_queue", lambda url=None: _UpQueue())
+
+    discovery_id = await _seed_discovery(authed_admin_client)
+    r = await authed_admin_client.post(f"/api/me/discoveries/{discovery_id}/rip")
+    assert r.status_code == 204, r.text
+
+    async with session_factory()() as s:
+        d = await s.get(MonitorDiscovery, discovery_id)
+        admin = (await s.execute(
+            select(User).where(User.email == "admin@example.test")
+        )).scalar_one()
+        rows = (await s.execute(
+            select(AuditEvent).where(AuditEvent.action == "set.discovery_rip_submitted",
+                                     AuditEvent.target_id == str(d.url_rip_id))
+        )).scalars().all()
+    assert len(rows) == 1
+    ev = rows[0]
+    assert ev.actor_user_id == admin.id
+    assert ev.target_type == "rip_job"
+    assert ev.after == {"discovery_id": str(discovery_id), "url": "https://example.test/v"}
+
+
+@pytest.mark.asyncio
+async def test_admin_rips_others_discovery_as_owner(authed_admin_client, monkeypatch):
+    """An admin accepting another user's discovery submits the rip as the
+    monitor's owner (like the auto path); the rate limit counts the admin."""
+    from setvault_core.models.monitors import Monitor, MonitorDiscovery
+    from setvault_core.models.system import AuditEvent
+    from setvault_core.models.url_rip import RipJob
+    from setvault_core.services import rip_enqueue
+    from setvault_web import rip_limits
+    from setvault_web.api import monitors as monitors_api
+    from sqlalchemy import select
+
+    limited: list[uuid.UUID] = []
+    real_enforce = rip_limits.enforce_rip_rate_limit
+
+    async def _spy(user_id):
+        limited.append(user_id)
+        await real_enforce(user_id)
+
+    monkeypatch.setattr(monitors_api, "enforce_rip_rate_limit", _spy)
+    monkeypatch.setattr(monitors_api, "submit_rip", _fake_submit)
+    monkeypatch.setattr(rip_enqueue, "_queue", lambda url=None: _UpQueue())
+
+    init_engine(os.environ["TEST_DATABASE_URL"])
+    async with session_factory()() as s:
+        owner = User(
+            email=f"u-{uuid.uuid4().hex[:6]}@x.test", username=f"u{uuid.uuid4().hex[:6]}",
+            display_name="u", password_hash=hash_password("hunter2hunter2"), role="user",
+        )
+        s.add(owner)
+        await s.flush()
+        m = Monitor(kind="query", query_text="q", owner_user_id=owner.id)
+        s.add(m)
+        await s.flush()
+        d = MonitorDiscovery(
+            monitor_id=m.id, source_kind="youtube", external_id=uuid.uuid4().hex,
+            title="t", webpage_url="https://example.test/v", confidence="low",
+            status="pending_review",
+        )
+        s.add(d)
+        await s.commit()
+        owner_id, discovery_id = owner.id, d.id
+
+    r = await authed_admin_client.post(f"/api/me/discoveries/{discovery_id}/rip")
+    assert r.status_code == 204, r.text
+
+    async with session_factory()() as s:
+        d = await s.get(MonitorDiscovery, discovery_id)
+        job = await s.get(RipJob, d.url_rip_id)
+        admin = (await s.execute(
+            select(User).where(User.email == "admin@example.test")
+        )).scalar_one()
+    assert job.submitted_by == owner_id
+    assert limited == [admin.id]
+    async with session_factory()() as s:
+        audit = (await s.execute(
+            select(AuditEvent).where(AuditEvent.action == "set.discovery_rip_submitted")
+        )).scalar_one()
+    assert audit.actor_user_id == admin.id

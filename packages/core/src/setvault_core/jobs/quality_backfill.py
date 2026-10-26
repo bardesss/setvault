@@ -33,13 +33,14 @@ from pathlib import Path
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.config import redis_url
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.jobs.fingerprint import store_fingerprint
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.services.audio_match import (
-    MATCHER_VERSION,
     compute_legacy_digest,
     compute_raw_fingerprint,
+    current_fingerprint,
     raw_to_bytes,
 )
 from setvault_core.services.audio_quality import apply_quality, measure_quality
@@ -82,8 +83,7 @@ def _has_current_fingerprint():
         select(SetFingerprint.id)
         .where(
             SetFingerprint.live_set_id == LiveSet.id,
-            SetFingerprint.raw.is_not(None),
-            SetFingerprint.raw_version >= MATCHER_VERSION,
+            current_fingerprint(),
         )
         .exists()
     )
@@ -230,10 +230,10 @@ def run_duplicate_scan() -> dict:
 
 
 async def run_backfill_batch(
-    limit: int | None = None, deadline: float | None = None,
+    deadline: float | None = None,
     *, clock: Callable[[], float] = time.monotonic,
 ) -> dict:
-    """Process up to ``limit`` (default BATCH_MAX_SETS) sets, oldest first.
+    """Process up to BATCH_MAX_SETS sets, oldest first.
 
     Returns ``{"processed", "remaining", "errors", "error_ids",
     "fingerprinted", "measured"}``. A set that
@@ -258,7 +258,7 @@ async def run_backfill_batch(
         ids = list((await s.execute(
             select(LiveSet.id).where(pending)
             .order_by(LiveSet.created_at, LiveSet.id)
-            .limit(BATCH_MAX_SETS if limit is None else limit)
+            .limit(BATCH_MAX_SETS)
         )).scalars())
 
     processed = fingerprinted = measured = 0
@@ -313,8 +313,7 @@ async def _backfill_one(live_set_id: uuid.UUID) -> tuple[bool, bool]:
         need_fp = (await s.execute(
             select(SetFingerprint.id).where(
                 SetFingerprint.live_set_id == live.id,
-                SetFingerprint.raw.is_not(None),
-                SetFingerprint.raw_version >= MATCHER_VERSION,
+                current_fingerprint(),
             ).limit(1)
         )).first() is None
     if not path.is_file():
@@ -346,7 +345,7 @@ _COUNT_KEYS = ("fingerprinted", "measured", "merged", "skipped", "errors")
 def _redis():
     from redis import Redis
 
-    return Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    return Redis.from_url(redis_url())
 
 
 def enqueue_quality_backfill(**state):

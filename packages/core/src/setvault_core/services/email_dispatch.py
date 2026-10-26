@@ -1,9 +1,8 @@
 """Enqueue outbound email through the Phase 2B notification-connector framework.
 
 Lives in ``packages/core`` so the notification dispatcher (also in packages/core)
-can reach it without importing upward into apps/web. ``apps/web`` wraps this
-with its own ``enqueue_email`` that pulls ``redis_url`` from ``Settings``; both
-back-end and worker code can call this directly.
+can reach it without importing upward into apps/web. Web and worker code both
+call this directly, passing ``redis_url``.
 """
 from __future__ import annotations
 

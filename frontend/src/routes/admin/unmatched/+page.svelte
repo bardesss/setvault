@@ -3,6 +3,8 @@
   import { api, ApiError } from "#lib/api/client.ts";
   import AdminTable from "#lib/components/AdminTable.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
+  import { _, locale } from "svelte-i18n";
+  import { fmtLocalDateTime } from "#lib/format.ts";
 
   interface UnmatchedFile {
     id: string;
@@ -72,10 +74,6 @@
     }
   }
 
-  function fmtDate(iso: string): string {
-    return iso.slice(0, 16).replace("T", " ");
-  }
-
   $: filteredCandidates = candidates.filter((c) => {
     if (!linkPicker?.slug) return true;
     const q = linkPicker.slug.toLowerCase();
@@ -99,7 +97,7 @@
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
 
   {#if loading}
-    <p class="loading">Loading…</p>
+    <p class="loading">{$_("common.loading")}</p>
   {:else if items.length === 0}
     <EmptyState message="Inbox is empty." />
   {:else}
@@ -107,7 +105,7 @@
       {#each items as uf (uf.id)}
         <tr>
           <td class="mono ellipsis" title={uf.file_path}>{uf.file_path}</td>
-          <td class="mono">{fmtDate(uf.detected_at)}</td>
+          <td class="mono">{fmtLocalDateTime(uf.detected_at, $locale)}</td>
           <td class="error-cell">{uf.error_text ?? ""}</td>
           <td class="cell-actions">
             <button type="button" class="btn btn-sm" disabled={busy[uf.id]} on:click={() => openLinkPicker(uf)}>

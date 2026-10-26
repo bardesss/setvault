@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from setvault_core.models.identity import User
-from setvault_core.services.passwords import verify_password
+from setvault_core.services.passwords import hash_password, needs_rehash, verify_password
 from setvault_core.services.sessions import SESSION_COOKIE, SESSION_TTL, SessionSigner
 from setvault_core.services.single_user import single_user_auto_login_candidate
 from sqlalchemy import select
@@ -61,6 +61,9 @@ async def login(
         )
     if user.disabled_at is not None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="account disabled")
+    if needs_rehash(user.password_hash):
+        user.password_hash = hash_password(body.password)
+        await session.commit()
     _issue_session(response, signer, user)
     return LoginOut(user=UserOut.from_model(user))
 

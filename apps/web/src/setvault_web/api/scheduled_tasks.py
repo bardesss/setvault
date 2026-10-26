@@ -9,7 +9,6 @@ admins can't add or delete scheduled jobs from the UI for v0.1.0.
 from __future__ import annotations
 
 import logging
-import os
 from datetime import UTC
 from typing import Annotated
 
@@ -18,6 +17,7 @@ from redis import Redis
 from rq import Queue
 from rq.exceptions import NoSuchJobError
 from rq_scheduler import Scheduler
+from setvault_core.config import redis_url
 from setvault_core.jobs.upgrade_search import UPGRADE_QUEUE, UPGRADE_SEARCH_JOB_TIMEOUT
 
 from setvault_web.deps import current_user, require_admin
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/admin/tasks", tags=["admin"])
 
 
 def _redis() -> Redis:
-    return Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    return Redis.from_url(redis_url())
 
 
 # Timeouts for long scheduled jobs whose rq-scheduler entry carries none

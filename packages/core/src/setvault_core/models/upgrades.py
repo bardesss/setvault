@@ -25,8 +25,7 @@ class SetUpgradeEvent(Base, UuidPkMixin):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    # scheduled | search_now | monitor | source_search | upload | watch_folder
-    # | url_rip | backfill | duplicates (Duplicates page discard, merged)
+    # One of the setvault_core.triggers constants.
     trigger: Mapped[str] = mapped_column(String(32), nullable=False)
     outcome: Mapped[str] = mapped_column(String(16), nullable=False)  # upgraded | rejected | merged
     reason: Mapped[str | None] = mapped_column(String(200), nullable=True)

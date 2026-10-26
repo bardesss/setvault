@@ -9,7 +9,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from setvault_core.db import init_engine, run_job, session_factory
+from setvault_core.db import init_engine, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot, SetFingerprint
 from setvault_core.progress import ProgressEvent, publish
 from setvault_core.services.audio_match import (
@@ -211,7 +211,3 @@ async def _flag_upgrade_target_match(
             "offset_seconds": result.offset_seconds,
         },
     )
-
-
-def fingerprint_audio_sync(live_set_id: str) -> None:
-    run_job(fingerprint_audio(live_set_id))

@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.config import redis_url
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.services.monitors import due_monitors
 from setvault_core.services.system_config import get_config
@@ -35,7 +36,7 @@ def _enqueue_poll(monitor_id: uuid.UUID) -> bool:
     from rq import Queue
     from rq.job import Job
 
-    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis = Redis.from_url(redis_url())
     job_id = _poll_job_id(monitor_id)
     existing = Job.fetch_many([job_id], connection=redis)[0]
     if existing is not None and existing.get_status(refresh=True) in _IN_FLIGHT:

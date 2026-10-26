@@ -80,7 +80,7 @@
   {/if}
 
   {#if loading}
-    <p class="muted">Loading…</p>
+    <p class="muted">{$_("common.loading")}</p>
   {:else if items.length === 0}
     <EmptyState
       message={unfingerprinted > 0 ? $_("admin.wanted.empty_pending") : $_("admin.wanted.empty")}

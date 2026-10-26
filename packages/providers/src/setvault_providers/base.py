@@ -9,8 +9,6 @@ from typing import Protocol, runtime_checkable
 class Capability(StrEnum):
     ENRICH_ARTIST = "enrich_artist"
     ENRICH_TRACK = "enrich_track"
-    ENRICH_RELEASE = "enrich_release"
-    LOOKUP_BY_ISRC = "lookup_by_isrc"
     FINGERPRINT = "fingerprint"
     PARSE_TEXT = "parse_text"   # reserved for future LLM provider
 
@@ -44,13 +42,6 @@ class TrackRef:
 
 
 @dataclass
-class ReleaseRef:
-    title: str | None = None
-    artist_name: str | None = None
-    external_ids: dict[str, str] = field(default_factory=dict)
-
-
-@dataclass
 class TrackCandidate:
     title: str
     artist_name: str
@@ -74,8 +65,6 @@ class Provider(Protocol):
 
     async def enrich_artist(self, artist: ArtistRef) -> ProviderResult | None: ...
     async def enrich_track(self, track: TrackRef) -> ProviderResult | None: ...
-    async def enrich_release(self, release: ReleaseRef) -> ProviderResult | None: ...
-    async def lookup_by_isrc(self, isrc: str) -> TrackRef | None: ...
     async def fingerprint(
         self, audio_path: str, start_seconds: int, window_seconds: int
     ) -> list[TrackCandidate]: ...

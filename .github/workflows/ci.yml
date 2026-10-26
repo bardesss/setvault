@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env: { POSTGRES_USER: setvault, POSTGRES_PASSWORD: setvault, POSTGRES_DB: setvault }
         ports: ["5432:5432"]
         options: >-
@@ -29,6 +29,19 @@ jobs:
           ffmpeg -version | head -1
           audiowaveform --version
           fpcalc -version
+      # pg_dump must be at least the server's major version (postgres:18 above);
+      # the runner ships an older client.
+      - name: Install PostgreSQL 18 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --batch --yes --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          echo /usr/lib/postgresql/18/bin >> "$GITHUB_PATH"
+          /usr/lib/postgresql/18/bin/pg_dump --version
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --all-extras --all-groups
       - run: uv run ruff check .
@@ -44,7 +57,7 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env: { POSTGRES_USER: setvault, POSTGRES_PASSWORD: setvault, POSTGRES_DB: setvault }
         ports: ["5432:5432"]
         options: >-
@@ -59,7 +72,6 @@ jobs:
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-secret-key-for-e2e-only-base64-padded-padded-padded
       BASE_URL: http://localhost:1970
-      TUSD_HOOK_SECRET: ci
       SETVAULT_DEV_SEED: "1"
       SETVAULT_ALLOW_INSECURE_COOKIE: "1"
     steps:

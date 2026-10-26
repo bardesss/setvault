@@ -59,18 +59,6 @@ def _build_csp(frame_ancestors: str, script_hashes: Sequence[str]) -> str:
     )
 
 
-# Default CSP blocks framing entirely; embed routes allow any parent frame.
-# Module-level values carry no script hashes (the running middleware bakes its
-# own from the built index.html) — kept for tests/legacy importers.
-_DEFAULT_CSP = _build_csp("'none'", ())
-_EMBED_CSP = _build_csp("*", ())
-
-# Public CSP for stream/waveform asset endpoints that an embedded page loads
-# from a third-party origin. The browser only enforces frame-ancestors against
-# documents, not media; we leave their CSP unchanged but skip X-Frame-Options
-# so the parent page can still frame the wider /embed/ page.
-CSP = _DEFAULT_CSP  # exported for tests/legacy importers
-
 _DEFAULTS = (
     (b"x-content-type-options", b"nosniff"),
     (b"referrer-policy", b"strict-origin-when-cross-origin"),

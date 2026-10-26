@@ -26,7 +26,8 @@ class RipJob(Base, UuidPkMixin):
         UUID(as_uuid=True), ForeignKey("live_sets.id", ondelete="SET NULL"), nullable=True,
         index=True,
     )
-    trigger: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # A setvault_core.triggers value (None: a plain user rip).
+    trigger: Mapped[str | None] = mapped_column(String(32), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     progress_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)

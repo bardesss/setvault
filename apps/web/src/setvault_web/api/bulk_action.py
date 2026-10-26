@@ -14,13 +14,13 @@ on the round-trip; a fully async polling UX is deferred to v0.1.1.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from redis import Redis
 from rq import Queue
+from setvault_core.config import redis_url
 from setvault_core.models.identity import User
 
 from setvault_web.deps import current_user, require_admin
@@ -52,8 +52,7 @@ async def submit_bulk_action(
     if not body.set_ids:
         raise HTTPException(status_code=400, detail="set_ids must be non-empty")
 
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    queue = Queue("default", connection=Redis.from_url(redis_url))
+    queue = Queue("default", connection=Redis.from_url(redis_url()))
     job = queue.enqueue(
         "setvault_core.jobs.bulk_action.run_bulk_action",
         action=body.action,

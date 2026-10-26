@@ -281,7 +281,7 @@
     <a href="https://github.com/Bardesss/setvault/blob/main/CHANGELOG.md">Changelog</a>
   </div>
   <div class="right">
-    <span class="release-pill">v0.1.2</span>
+    <span class="release-pill">latest</span>
     <a class="btn btn-primary" href="#quickstart">Self-host</a>
   </div>
 </nav>
@@ -306,7 +306,7 @@
 
 <!-- FEATURES — SHIPPING -->
 <section class="features container">
-  <div class="section-kicker">// shipping today · v0.1.2</div>
+  <div class="section-kicker">// shipping today</div>
   <h2>What works <b>right now</b> on your server.</h2>
 
   <div class="feature">
@@ -427,15 +427,14 @@
   <div class="feature">
     <div>
       <div class="label">Deploy</div>
-      <h3>One image. Three env vars. Port 1970.</h3>
-      <p>v0.1.2 ships as a single all-in-one container running web + worker + watcher under s6-overlay, on port 1970 (year of the first DJ live set). Three required env vars: SECRET_KEY, POSTGRES_PASSWORD, BASE_URL. Multi-arch images on GHCR, SBOM (CycloneDX), cosign keyless signatures.</p>
+      <h3>One image. No required env vars. Port 1970.</h3>
+      <p>SetVault ships as a single all-in-one container running web + worker + watcher + scheduler under s6-overlay, on port 1970 (year of the first DJ live set). Bundled mode needs no env vars; the external compose file needs only POSTGRES_PASSWORD (SECRET_KEY and BASE_URL are recommended). Multi-arch images on GHCR, SBOM (CycloneDX), cosign keyless signatures.</p>
     </div>
     <div class="feature-visual">
       <div style="font-family:var(--font-mono);font-size:var(--ts-sm);line-height:1.8">
         <div>setvault — single container</div>
         <div>+ postgres</div>
         <div>+ redis</div>
-        <div>+ tusd (uploads sidecar)</div>
         <div style="color:var(--text-faint);margin-top:var(--sp-2)">▸ that's it · port 1970</div>
       </div>
     </div>
@@ -485,9 +484,9 @@
 
   <div class="feature">
     <div>
-      <div class="label">Ingest power tools <span class="roadmap-tag">ROADMAP</span></div>
+      <div class="label">Ingest power tools</div>
       <h3>Search across sources. Monitor what you care about.</h3>
-      <p>Interactive search across YouTube / SoundCloud / Mixcloud / Internet Archive — search every source at once, merged with dedup badges. <strong>Live in v0.9.0.</strong> Still on the roadmap: mark artists / parties / venues as monitored; a worker scans periodically and either auto-ingests or lands candidates in a Discoveries inbox for review. (Phase 7C.)</p>
+      <p>Interactive search across YouTube / SoundCloud / Mixcloud / Internet Archive — search every source at once, merged with dedup badges. Mark artists / parties / venues as monitored; a worker scans periodically and either auto-ingests or lands candidates in a Discoveries inbox for review.</p>
     </div>
     <div class="feature-visual">
       <div style="font-family:var(--font-mono);font-size:var(--ts-sm);line-height:1.8;color:var(--text-default)">
@@ -506,7 +505,7 @@
 <section class="container" style="padding: var(--sp-8) 0;">
   <div class="section-kicker">// integrations · today</div>
   <h2>Plays nicely with what you <b>already run</b>.</h2>
-  <p class="lede">These are the integrations live in v0.9.0. The roadmap section above is what's coming.</p>
+  <p class="lede">These are the integrations that work today. The roadmap section above is what's coming.</p>
 
   <div class="integrations-grid">
     <div class="integration-cell"><div class="nm">Caddy</div><div class="kn">reverse proxy · bundled</div></div>
@@ -594,9 +593,9 @@
 <span class="prompt">$</span> curl -L -o .env \
     https://raw.githubusercontent.com/Bardesss/setvault/main/.env.example
 
-<span class="cmt"># set the three required env vars</span>
+<span class="cmt"># set the password (SECRET_KEY and BASE_URL recommended)</span>
 <span class="prompt">$</span> openssl rand -base64 48
-<span class="prompt">$</span> $EDITOR .env <span class="cmt"># SECRET_KEY, POSTGRES_PASSWORD, BASE_URL</span>
+<span class="prompt">$</span> $EDITOR .env <span class="cmt"># POSTGRES_PASSWORD (+ SECRET_KEY, BASE_URL)</span>
 
 <span class="cmt"># pull + launch</span>
 <span class="prompt">$</span> docker compose pull
@@ -604,7 +603,6 @@
 
 <span class="ok">✓</span> postgres: ready
 <span class="ok">✓</span> redis: ready
-<span class="ok">✓</span> tusd: listening on 1080
 <span class="ok">✓</span> setvault: <span class="url">http://localhost:1970</span>
 
 <span class="cmt"># open the URL printed by your reverse proxy</span></pre>

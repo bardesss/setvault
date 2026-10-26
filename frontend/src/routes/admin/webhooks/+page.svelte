@@ -4,6 +4,8 @@
   import AdminTable from "#lib/components/AdminTable.svelte";
   import AdminForm from "#lib/components/AdminForm.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
+  import { _, locale } from "svelte-i18n";
+  import { fmtLocalDateTime } from "#lib/format.ts";
 
   interface Webhook {
     id: string;
@@ -155,11 +157,6 @@
     creating = true;
   }
 
-  function fmtDate(iso: string | null): string {
-    if (!iso) return "—";
-    return iso.slice(0, 16).replace("T", " ");
-  }
-
   function toggleEvent(ev: string) {
     const events = draft.events ?? [];
     draft = {
@@ -242,7 +239,7 @@
   {/if}
 
   {#if loading}
-    <p class="loading">Loading…</p>
+    <p class="loading">{$_("common.loading")}</p>
   {:else if items.length === 0}
     <EmptyState message="No webhooks configured yet." />
   {:else}
@@ -263,7 +260,7 @@
           <td class="mono ellipsis" title={wh.target_url}>{wh.target_url}</td>
           <td class="mono">{wh.events.join(", ")}</td>
           <td>{wh.enabled ? "✓" : "—"}</td>
-          <td class="mono">{fmtDate(wh.last_call_at)}</td>
+          <td class="mono">{fmtLocalDateTime(wh.last_call_at, $locale) || "—"}</td>
           <td class="mono">
             {wh.last_status_code ?? "—"}
             {#if wh.last_error}<span class="err" title={wh.last_error}>!</span>{/if}

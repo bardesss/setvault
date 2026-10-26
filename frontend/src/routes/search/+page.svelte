@@ -22,6 +22,7 @@
   let sourceQuery = "";
   let candidates: SourceCandidate[] = [];
   let erroredSources: string[] = [];
+  let throttledSources: string[] = [];
   let searching = false;
   let sourceError: string | null = null;
   let ingesting: Record<string, boolean> = {};
@@ -39,6 +40,7 @@
     if (!sourceQuery.trim()) {
       candidates = [];
       erroredSources = [];
+      throttledSources = [];
       return;
     }
     searching = true;
@@ -47,6 +49,7 @@
       const result = await searchSources(sourceQuery.trim());
       candidates = result.items;
       erroredSources = result.errored_sources;
+      throttledSources = result.throttled_kinds;
     } catch (e) {
       sourceError = $_("sources.search_failed");
     } finally {
@@ -164,6 +167,13 @@
         })}
       </p>
     {/if}
+    {#if throttledSources.length > 0}
+      <p class="muted" role="status">
+        {$_("search.sources_throttled", {
+          values: { sources: throttledSources.map(sourceLabel).join(", ") },
+        })}
+      </p>
+    {/if}
     {#if !searching && candidates.length === 0 && sourceQuery}
       <EmptyState message={$_("sources.no_results")} />
     {:else}
@@ -175,9 +185,7 @@
               <strong>{c.title}</strong>
               <span class="muted">{c.uploader ?? ""}</span>
               <span class="source-chip">{sourceLabel(c.source_kind)}</span>
-              <span class="source-chip quality-chip" data-tier={c.expected_tier ?? "unknown"}
-                >{$_(`sources.quality.${c.expected_tier ?? "unknown"}`)}</span
-              >
+              <span class="source-chip">{$_(`sources.quality.${c.expected_tier ?? "unknown"}`)}</span>
             </div>
             {#if c.already_in_library}
               <span class="badge">{$_("sources.in_library")}</span>

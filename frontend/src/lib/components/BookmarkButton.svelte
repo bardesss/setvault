@@ -4,6 +4,7 @@
   import { createBookmark, deleteBookmark, listForSet, type Bookmark } from "#lib/api/bookmarks.ts";
   import { player, seekTo } from "#lib/stores/audio.ts";
   import { shouldIgnoreShortcut } from "#lib/keyboard.ts";
+  import { fmtDuration } from "#lib/format.ts";
 
   export let slug: string;
   export let flat = false;
@@ -33,12 +34,6 @@
   });
 
   $: setBookmark = bookmarks.find((b) => b.position_seconds === null) ?? null;
-
-  function fmt(s: number): string {
-    const m = Math.floor(s / 60);
-    const ss = s % 60;
-    return `${m}:${String(ss).padStart(2, "0")}`;
-  }
 
   async function toggleSetLevel() {
     if (setBookmark) {
@@ -89,7 +84,7 @@
   {#each bookmarks.filter((b) => b.position_seconds !== null) as b (b.id)}
     {@const pos = b.position_seconds ?? 0}
     <li>
-      <button class="seek" on:click={() => seekTo(pos)}>{fmt(pos)}</button>
+      <button class="seek" on:click={() => seekTo(pos)}>{fmtDuration(pos)}</button>
       <button class="remove" aria-label={$_("bookmarks.remove")} on:click={() => removeTimestamped(b.id)}>✕</button>
     </li>
   {/each}

@@ -29,10 +29,6 @@ export function me() {
   return api<CurrentUser>("/api/auth/me");
 }
 
-export function setupStatus() {
-  return api<{ needs_setup: boolean }>("/api/setup/status");
-}
-
 export function setupFirstAdmin(
   email: string,
   password: string,

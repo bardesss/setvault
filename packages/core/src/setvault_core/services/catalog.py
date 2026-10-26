@@ -31,8 +31,11 @@ def _ascii_slug(text: str) -> str:
     return _SLUG_NON_ALNUM.sub("-", norm.lower()).strip("-")
 
 
-def slugify(text: str) -> str:
-    return _ascii_slug(text) or _FALLBACK_SLUG
+def slugify(text: str, *, fallback: str = _FALLBACK_SLUG, max_len: int | None = None) -> str:
+    slug = _ascii_slug(text)
+    if max_len is not None:
+        slug = slug[:max_len].rstrip("-")
+    return slug or fallback
 
 
 async def unique_slug(

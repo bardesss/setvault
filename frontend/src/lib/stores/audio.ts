@@ -29,15 +29,8 @@ export function clampRate(r: number): number {
   return Math.max(0.5, Math.min(2, Math.round(r * 100) / 100));
 }
 
-export function formatTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  const s = Math.floor(seconds);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  return `${m}:${String(ss).padStart(2, "0")}`;
-}
+// Kept here for existing importers.
+export { fmtDuration as formatTime } from "#lib/format.ts";
 
 export function pickNext<T extends { start_seconds: number }>(entries: T[], position: number): number | null {
   for (const e of entries) if (e.start_seconds > position + 0.5) return e.start_seconds;
@@ -63,11 +56,6 @@ let initialized = false;
 let restoring = false;
 let played = false;
 let loadToken = 0;
-
-/** The persistent media element — Waveform binds to it via wavesurfer `media`. */
-export function getElement(): HTMLAudioElement | null {
-  return el;
-}
 
 function patch(p: Partial<PlayerState>): void {
   player.update((s) => ({ ...s, ...p }));
@@ -243,15 +231,3 @@ export function next(): void {
 }
 export function prev(): void { seekTo(pickPrev(tracklist, get(player).position)); }
 
-export function dispose(): void {
-  stopSaving();
-  if (typeof window !== "undefined") window.removeEventListener("pagehide", onPageHide);
-  restoring = false;
-  played = false;
-  loadToken++;
-  el?.pause();
-  el?.remove();
-  el = null;
-  initialized = false;
-  player.set(initial);
-}

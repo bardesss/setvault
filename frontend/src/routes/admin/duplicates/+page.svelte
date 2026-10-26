@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { locale } from "svelte-i18n";
-  import { fmtLocalDateTime } from "#lib/wanted.ts";
+  import { _, locale } from "svelte-i18n";
+  import { fmtDuration, fmtLocalDateTime } from "#lib/format.ts";
   import { api, ApiError } from "#lib/api/client.ts";
   import AdminTable from "#lib/components/AdminTable.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
@@ -63,14 +63,6 @@
     }
   }
 
-  function fmtDuration(s: number | null): string {
-    if (s == null) return "";
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = String(s % 60).padStart(2, "0");
-    return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
-  }
-
 
   onMount(load);
 </script>
@@ -101,7 +93,7 @@
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
 
   {#if loading}
-    <p class="loading">Loading…</p>
+    <p class="loading">{$_("common.loading")}</p>
   {:else if items.length === 0}
     <EmptyState message="No duplicates waiting for review." />
   {:else}
@@ -120,12 +112,12 @@
             {/if}
           </td>
           <td class="mono">{item.source_type}</td>
-          <td class="mono">{fmtDuration(item.duration_seconds)}</td>
+          <td class="mono">{item.duration_seconds == null ? "" : fmtDuration(item.duration_seconds)}</td>
           <td class="mono">{fmtLocalDateTime(item.created_at, $locale)}</td>
           <td>
             {#if item.original}
               <a href={`/sets/${encodeURIComponent(item.original.slug)}`}>{item.original.title}</a>
-              <span class="mono muted">{fmtDuration(item.original.duration_seconds)}</span>
+              <span class="mono muted">{item.original.duration_seconds == null ? "" : fmtDuration(item.original.duration_seconds)}</span>
               {#if item.original.quality_label}
                 <span class="muted note" data-testid="dup-original-quality">{item.original.quality_label}</span>
               {/if}

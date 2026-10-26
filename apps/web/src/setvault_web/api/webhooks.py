@@ -6,7 +6,6 @@ real set publish.
 """
 from __future__ import annotations
 
-import os
 import uuid
 from typing import Annotated
 
@@ -14,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from redis import Redis
 from rq import Queue
+from setvault_core.config import redis_url
 from setvault_core.models.identity import User
 from setvault_core.models.library_webhook import LibraryWebhook
 from setvault_core.services.audit import log as audit_log
@@ -163,7 +163,7 @@ async def test_webhook(
         raise HTTPException(status_code=404) from exc
     if row is None:
         raise HTTPException(status_code=404)
-    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis = Redis.from_url(redis_url())
     Queue("default", connection=redis).enqueue(
         "setvault_core.jobs.webhook_dispatch.run_dispatch_webhook",
         webhook_id=str(row.id),

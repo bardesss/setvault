@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core import triggers
+from setvault_core.config import redis_url
 from setvault_core.db import init_engine, session_factory
 from setvault_core.jobs.apply_naming import enqueue_apply_naming
 from setvault_core.models.catalog import LiveSet, MediaRoot
@@ -34,7 +36,7 @@ async def fan_out_webhooks(live: LiveSet, event: str) -> None:
         if not rows:
             return
 
-        redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+        redis = Redis.from_url(redis_url())
         queue = Queue("default", connection=redis)
         for wh in rows:
             if event not in (wh.events or []):
@@ -76,14 +78,14 @@ async def publish_live_set(s: AsyncSession, live: LiveSet) -> None:
 @dataclass(frozen=True)
 class ArrivalResult:
     """What the final stage did with a set: ``outcome`` is the
-    ``decide_arrival`` result, ``message`` the line shown in progress/jobs."""
+    ``decide`` outcome, ``message`` the line shown in progress/jobs."""
     outcome: str
     message: str
 
 
 async def finish_arrival(
     live_set_id: str, *, upgrade_target_id: uuid.UUID | None = None,
-    trigger: str = "upload", candidate_source_kind: str | None = None,
+    trigger: str = triggers.UPLOAD, candidate_source_kind: str | None = None,
     candidate_external_id: str | None = None,
 ) -> ArrivalResult:
     """Final pipeline stage. Decides the arrival first
@@ -125,11 +127,8 @@ async def finish_arrival(
 
 
 async def mark_ready(
-    live_set_id: str, *, upgrade_target_id: uuid.UUID | None = None,
-    trigger: str = "upload",
+    live_set_id: str, *, trigger: str = triggers.UPLOAD,
 ) -> bool:
     """:func:`finish_arrival`, returning whether the set was published."""
-    result = await finish_arrival(
-        live_set_id, upgrade_target_id=upgrade_target_id, trigger=trigger,
-    )
+    result = await finish_arrival(live_set_id, trigger=trigger)
     return result.outcome == "publish"

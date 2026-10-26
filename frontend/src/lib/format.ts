@@ -35,3 +35,22 @@ export function fmtAgo(iso: string, loc: string | null | undefined): string {
   }
   return rtf.format(0, "second");
 }
+
+/** Seconds as a play position: "1:05", or "1:15:00" from an hour up. Fractions
+ *  are floored; anything non-finite or negative reads "0:00". */
+export function fmtDuration(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+/** A timestamp in the app's UI language (svelte-i18n `$locale`, default "en") and the browser's time zone. */
+export function fmtLocalDateTime(iso: string | null, locale?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(locale || "en", { dateStyle: "medium", timeStyle: "short" });
+}

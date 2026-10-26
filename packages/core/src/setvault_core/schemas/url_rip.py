@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 class RipSubmitIn(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
     # What found the URL, for the upgrade history. Only the source search
-    # sets it; other triggers (e.g. search_now) are server-side only.
+    # sets it (triggers.SOURCE_SEARCH); other triggers (e.g. search_now) are
+    # server-side only.
     trigger: Literal["source_search"] | None = None
 
 

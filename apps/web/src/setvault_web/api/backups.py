@@ -15,6 +15,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
+from setvault_core.config import redis_url
 from setvault_core.jobs.backup import (
     BACKUP_JOB_FUNC,
     BACKUP_JOB_TIMEOUT,
@@ -109,7 +110,7 @@ async def run_backup_now(
     from redis import Redis
     from rq import Queue
 
-    redis = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    redis = Redis.from_url(redis_url())
     rq_job = Queue("default", connection=redis).enqueue(
         BACKUP_JOB_FUNC, kwargs={"force": True}, job_timeout=BACKUP_JOB_TIMEOUT,
     )

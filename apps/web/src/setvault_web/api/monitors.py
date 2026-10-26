@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from setvault_core import triggers
 from setvault_core.models.identity import User
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
 from setvault_core.schemas.monitors import (
@@ -25,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web.api.images import build_proxied_image_url
 from setvault_web.deps import db_session, parse_uuid, require_can_monitor
+from setvault_web.rip_limits import enforce_rip_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -228,9 +230,14 @@ async def rip_discovery(
     d = await _owned_discovery_or_404(session, user, discovery_id)
     if d.status != "pending_review":
         return
+    # The acting user's rip budget, but the rip belongs to the monitor's owner
+    # (as on the auto path), also when an admin accepts someone else's find.
+    await enforce_rip_rate_limit(user.id)
+    monitor = await session.get(Monitor, d.monitor_id)
     try:
         job = await submit_rip(
-            session, user_id=user.id, url=d.webpage_url, trigger="monitor",
+            session, user_id=monitor.owner_user_id, url=d.webpage_url,
+            trigger=triggers.MONITOR,
         )
     except DuplicateRipError as exc:
         d.url_rip_id = exc.existing.id
@@ -242,6 +249,11 @@ async def rip_discovery(
         # Unsupported URL, or yt-dlp can't read it (bot check, private video).
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     d.url_rip_id = job.id
+    await audit_log(
+        session, actor_user_id=user.id, action="set.discovery_rip_submitted",
+        target_type="rip_job", target_id=str(job.id),
+        after={"discovery_id": str(d.id), "url": d.webpage_url},
+    )
     # enqueue_rip commits the RipJob and the discovery's link before enqueueing.
     # If the enqueue fails the job is left failed (visible in Downloads) and the
     # discovery stays pending_review so it can be accepted again.

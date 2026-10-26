@@ -273,7 +273,7 @@
   {:else if active === "notifications"}
     <section class="status-block prefs">
       {#if !prefsLoaded}
-        <p class="muted">{$_("settings.loading")}</p>
+        <p class="muted">{$_("common.loading")}</p>
       {:else}
         <dl>
           {#each kinds as kind (kind)}

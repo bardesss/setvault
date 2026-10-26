@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 
 from redis.asyncio import Redis
+
+from setvault_core.config import redis_url
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def _client() -> Redis:
     except RuntimeError:
         loop = None
     if _redis is None or loop is not _redis_loop:
-        url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        url = redis_url()
         _redis = Redis.from_url(url, decode_responses=True)
         _redis_loop = loop
     return _redis

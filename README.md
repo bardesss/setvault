@@ -17,8 +17,9 @@ per-user RSS feeds, an embeddable player, and an installable PWA.
 
 | Area | What you get |
 |---|---|
-| **Ingest** | Resumable multi-GB uploads (tus) · paste-URL rip · watch-folder auto-ingest · ffmpeg → Opus, EBU R128 measured, static gain to a target loudness · waveform peaks · chromaprint dedup |
-| **Catalog** | LiveSets · Artists · Venues · Series · Parties · Tags · naming templates · Postgres FTS · recycle bin · bulk editor |
+| **Ingest** | Resumable multi-GB uploads (tus) · paste-URL rip · watch-folder auto-ingest · ffmpeg → Opus, EBU R128 measured, static gain to a target loudness · waveform peaks · chromaprint fingerprinting with duplicate scan + cleanup |
+| **Quality** | Quality upgrades against a cutoff, worked through on the Wanted, Quality and Duplicates admin pages |
+| **Catalog** | LiveSets · Artists · Venues · Series · Parties · Tags · naming templates · Postgres FTS · recycle bin · bulk editor · browse pages · Home activity + storage · entity monitors ("Monitor this") |
 | **Tracklists** | Per-set editor · reorder + time-shift · live add · paste-parse · 1001tracklists scrape · OCR |
 | **Enrichment** | Pluggable providers — MusicBrainz · Discogs · AcoustID — with per-row + bulk resolve |
 | **Player** | wavesurfer.js · 0.5×–2× pitch-preserved speed · A↔B loop · mediaSession · persisted per-user state |
@@ -182,8 +183,10 @@ See [CHANGELOG.md](CHANGELOG.md) / `.env.example` for the full list (paths, port
 docker compose pull && docker compose up -d   # migrations run automatically on start
 ```
 
+After upgrading to a release that adds fingerprinting or quality data, open **Admin → Quality → Run backfill** once so existing sets get fingerprinted and measured. The set size backfill runs by itself when the worker starts.
+
 Read the [CHANGELOG](CHANGELOG.md) before any major/minor bump. Notably, bundled mode moved to
-**Postgres 18** in `v0.6.0`: a PG 16 data dir is not compatible — back up on 16, start `v0.6.0`+ on a
+**Postgres 18** since the 0.6 release: a PG 16 data dir is not compatible — back up on 16, start 0.6 or later on a
 fresh data dir, and restore (see below).
 
 > ⚠️ **Upgrading a bundled install from ≤ 0.19.x**
@@ -326,7 +329,9 @@ uv run uvicorn setvault_web.main:app --reload --port 1970
 cd frontend && npm install && npm run dev -- --port 4173
 ```
 
-`infra/docker/compose.dev.yml` runs Postgres + Redis + tusd locally for the backend to talk to.
+The backend needs Postgres and Redis. Start them as containers (for example `postgres:18-alpine` and `redis:7-alpine`)
+and point `DATABASE_URL` and `REDIS_URL` at them. Uploads need tusd, which the all-in-one image bundles;
+the rest of the app works without it. `GET /api/health` shows whether the backend is up.
 
 ### Build & run the image from source
 
@@ -348,14 +353,17 @@ Then open `http://localhost:1970`. To test under Compose, point the service's `i
 ## 🏛 Architecture
 
 ```
-browsers ─▶ web :1970 ─┬─▶ tusd /uploads
-                       └─▶ worker (RQ) ─▶ watcher (filesystem events)
-                                │
-            Postgres 18 ◀───────┼───────▶ Redis 7 · ffmpeg + fpcalc
+browsers ─▶ caddy :1970 ─┬─▶ web (uvicorn)
+(bundled mode)           └─▶ tusd /uploads
+(external mode: no caddy; uvicorn binds :1970 directly)
+
+ scheduler (rqscheduler) ─▶ Redis 7 ─▶ worker (RQ) · watcher (filesystem events)
+                              │
+          Postgres 18 ◀───────┴───────▶ ffmpeg + fpcalc
 ```
 
 - **`apps/web`** — FastAPI + bundled SvelteKit
-- **`apps/worker`** — RQ worker (transcode / waveform / enrichment) + `watchdog` watcher
+- **`apps/worker`** — RQ worker (transcode / waveform / enrichment) + `watchdog` watcher; `rqscheduler` runs the periodic jobs as the `scheduler` service
 - **`packages/core`** — SQLAlchemy models, services, RQ job entrypoints
 - **`packages/providers`** — metadata provider plugins (MusicBrainz / Discogs / AcoustID)
 - **`frontend/`** — SvelteKit source (built into the web image); design language in `frontend/design/`
@@ -366,8 +374,8 @@ browsers ─▶ web :1970 ─┬─▶ tusd /uploads
 ## 🔒 Security
 
 - Argon2 hashing · pure-ASGI CSRF + security-headers middleware · strict CSP/HSTS · HMAC-signed short-TTL URLs
-- SSRF allowlist on URL-rip ingest · Redis rate-limiting on login + URL-rip · exact-pinned `yt-dlp`
-- `no-new-privileges` + `cap_drop: ALL` on every container · audit log of every state-changing admin action
+- SSRF allowlist on URL-rip ingest · Redis rate-limiting on login, URL and discovery rips, and search · exact-pinned `yt-dlp`
+- `no-new-privileges` on every container · audit log of every state-changing admin action
 
 > **Defense-in-depth:** `yt-dlp` follows redirects without an internal-IP guard, so firewall
 > container egress to block the cloud metadata endpoint (`169.254.169.254`) and RFC-1918 / link-local
@@ -379,7 +387,7 @@ Report security issues privately to the maintainer, not via public GitHub issues
 
 ## 📋 Status
 
-Shipped through the **7.x "ingest power tools"** line (URL rip, multi-source search, monitored entities);
+Shipped: URL rip, multi-source search, monitored entities, fingerprinting and quality upgrades, the set editor and browse pages;
 casting, Subsonic API, smart playlists, and OIDC are on the roadmap. Each phase ships as a PR with
 conventional commits driving the CHANGELOG — see [CHANGELOG.md](CHANGELOG.md) for the full history and what's next.
 
@@ -394,7 +402,7 @@ reviewed, tested, and shipped by the human maintainer, but the bulk of the code 
 ## 📄 License
 
 GPL-3.0-or-later — see [LICENSE](LICENSE). Free to use, modify, and self-host; distributed modifications stay
-GPL-3.0, and SaaS resale requires making source available to your users under the same terms.
+GPL-3.0.
 
 ## 🙏 Credits
 

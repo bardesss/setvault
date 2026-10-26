@@ -23,6 +23,7 @@ class CandidateOut(BaseModel):
 class SourceSearchOut(BaseModel):
     items: list[CandidateOut]
     errored_sources: list[str]
+    throttled_kinds: list[str]
 
 
 class SourceStateOut(BaseModel):

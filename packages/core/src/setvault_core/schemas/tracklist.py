@@ -46,11 +46,6 @@ class TimeShiftIn(BaseModel):
     delta_seconds: int  # may be negative
 
 
-class TimeShiftPreviewOut(BaseModel):
-    affected_count: int
-    new_positions: list[dict]  # [{id, new_start_seconds}]
-
-
 class ParsedEntry(BaseModel):
     start_seconds: int | None = None
     raw_label: str

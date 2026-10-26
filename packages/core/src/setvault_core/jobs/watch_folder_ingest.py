@@ -33,10 +33,12 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from setvault_core.config import redis_url
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
 from setvault_core.models.watch_folder import UnmatchedFile, WatchFolder
+from setvault_core.services.catalog import slugify
 from setvault_core.services.storage import place_audio_file
 
 logger = logging.getLogger(__name__)
@@ -127,11 +129,6 @@ def _probe_audio(path: Path) -> dict | None:
     return data
 
 
-def _slugify(text: str) -> str:
-    s = re.sub(r"[^a-zA-Z0-9-]+", "-", text.lower()).strip("-")
-    return s[:60] or "untitled"
-
-
 async def _record_unmatched(
     session: AsyncSession,
     *,
@@ -190,7 +187,7 @@ async def _make_draft_set(
     placement_mode = place_audio_file(source_path, dst)
 
     title = parsed.get("title") or source_path.stem
-    slug = _slugify(title) + "-" + new_set_id.hex[:6]
+    slug = slugify(title, fallback="untitled", max_len=60) + "-" + new_set_id.hex[:6]
     duration_seconds: int | None = None
     fmt_block = audio_info.get("format", {}) or {}
     if "duration" in fmt_block:
@@ -234,8 +231,7 @@ async def _trigger_pipeline(live_set_id: uuid.UUID) -> None:
 
     from setvault_core.jobs.pipeline import PIPELINE_JOB_TIMEOUT
 
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    Queue("default", connection=Redis.from_url(redis_url)).enqueue(
+    Queue("default", connection=Redis.from_url(redis_url())).enqueue(
         "setvault_core.jobs.pipeline.run_pipeline",
         str(live_set_id),
         job_timeout=PIPELINE_JOB_TIMEOUT,

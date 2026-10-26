@@ -20,7 +20,7 @@ from setvault_core.jobs.upgrade_search import (
 )
 from setvault_core.models.catalog import LiveSet, SetFingerprint
 from setvault_core.models.upgrades import SetUpgradeEvent
-from setvault_core.services.audio_match import MATCHER_VERSION
+from setvault_core.services.audio_match import current_fingerprint
 from setvault_core.services.audio_quality import quality_label
 from setvault_core.services.notifications import source_name
 from setvault_core.services.quality_profile import cutoff_unmet, get_profile
@@ -121,8 +121,7 @@ async def search_now(
     has_fp = (await session.execute(
         select(SetFingerprint.id).where(
             SetFingerprint.live_set_id == live.id,
-            SetFingerprint.raw.is_not(None),
-            SetFingerprint.raw_version == MATCHER_VERSION,
+            current_fingerprint(),
         ).limit(1)
     )).first()
     if has_fp is None:

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from setvault_core.models.identity import EmailToken, User
 from setvault_core.services.audit import log as audit_log
+from setvault_core.services.email_dispatch import enqueue_email
 from setvault_core.services.password_policy import MIN_PASSWORD_LENGTH
 from setvault_core.services.passwords import hash_password
 from setvault_core.services.sessions import SESSION_COOKIE, SESSION_TTL, SessionSigner
@@ -21,7 +22,6 @@ from setvault_web.cookies import cookie_secure
 from setvault_web.deps import db_session, get_signer, require_admin
 from setvault_web.middleware.csrf import CSRF_COOKIE
 from setvault_web.rate_limit import enforce_auth_strict
-from setvault_web.services.notifications import enqueue_email
 
 router = APIRouter(prefix="/api/invites", tags=["invites"])
 
@@ -79,7 +79,7 @@ async def _try_send_invite_email(session, email, plaintext, settings) -> bool:
     link = f"{settings.base_url}/invite/{plaintext}"
     return await enqueue_email(
         session,
-        settings,
+        redis_url=settings.redis_url,
         to=email,
         subject="You've been invited to SetVault",
         text=f"Open this link to set your username and password:\n\n{link}\n",

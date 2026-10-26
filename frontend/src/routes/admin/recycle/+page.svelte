@@ -3,6 +3,8 @@
   import { api, ApiError } from "#lib/api/client.ts";
   import AdminTable from "#lib/components/AdminTable.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
+  import { _, locale } from "svelte-i18n";
+  import { fmtLocalDateTime } from "#lib/format.ts";
 
   interface RecycledSet {
     id: string;
@@ -67,11 +69,6 @@
     }
   }
 
-  function fmtDate(iso: string | null): string {
-    if (!iso) return "";
-    return iso.slice(0, 16).replace("T", " ");
-  }
-
   onMount(load);
 </script>
 
@@ -87,7 +84,7 @@
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
 
   {#if loading}
-    <p class="loading">Loading…</p>
+    <p class="loading">{$_("common.loading")}</p>
   {:else if items.length === 0}
     <EmptyState message="Nothing in the recycle bin." />
   {:else}
@@ -98,8 +95,8 @@
         <tr>
           <td class="mono">{item.slug}</td>
           <td>{item.title}</td>
-          <td class="mono">{fmtDate(item.deleted_at)}</td>
-          <td class="mono">{fmtDate(item.purge_after_at)}</td>
+          <td class="mono">{fmtLocalDateTime(item.deleted_at, $locale)}</td>
+          <td class="mono">{fmtLocalDateTime(item.purge_after_at, $locale)}</td>
           <td class="cell-actions">
             <button
               type="button"

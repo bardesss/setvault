@@ -7,6 +7,7 @@ PATH (CI has them; some dev hosts don't).
 
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import shutil
@@ -20,7 +21,6 @@ from setvault_web.restore import (
     MediaRootSpec,
     RestoreError,
     libpq_url_from_sqlalchemy,
-    restore_from_tar,
 )
 from sqlalchemy import select, text
 
@@ -107,7 +107,7 @@ async def test_backup_response_is_no_store(authed_admin_client, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# restore_from_tar — unit tests that don't need real pg tools
+# restore CLI (main) — unit tests that don't need real pg tools
 # --------------------------------------------------------------------------- #
 
 
@@ -145,16 +145,38 @@ def _build_backup_tar(tmp_path, *, root_name="primary", include_db=True):
     return tar_path
 
 
-def test_restore_requires_confirmation(tmp_path):
-    tar_path = _build_backup_tar(tmp_path)
+def _patch_restore_cli(monkeypatch, media_roots):
+    """Point the restore CLI at the test DB and a fixed set of media roots
+    (normally read back from the freshly restored DB)."""
+    from types import SimpleNamespace
+
+    import setvault_web.restore as restore_mod
+
+    monkeypatch.setattr(
+        restore_mod, "get_settings", lambda: SimpleNamespace(database_url=TEST_DB_URL),
+    )
+
+    async def fake_load_media_roots(url):
+        return media_roots
+
+    monkeypatch.setattr(restore_mod, "_load_media_roots", fake_load_media_roots)
+    return restore_mod
+
+
+def test_restore_requires_confirmation(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("RESTORE_CONFIRM", raising=False)
     dest = tmp_path / "media"
-    with pytest.raises(RestoreError, match="not confirmed"):
-        restore_from_tar(
-            tar_path,
-            TEST_DB_URL,
-            [MediaRootSpec(name="primary", host_path=str(dest))],
-            confirm=False,
-        )
+    restore_mod = _patch_restore_cli(
+        monkeypatch, [MediaRootSpec(name="primary", host_path=str(dest))],
+    )
+    monkeypatch.setattr(restore_mod, "_restore_database",
+                        lambda db_sql, url: pytest.fail("restored without --yes"))
+    tar_path = _build_backup_tar(tmp_path)
+
+    with pytest.raises(SystemExit) as exc:
+        restore_mod.main([str(tar_path)])
+    assert exc.value.code == 2
+    assert "without confirmation" in capsys.readouterr().err
     # nothing copied
     assert not dest.exists()
 
@@ -162,37 +184,33 @@ def test_restore_requires_confirmation(tmp_path):
 def test_restore_media_copy_is_inverse_of_backup(tmp_path, monkeypatch):
     """A file archived as audio/<root>/sub/track.flac lands at
     <host_path>/sub/track.flac — the exact inverse of backup's layout."""
+    dest = tmp_path / "media-dest"
+    restore_mod = _patch_restore_cli(
+        monkeypatch, [MediaRootSpec(name="primary", host_path=str(dest))],
+    )
     # Stub the DB restore so the test needs no psql.
-    import setvault_web.restore as restore_mod
-
     monkeypatch.setattr(restore_mod, "_restore_database", lambda db_sql, url: None)
 
     tar_path = _build_backup_tar(tmp_path, root_name="primary")
-    dest = tmp_path / "media-dest"
-    result = restore_from_tar(
-        tar_path,
-        TEST_DB_URL,
-        [MediaRootSpec(name="primary", host_path=str(dest))],
-        confirm=True,
-    )
-    assert result["media_files"] == 1
+    restore_mod.main([str(tar_path), "--yes"])
+
     restored = dest / "sub" / "track.flac"
     assert restored.is_file()
     assert restored.read_bytes() == b"FAKEFLAC"
+    assert [p for p in dest.rglob("*") if p.is_file()] == [restored]
 
 
-def test_restore_rejects_missing_db_sql(tmp_path, monkeypatch):
-    import setvault_web.restore as restore_mod
-
+def test_restore_rejects_missing_db_sql(tmp_path, monkeypatch, capsys):
+    restore_mod = _patch_restore_cli(
+        monkeypatch, [MediaRootSpec(name="primary", host_path=str(tmp_path / "m"))],
+    )
     monkeypatch.setattr(restore_mod, "_restore_database", lambda db_sql, url: None)
     tar_path = _build_backup_tar(tmp_path, include_db=False)
-    with pytest.raises(RestoreError, match=r"missing db\.sql"):
-        restore_from_tar(
-            tar_path,
-            TEST_DB_URL,
-            [MediaRootSpec(name="primary", host_path=str(tmp_path / "m"))],
-            confirm=True,
-        )
+
+    with pytest.raises(SystemExit) as exc:
+        restore_mod.main([str(tar_path), "--yes"])
+    assert exc.value.code == 1
+    assert "missing db.sql" in capsys.readouterr().err
 
 
 def test_restore_accepts_sql_gz(tmp_path, monkeypatch):
@@ -247,7 +265,7 @@ def test_restore_rejects_corrupt_sql_gz(tmp_path, monkeypatch):
     not HAVE_PG_TOOLS,
     reason="pg_dump/psql not on PATH; round-trip exercised in CI (Linux)",
 )
-async def test_backup_restore_round_trip(client, tmp_path):
+async def test_backup_restore_round_trip(client, tmp_path, monkeypatch):
     """Seed a MediaRoot row, take a real backup, delete the row, restore, and
     assert the row is back."""
     from setvault_web.api.backup import _stream_tar
@@ -288,12 +306,11 @@ async def test_backup_restore_round_trip(client, tmp_path):
 
     # Restore (DB load + media copy). Media goes back under the recorded path.
     restore_dest = tmp_path / "media-restored"
-    restore_from_tar(
-        tar_path,
-        TEST_DB_URL,
-        [MediaRootSpec(name=marker, host_path=str(restore_dest))],
-        confirm=True,
+    restore_mod = _patch_restore_cli(
+        monkeypatch, [MediaRootSpec(name=marker, host_path=str(restore_dest))],
     )
+    # main() calls asyncio.run(), so it can't run on this test's event loop.
+    await asyncio.to_thread(restore_mod.main, [str(tar_path), "--yes"])
 
     # The pg_dump used --no-owner --no-privileges and the dump includes the
     # full table contents, so the row is back.

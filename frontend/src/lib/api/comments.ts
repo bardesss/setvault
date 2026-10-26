@@ -36,11 +36,5 @@ export const postComment = (
     body: JSON.stringify(body),
   });
 
-export const editComment = (id: string, body: string) =>
-  api<Comment>(`/api/comments/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ body }),
-  });
-
 export const deleteComment = (id: string) =>
   api<void>(`/api/comments/${id}`, { method: "DELETE" });
