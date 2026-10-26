@@ -4,6 +4,37 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0](https://github.com/bardesss/setvault/compare/v0.23.0...v0.24.0) (2026-10-26)
+
+
+### Features
+
+* **admin:** YouTube cookies upload on Admin -&gt; Sources ([1b56774](https://github.com/bardesss/setvault/commit/1b567743c096a7485d17d7f6af143732c048b100))
+* **core:** send uploaded YouTube cookies with every yt-dlp call ([18c2549](https://github.com/bardesss/setvault/commit/18c2549f203390ef5fb5c97c2c80b4773c1bc777))
+* get YouTube past the bot check (EJS + PO tokens, cookies upload fallback) ([665cef3](https://github.com/bardesss/setvault/commit/665cef3063be0c3d94b3c69a3119547f7419cb6c))
+
+
+### Bug Fixes
+
+* address final P3 review ([ee5ba39](https://github.com/bardesss/setvault/commit/ee5ba3969129ab4fe397592c78ed1cedf685c6c5))
+* **rips:** rate-limit and audit discovery rips; report throttled sources; skip disabled users' monitors ([44128d7](https://github.com/bardesss/setvault/commit/44128d7b7cc9992caef30cf4ee7137cebfdc15be))
+
+
+### Refactors
+
+* one slugify, one enqueue_email, one redis_url helper ([e38c596](https://github.com/bardesss/setvault/commit/e38c5962c5e766762419ddcedcb3afaf8e0f163e))
+* remove dead Python code; rehash outdated passwords on login ([93a2e17](https://github.com/bardesss/setvault/commit/93a2e175cf1f1835bbd40e80560df813ddfc416b))
+* share schedule, trigger and fingerprint definitions; one upgrade-event builder ([9d400ed](https://github.com/bardesss/setvault/commit/9d400edf6e93ec9f483ea53e0f871b3aa0e236b0))
+* **web:** remove dead client code, unused i18n keys and tokens; allow any orientation ([67aceab](https://github.com/bardesss/setvault/commit/67aceab49b0cdb7e017ec31fd307242430ab1b96))
+* **web:** shared duration/bytes/date formatters; root error page ([dbacebe](https://github.com/bardesss/setvault/commit/dbacebe86767c7a5bfc3bee0b62128fd20e4a261))
+
+
+### Documentation
+
+* bring README, site, env and compose docs up to date; CI on PG18 ([6bbbf40](https://github.com/bardesss/setvault/commit/6bbbf4007683db10e5d1bbccc86498de9b0c7440))
+* list pot-provider in the image header; bump .env.example to 0.23.0 ([d9f67e6](https://github.com/bardesss/setvault/commit/d9f67e6cf7af404aeac5997da6db64e8da35241c))
+* **readme:** YouTube sign-in / bot check ([14ec0dd](https://github.com/bardesss/setvault/commit/14ec0ddbec51daa82d01d36719384c875a215fb8))
+
 ## [0.23.0](https://github.com/bardesss/setvault/compare/v0.22.0...v0.23.0) (2026-10-25)
 
 
