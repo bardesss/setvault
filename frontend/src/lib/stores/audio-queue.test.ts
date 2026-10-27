@@ -34,6 +34,9 @@ class FakeAudio extends EventTarget {
   paused = true;
   playbackRate = 1;
   style: Record<string, string> = {};
+  loads = 0;
+  removeAttribute(name: string): void { if (name === "src") this.srcs.push(""); }
+  load(): void { this.loads++; }
   play(): Promise<void> { return playImpl(this); }
   pause(): void {
     if (this.paused) return;
@@ -75,7 +78,7 @@ beforeEach(() => {
   lastAudio = null;
   constructed = 0;
   tracklists = {};
-  putSetState.mockClear();
+  putSetState.mockReset().mockResolvedValue(undefined);
   getSetState.mockReset();
   getSetState.mockResolvedValue({ position_seconds: 0, completed: false, playback_rate: 1 });
   getSet.mockReset();
@@ -292,6 +295,58 @@ describe("seekInSet", () => {
     expect(get(audio.queue)).toEqual({ slugs: [], index: 0 });
     expect(lastAudio?.currentTime).toBe(90);
   });
+
+  it("on another set seeks before play() is called", async () => {
+    const audio = await engine();
+    await audio.playQueue(slugs, 0);
+    const order: string[] = [];
+    playImpl = async (a) => {
+      order.push(`play@${a.currentTime}`);
+      a.paused = false;
+      a.dispatchEvent(new Event("play"));
+    };
+    await audio.seekInSet("page-set", 90);
+    expect(order).toEqual(["play@90"]);
+  });
+});
+
+describe("load and reset", () => {
+  it("load switches the source without waiting for the outgoing state save", async () => {
+    const audio = await engine();
+    await audio.playQueue(slugs, 0);
+    const pending = deferred<undefined>();
+    putSetState.mockImplementation(() => pending.promise);
+    lastAudio!.currentTime = 30;
+    await audio.load(makeSet("other"));
+    expect(lastAudio!.src).toContain("other");
+    expect(putSetState).toHaveBeenCalledWith("s1", expect.objectContaining({ position_seconds: expect.any(Number) }), undefined);
+    pending.resolve(undefined);
+  });
+
+  it("reset stops playback, clears the source, the player and the queue", async () => {
+    const audio = await engine();
+    await audio.playQueue(slugs, 1);
+    const loadsBefore = lastAudio!.loads;
+    audio.reset();
+    expect(get(audio.player).set).toBeNull();
+    expect(get(audio.player).playing).toBe(false);
+    expect(lastAudio!.paused).toBe(true);
+    expect(lastAudio!.src).toBe("");
+    expect(lastAudio!.loads).toBe(loadsBefore + 1);
+    expect(get(audio.queue)).toEqual({ slugs, index: 1 }); // queue is reset separately via resetQueue
+  });
+
+  it("reset abandons an in-flight load", async () => {
+    const audio = await engine();
+    const late = deferred<never>();
+    getSet.mockImplementation(async () => late.promise);
+    void audio.playQueue(slugs, 0);
+    await vi.advanceTimersByTimeAsync(0);
+    audio.reset();
+    late.resolve(makeSet("s1"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(get(audio.player).set).toBeNull();
+  });
 });
 
 describe("queue races and edge cases", () => {
@@ -339,19 +394,18 @@ describe("queue races and edge cases", () => {
     expect(lastAudio?.srcs.some((s) => s.includes("s2"))).toBe(false);
   });
 
-  it("commits the queue index only after the audio source switched", async () => {
+  it("commits the queue index once the audio source switched, without waiting for the state flush", async () => {
     const audio = await engine();
     await audio.playQueue(slugs, 0);
     const flush = deferred<undefined>();
     putSetState.mockImplementationOnce(async () => flush.promise);
     audio.next();
     await vi.advanceTimersByTimeAsync(0);
-    expect(lastAudio?.src).toContain("s1"); // still switching
-    expect(get(audio.queue).index).toBe(0);
+    expect(lastAudio?.src).toContain("s2"); // the flush PUT is still pending
+    expect(get(audio.queue).index).toBe(1);
     flush.resolve(undefined);
     await vi.advanceTimersByTimeAsync(0);
     expect(lastAudio?.src).toContain("s2");
-    expect(get(audio.queue).index).toBe(1);
   });
 
   it("re-targeting the loaded set restarts it when it is completed", async () => {

@@ -4,7 +4,7 @@
 import { writable, get } from "svelte/store";
 import { getQueue, putQueue } from "#lib/api/queue.ts";
 import { getSet } from "#lib/api/sets.ts";
-import { onQueueChange, pause, playQueue, player, queue, resetQueue, type PlayQueue } from "./audio";
+import { onQueueChange, playQueue, player, queue, reset, resetQueue, type PlayQueue } from "./audio";
 import { session } from "./session";
 
 export interface ResumeOffer { slugs: string[]; index: number; title: string }
@@ -69,7 +69,7 @@ function clearAll(): void {
   try { localStorage.removeItem(KEY); } catch { /* unavailable */ }
   resumeOffer.set(null);
   resetQueue(); // also stops an in-flight advance
-  pause();
+  reset(); // stop playback and drop the loaded set
 }
 
 async function sendQueue(): Promise<void> {
@@ -156,7 +156,20 @@ export function startQueueSync(): void {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") void fetchServerQueue(false);
   });
-  player.subscribe((p) => { if (p.playing) resumeOffer.set(null); });
+  let wasPlaying = get(player).playing;
+  player.subscribe((p) => {
+    const started = p.playing && !wasPlaying;
+    wasPlaying = p.playing;
+    if (!p.playing) return;
+    resumeOffer.set(null);
+    if (!started) return;
+    // Playing with nothing queued (a single set) while a queue is stored: the
+    // stored copy is stale, so clear it (local + server). acceptOffer fills the
+    // queue before playback starts, so it never lands here.
+    if (userId !== null && get(queue).slugs.length === 0 && local && local.slugs.length > 0) {
+      onChange({ slugs: [], index: 0 });
+    }
+  });
   session.subscribe((user) => {
     const id = user?.id ?? null;
     if (id === userId) return;

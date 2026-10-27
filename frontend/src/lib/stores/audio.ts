@@ -161,7 +161,9 @@ export async function load(set: SetDetail, opts?: { restartCompleted?: boolean }
   if (!initialized) init();
   const cur = get(player);
   if (cur.set?.slug === set.slug) return;
-  if (cur.set) await saveState(); // flush outgoing (only if it played)
+  // Flush the outgoing set (only if it played). saveState snapshots the player
+  // synchronously, so the source can switch at once without waiting for the PUT.
+  if (cur.set) void saveState();
   if (!el) return;
   const token = ++loadToken;
   restoring = true;
@@ -305,13 +307,33 @@ export function resetQueue(): void {
   queue.set({ slugs: [], index: 0 });
 }
 
-/** Play one set on its own: the queue is cleared. */
-export async function playSingle(set: SetDetail): Promise<void> {
+/** Stop and empty the player entirely (logout): no source, no set, no tracklist,
+ *  and any in-flight load or advance is abandoned. The queue is reset separately. */
+export function reset(): void {
+  el?.pause(); // flushes a pending state save while the set is still known
+  if (el) {
+    el.removeAttribute("src");
+    el.load();
+  }
+  stopSaving();
+  restoring = false;
+  played = false;
+  loadToken++;
+  queueToken++;
+  pendingIndex = null;
+  tracklist = [];
+  player.set({ ...initial });
+}
+
+/** Play one set on its own: the queue is cleared. `startAt` (seconds) replaces
+ *  the resume position and is applied after the load, before playback starts. */
+export async function playSingle(set: SetDetail, startAt?: number): Promise<void> {
   queueToken++;
   pendingIndex = null;
   queue.set({ slugs: [], index: 0 });
   notifyQueue();
   await load(set);
+  if (startAt !== undefined) seekTo(startAt);
   await play();
 }
 
@@ -319,9 +341,8 @@ export async function playSingle(set: SetDetail): Promise<void> {
 export async function seekInSet(slug: string, seconds: number): Promise<void> {
   if (get(player).set?.slug === slug) { seekTo(seconds); return; }
   try {
-    await playSingle(await getSet(slug));
-  } catch { return; }
-  seekTo(seconds);
+    await playSingle(await getSet(slug), seconds);
+  } catch { /* set unavailable */ }
 }
 
 export function next(): void {

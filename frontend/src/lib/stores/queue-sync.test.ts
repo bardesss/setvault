@@ -6,6 +6,7 @@ const putQueue = vi.fn();
 const getSet = vi.fn();
 const pause = vi.fn();
 const resetQueue = vi.fn();
+const reset = vi.fn();
 let listener: ((q: { slugs: string[]; index: number }) => void) | null = null;
 const playQueue = vi.fn(async (slugs: string[], index: number) => {
   const { queue } = await import("./audio");
@@ -18,18 +19,22 @@ vi.mock("#lib/api/queue.ts", () => ({
   putQueue: (b: unknown, init?: unknown) => putQueue(b, init),
 }));
 vi.mock("#lib/api/sets.ts", () => ({ getSet: (s: string) => getSet(s) }));
-vi.mock("./audio", async () => {
+// Registered per test (doMock in beforeEach): player.subscribe listeners from an
+// earlier test's module instance must not survive into the next one.
+const audioFactory = async () => {
   const { writable } = await import("svelte/store");
   const queue = writable({ slugs: [], index: 0 });
+  const player = writable<{ playing: boolean; position: number; set: unknown }>({ playing: false, position: 0, set: null });
   return {
     queue,
-    player: writable({ playing: false, position: 0, set: null }),
+    player,
     onQueueChange: (fn: typeof listener) => { listener = fn; },
     pause: () => pause(),
+    reset: () => { reset(); player.set({ playing: false, position: 0, set: null }); },
     resetQueue: () => { queue.set({ slugs: [], index: 0 }); resetQueue(); },
     playQueue: (s: string[], i: number) => playQueue(s, i),
   };
-});
+};
 
 const KEY = "setvault.playQueue";
 const T1 = "2026-10-27T10:00:00.123456+00:00";
@@ -86,6 +91,7 @@ let doc: EventTarget & { visibilityState: string };
 
 beforeEach(() => {
   vi.resetModules();
+  vi.doMock("./audio", audioFactory);
   vi.useFakeTimers();
   vi.stubGlobal("localStorage", memoryStorage());
   win = new EventTarget();
@@ -98,6 +104,7 @@ beforeEach(() => {
   getSet.mockReset().mockImplementation(async (slug: string) => ({ slug, title: `Set ${slug}` }));
   playQueue.mockClear();
   pause.mockReset();
+  reset.mockReset();
   resetQueue.mockReset();
 });
 
@@ -366,11 +373,11 @@ describe("queue sync: auth", () => {
     expect(localStorage.getItem(KEY)).toBeNull();
   });
 
-  it("logout resets the queue (stopping an advance) and pauses", async () => {
+  it("logout resets the queue (stopping an advance) and resets the player", async () => {
     const m = await boot();
     m.session.set(null);
     expect(resetQueue).toHaveBeenCalledTimes(1);
-    expect(pause).toHaveBeenCalledTimes(1);
+    expect(reset).toHaveBeenCalledTimes(1);
   });
 
   it("does not fetch while logged out", async () => {
@@ -402,14 +409,45 @@ describe("queue sync: auth", () => {
     doc.dispatchEvent(new Event("visibilitychange"));
     await flush(); // offer is back
     expect(get(m.sync.resumeOffer)).not.toBeNull();
+    m.audio.player.set({ playing: false, position: 12, set: { slug: "a" } } as never);
     m.session.set(null);
+    expect(get(m.audio.player).set).toBeNull();
     expect(localStorage.getItem(KEY)).toBeNull();
     expect(get(m.sync.resumeOffer)).toBeNull();
     expect(get(m.audio.queue)).toEqual({ slugs: [], index: 0 });
+    expect(reset).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(2000);
     expect(putQueue).not.toHaveBeenCalled(); // pending timer was cancelled
     doc.dispatchEvent(new Event("visibilitychange"));
     await flush();
     expect(getQueue).toHaveBeenCalledTimes(2); // none after logout
+  });
+});
+
+describe("queue sync: stale stored queue", () => {
+  it("playback with an empty queue clears a stored queue (one PUT [])", async () => {
+    getQueue.mockResolvedValue({ slugs: ["a", "b"], index: 1, updated_at: T2 });
+    const m = await boot(); // server queue becomes the local copy (offer shown)
+    m.audio.queue.set({ slugs: [], index: 0 }); // e.g. dismissed, then a set is played singly
+    m.audio.player.update((s) => ({ ...s, playing: true }));
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toMatchObject({ slugs: [], index: 0 });
+    expect(get(m.sync.resumeOffer)).toBeNull();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(putQueue).toHaveBeenCalledTimes(1);
+    expect(putQueue).toHaveBeenCalledWith({ slugs: [], index: 0, base_updated_at: T2 }, undefined);
+    // Further player updates while playing do not clear/PUT again.
+    m.audio.player.update((s) => ({ ...s, position: 5 }));
+    await vi.advanceTimersByTimeAsync(600);
+    expect(putQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepting an offer does not clear it", async () => {
+    getQueue.mockResolvedValue({ slugs: ["a", "b"], index: 1, updated_at: T2 });
+    const m = await boot();
+    await m.sync.acceptOffer(); // mock playQueue fills the queue, then playback starts
+    m.audio.player.update((s) => ({ ...s, playing: true }));
+    await vi.advanceTimersByTimeAsync(600);
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toMatchObject({ slugs: ["a", "b"], index: 1 });
+    expect(putQueue).not.toHaveBeenCalledWith({ slugs: [], index: 0, base_updated_at: expect.anything() }, undefined);
   });
 });

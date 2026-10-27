@@ -54,8 +54,11 @@
 
   $: items = playlist?.items ?? [];
 
+  let reordering = false;
+
   async function reorder(slugs: string[]) {
-    if (!playlist) return;
+    if (!playlist || reordering) return;
+    reordering = true;
     try {
       playlist = await reorderPlaylist(id, slugs);
     } catch (e) {
@@ -65,11 +68,13 @@
       } else {
         toast.error($_("playlists.action_error"));
       }
+    } finally {
+      reordering = false;
     }
   }
 
   function move(from: number, to: number) {
-    if (to < 0 || to >= items.length || from === to) return;
+    if (reordering || to < 0 || to >= items.length || from === to) return;
     const slugs = items.map((i) => i.slug);
     const [slug] = slugs.splice(from, 1);
     slugs.splice(to, 0, slug);
@@ -186,7 +191,7 @@
           <li
             class="item"
             class:drag-over={dragOver === i && dragFrom !== i}
-            draggable={canDrag}
+            draggable={canDrag && !reordering}
             on:dragstart={(e) => {
               dragFrom = i;
               if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
@@ -213,14 +218,14 @@
               <button
                 type="button"
                 class="btn btn-icon"
-                disabled={i === 0}
+                disabled={i === 0 || reordering}
                 aria-label={$_("playlists.move_up", { values: { title: item.title } })}
                 on:click={() => move(i, i - 1)}
               >↑</button>
               <button
                 type="button"
                 class="btn btn-icon"
-                disabled={i === items.length - 1}
+                disabled={i === items.length - 1 || reordering}
                 aria-label={$_("playlists.move_down", { values: { title: item.title } })}
                 on:click={() => move(i, i + 1)}
               >↓</button>

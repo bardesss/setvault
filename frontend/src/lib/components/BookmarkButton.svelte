@@ -46,8 +46,12 @@
     }
   }
 
+  // The playhead is only meaningful when this page's set is the loaded one.
+  $: onThisSet = $player.set?.slug === slug;
+
   async function bookmarkPlayhead() {
-    const t = Math.floor($player.set?.slug === slug ? $player.position : 0);
+    if (!onThisSet) return;
+    const t = Math.floor($player.position);
     const b = await createBookmark(slug, t, null);
     touched = true;
     bookmarks = [...bookmarks, b];
