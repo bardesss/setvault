@@ -277,6 +277,36 @@ docker exec setvault python -m setvault_web.restore /data/restore.tar --yes
 
 ---
 
+## 🔔 Webhooks
+
+Admin → Webhooks sends an HTTP POST to a URL when a set is published, updated, deleted, restored or purged. Each webhook is signed with its own secret, which is shown once when you create it or rotate it. Header values (for example a Plex token) are stored encrypted and are never shown again. Failed deliveries are retried (network errors, timeouts, 5xx, 408 and 429), and the newest 50 deliveries per webhook are listed on the page.
+
+### Verifying webhook signatures
+
+Every delivery carries four headers:
+
+- `X-SetVault-Event`: the event name, for example `set.published`.
+- `X-SetVault-Delivery`: a unique id per delivery, the same on every retry.
+- `X-SetVault-Timestamp`: unix seconds of this attempt.
+- `X-SetVault-Signature`: `sha256=<hex>`, an HMAC-SHA256 of the string `"{timestamp}.{raw body}"` keyed with the webhook secret.
+
+Verify against the raw request body exactly as received, not a re-serialised copy:
+
+```python
+import hmac, hashlib, time
+
+def verify(secret: str, headers, raw_body: bytes) -> bool:
+    ts = headers["X-SetVault-Timestamp"]
+    if abs(time.time() - int(ts)) > 300:  # reject anything older than 5 minutes
+        return False
+    mac = hmac.new(secret.encode(), ts.encode() + b"." + raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest("sha256=" + mac, headers["X-SetVault-Signature"])
+```
+
+Reject timestamps older than 5 minutes to stop replayed requests.
+
+---
+
 ## ▶️ YouTube: sign-in / bot check
 
 YouTube sometimes answers yt-dlp with *"Sign in to confirm you're not a bot"*,
