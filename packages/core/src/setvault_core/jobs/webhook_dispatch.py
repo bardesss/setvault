@@ -105,8 +105,10 @@ async def dispatch_webhook(
         if secret is not None:
             headers["X-SetVault-Signature"] = sign(secret, timestamp, body_bytes)
 
+        wh_id = row.id
         status: int | None = None
         error: str | None = None
+        permanent = False
         started = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -114,6 +116,11 @@ async def dispatch_webhook(
             status = resp.status_code
             if not 200 <= status < 300:
                 error = f"HTTP {status}"
+        except (httpx.InvalidURL, httpx.UnsupportedProtocol, UnicodeEncodeError) as exc:
+            # A bad target URL or header can never succeed: no retry.
+            error = (str(exc) or type(exc).__name__)[:500]
+            permanent = True
+            logger.warning("webhook %s has an unusable request: %s", webhook_id, exc)
         except httpx.HTTPError as exc:
             error = (str(exc) or type(exc).__name__)[:500]
             logger.warning("webhook %s POST failed: %s", webhook_id, exc)
@@ -139,11 +146,16 @@ async def dispatch_webhook(
             ))
             await s.commit()
         except (IntegrityError, StaleDataError):
-            # The webhook was deleted while the request was in flight.
             await s.rollback()
+            still_there = (await s.execute(
+                select(LibraryWebhook.id).where(LibraryWebhook.id == wh_id)
+            )).first()
+            if still_there is not None:
+                raise
+            # The webhook was deleted while the request was in flight.
             return {"skipped": True, "reason": "deleted during delivery"}
 
-    if is_retryable(status, error):
+    if not permanent and is_retryable(status, error):
         raise RetryableDeliveryError(error or f"HTTP {status}")
     return {"status_code": status, "error": error}
 

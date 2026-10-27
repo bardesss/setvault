@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import uuid
@@ -5,7 +6,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from setvault_core.db import init_engine, session_factory
+from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.jobs import webhook_dispatch as wd
 from setvault_core.models.library_webhook import LibraryWebhook, WebhookDelivery
 from setvault_core.services import webhook_security as ws
@@ -270,7 +271,7 @@ def test_run_dispatch_attempt_comes_from_job_retries_left(monkeypatch):
         return {}
 
     monkeypatch.setattr(wd, "dispatch_webhook", fake)
-    monkeypatch.setattr(wd, "run_job", lambda coro: __import__("asyncio").run(coro))
+    monkeypatch.setattr(wd, "run_job", asyncio.run)
     for job, want in [(None, 1), (type("J", (), {"retries_left": 5})(), 1),
                       (type("J", (), {"retries_left": 2})(), 4),
                       (type("J", (), {"retries_left": 0})(), 6),
@@ -293,3 +294,96 @@ async def test_fan_out_webhook_event_enqueues_matching_only(monkeypatch, make_we
         "set.deleted", set_slug="s", set_id="i", title="t")
     mine = [kw for _, kw in q.calls if kw["webhook_id"] == match]
     assert [kw["event"] for kw in mine] == ["set.published"]
+
+
+async def test_invalid_url_is_permanent_and_logged(make_webhook, monkeypatch):
+    wid = await make_webhook()
+    async with session_factory()() as s:
+        row = await s.get(LibraryWebhook, uuid.UUID(wid))
+        row.target_url = "not-a-url"
+        await s.commit()
+    result = await _go(wid)
+    assert result["status_code"] is None
+    (d,) = await _deliveries(wid)
+    assert d.status_code is None
+    assert d.error
+    async with session_factory()() as s:
+        assert (await s.get(LibraryWebhook, uuid.UUID(wid))).last_error == d.error
+
+
+def test_real_rq_retry_round_trip(http, monkeypatch):
+    """Real Redis + RQ: a 503 reschedules the job on the 60s then 300s
+    intervals, keeps one delivery id, and a disabled webhook ends the chain."""
+    import time
+
+    from redis import Redis
+    from rq import Queue, SimpleWorker
+    from rq.registry import ScheduledJobRegistry
+    from rq.timeouts import TimerDeathPenalty
+
+    http.status = 503
+    r = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/3"))
+    r.flushdb()
+    q = Queue("default", connection=r)
+    worker = SimpleWorker([q], connection=r)
+    worker.death_penalty_class = TimerDeathPenalty  # SIGALRM-free (Windows)
+    registry = ScheduledJobRegistry(queue=q)
+
+    def _rows(wid):
+        return run_job(_deliveries(wid))
+
+    async def _setup():
+        init_engine(os.environ["TEST_DATABASE_URL"])
+        row = LibraryWebhook(
+            name=f"w{uuid.uuid4().hex[:6]}", target_url="https://hook.test/in",
+            events=["set.published"], enabled=True)
+        async with session_factory()() as s:
+            s.add(row)
+            await s.commit()
+        return str(row.id)
+
+    async def _disable(wid):
+        async with session_factory()() as s:
+            (await s.get(LibraryWebhook, uuid.UUID(wid))).enabled = False
+            await s.commit()
+
+    async def _cleanup(wid):
+        async with session_factory()() as s:
+            await s.execute(delete(LibraryWebhook).where(LibraryWebhook.id == uuid.UUID(wid)))
+            await s.commit()
+
+    wid = run_job(_setup())
+    try:
+        did = wd.enqueue_dispatch(
+            q, webhook_id=wid, event="set.published", set_slug="s", set_id="i", title="t")
+        job = q.jobs[0]
+
+        worker.perform_job(job, q)
+        job.refresh()
+        assert job.get_status() == "scheduled"
+        assert job.retries_left == 4
+        assert job.id in registry.get_job_ids()
+        assert abs(registry.get_scheduled_time(job).timestamp() - (time.time() + 60)) < 15
+        rows = _rows(wid)
+        assert [(d.attempt, d.status_code, d.delivery_id) for d in rows] == [(1, 503, did)]
+
+        registry.remove(job)
+        worker.perform_job(job, q)
+        job.refresh()
+        assert job.retries_left == 3
+        assert abs(registry.get_scheduled_time(job).timestamp() - (time.time() + 300)) < 15
+        rows = _rows(wid)
+        assert [(d.attempt, d.delivery_id) for d in rows] == [(1, did), (2, did)]
+        assert {q_.headers["X-SetVault-Delivery"] for q_ in http.requests} == {did}
+
+        registry.remove(job)
+        run_job(_disable(wid))
+        worker.perform_job(job, q)
+        job.refresh()
+        assert job.get_status() == "finished"
+        assert job.return_value()["skipped"] is True
+        assert job.id not in registry.get_job_ids()
+        assert len(_rows(wid)) == 2
+    finally:
+        run_job(_cleanup(wid))
+        r.flushdb()
