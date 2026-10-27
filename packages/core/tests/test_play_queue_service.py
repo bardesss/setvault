@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
+from setvault_core.models.playlists import PlayQueue
 from setvault_core.services import play_queue as pq
 
 
@@ -89,3 +90,39 @@ async def test_cap_raises(session, monkeypatch):
     u = await _user(session)
     with pytest.raises(ValueError):
         await pq.write_queue(session, u.id, [uuid.uuid4() for _ in range(3)], 0, None)
+
+async def test_naive_base_updated_at_is_treated_as_utc(session):
+    u = await _user(session)
+    a, = await _sets(session, u, [("published", 60)])
+    stored, _ = await pq.write_queue(session, u.id, [a], 0, None)
+    naive_old = (stored - timedelta(minutes=1)).replace(tzinfo=None)
+    _, flag = await pq.write_queue(session, u.id, [a], 0, naive_old)
+    assert flag is True
+    current = (await pq.read_queue(session, u.id))[2]
+    _, flag = await pq.write_queue(session, u.id, [a], 0, current.replace(tzinfo=None))
+    assert flag is False
+
+
+async def _repoint(session, ids, index, pick):
+    """Queue of named ids -> (stored ids by name, index) after the merge."""
+    u = await _user(session)
+    loser, survivor, x = await _sets(session, u, [("published", 1)] * 3)
+    names = {"loser": loser, "survivor": survivor, "x": x}
+    inv = {v: k for k, v in names.items()}
+    await pq.write_queue(session, u.id, [names[n] for n in ids], index, None)
+    await pq.repoint_for_merge(session, loser_id=loser, survivor_id=survivor)
+    row = await session.get(PlayQueue, u.id)
+    await session.refresh(row)
+    return [inv[i] for i in row.set_ids], row.current_index
+
+
+async def test_merge_keeps_current_other_set(session):
+    assert await _repoint(session, ["loser", "x", "survivor"], 1, None) == (["survivor", "x"], 1)
+
+
+async def test_merge_current_loser_follows_earlier_survivor(session):
+    assert await _repoint(session, ["survivor", "x", "loser"], 2, None) == (["survivor", "x"], 0)
+
+
+async def test_merge_current_survivor_after_dedupe(session):
+    assert await _repoint(session, ["loser", "survivor"], 1, None) == (["survivor"], 0)

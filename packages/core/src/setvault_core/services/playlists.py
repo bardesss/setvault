@@ -78,7 +78,7 @@ async def visible_items(
         select(LiveSet, PlaylistItem)
         .join(PlaylistItem, PlaylistItem.live_set_id == LiveSet.id)
         .where(PlaylistItem.playlist_id == playlist_id, *visible_clause())
-        .order_by(PlaylistItem.position)
+        .order_by(PlaylistItem.position, PlaylistItem.added_at, PlaylistItem.live_set_id)
     )).unique().all()
     return [(ls, item) for ls, item in rows]
 
@@ -139,16 +139,17 @@ async def reorder(
     if len(visible_set_ids) != len(visible) or set(visible_set_ids) != visible:
         raise PlaylistError("The list doesn't match the sets in this playlist")
     order = [*visible_set_ids, *(sid for sid, vis in rows if not vis)]
-    await session.execute(
-        update(PlaylistItem.__table__)
-        .where(
-            PlaylistItem.playlist_id == bindparam("b_pid"),
-            PlaylistItem.live_set_id == bindparam("b_sid"),
+    if order:
+        await session.execute(
+            update(PlaylistItem.__table__)
+            .where(
+                PlaylistItem.playlist_id == bindparam("b_pid"),
+                PlaylistItem.live_set_id == bindparam("b_sid"),
+            )
+            .values(position=bindparam("b_pos"))
+            .execution_options(synchronize_session=False),
+            [{"b_pid": playlist.id, "b_sid": sid, "b_pos": pos} for pos, sid in enumerate(order)],
         )
-        .values(position=bindparam("b_pos"))
-        .execution_options(synchronize_session=False),
-        [{"b_pid": playlist.id, "b_sid": sid, "b_pos": pos} for pos, sid in enumerate(order)],
-    )
     _touch(playlist)
     await session.flush()
 

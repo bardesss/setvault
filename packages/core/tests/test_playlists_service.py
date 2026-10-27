@@ -142,3 +142,49 @@ async def test_get_owned_is_private_and_playlists_containing(session):
     assert (await svc.get_owned(session, u.id, pl.id)).id == pl.id
     got = await svc.playlists_containing(session, u.id, a)
     assert [(p.name, c) for p, c in got] == [("aaa", False), ("mine", True)]
+
+async def test_reorder_empty_playlist_is_noop(session):
+    u = await _user(session)
+    pl = await _playlist(session, u)
+    pl.updated_at = datetime(2020, 1, 1, tzinfo=UTC)
+    await session.flush()
+    await svc.reorder(session, pl, [])
+    assert await _rows(session, pl) == []
+    assert pl.updated_at > datetime(2020, 1, 1, tzinfo=UTC)
+
+
+async def _aged(session, pl: Playlist) -> datetime:
+    old = datetime(2020, 1, 1, tzinfo=UTC)
+    pl.updated_at = old
+    await session.flush()
+    return old
+
+
+async def test_mutations_bump_updated_at(session):
+    u = await _user(session)
+    a, b = await _sets(session, u, [("published", 60)] * 2)
+    pl = await _playlist(session, u)
+
+    old = await _aged(session, pl)
+    await svc.add_item(session, pl, a)
+    assert pl.updated_at > old
+
+    await svc.add_item(session, pl, b)
+    old = await _aged(session, pl)
+    await svc.reorder(session, pl, [b, a])
+    assert pl.updated_at > old
+
+    old = await _aged(session, pl)
+    await svc.remove_item(session, pl, a)
+    assert pl.updated_at > old
+
+
+async def test_merge_repoint_bumps_updated_at(session):
+    u = await _user(session)
+    loser, survivor = await _sets(session, u, [("published", 60)] * 2)
+    pl = await _playlist(session, u)
+    await svc.add_item(session, pl, loser)
+    old = await _aged(session, pl)
+    await svc.repoint_for_merge(session, loser_id=loser, survivor_id=survivor)
+    await session.refresh(pl)
+    assert pl.updated_at > old

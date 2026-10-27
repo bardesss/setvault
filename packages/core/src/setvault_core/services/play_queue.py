@@ -53,6 +53,8 @@ async def write_queue(
     stored = (await session.execute(
         select(PlayQueue.updated_at).where(PlayQueue.user_id == user_id)
     )).scalar_one_or_none()
+    if base_updated_at is not None and base_updated_at.tzinfo is None:
+        base_updated_at = base_updated_at.replace(tzinfo=UTC)
     overwrote = stored is not None and (base_updated_at is None or base_updated_at < stored)
     now = datetime.now(UTC)
     stmt = insert(PlayQueue).values(

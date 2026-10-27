@@ -56,7 +56,9 @@ class PlayQueue(Base):
     set_ids: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(UUID(as_uuid=True)), nullable=False, server_default=text("'{}'")
     )
-    current_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    current_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
