@@ -23,6 +23,7 @@ from setvault_core.models.identity import EmailToken, NotificationPreference, Us
 from setvault_core.models.ingest_sources import IngestSourceState
 from setvault_core.models.library_webhook import LibraryWebhook, WebhookDelivery
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
+from setvault_core.models.playlists import Playlist, PlaylistItem, PlayQueue
 from setvault_core.models.system import AuditEvent, Job, NotificationConnector
 from setvault_core.models.system_config import SystemConfig
 from setvault_core.models.upgrades import SetUpgradeEvent
@@ -53,6 +54,9 @@ __all__ = [
                                           "NotificationConnector",
                                           "NotificationPreference",
                                           "Party",
+                                          "PlayQueue",
+                                          "Playlist",
+                                          "PlaylistItem",
                                           "PrivateNote",
                                           "RipJob",
                                           "Series",
