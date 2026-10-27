@@ -310,7 +310,8 @@ export function resetQueue(): void {
 /** Stop and empty the player entirely (logout): no source, no set, no tracklist,
  *  and any in-flight load or advance is abandoned. The queue is reset separately. */
 export function reset(): void {
-  el?.pause(); // flushes a pending state save while the set is still known
+  // No final save: the session is already gone by the time logout reaches here.
+  el?.pause();
   if (el) {
     el.removeAttribute("src");
     el.load();
@@ -323,6 +324,8 @@ export function reset(): void {
   pendingIndex = null;
   tracklist = [];
   player.set({ ...initial });
+  // Don't leave the previous user's set on the lock screen / notification.
+  try { if ("mediaSession" in navigator) navigator.mediaSession.metadata = null; } catch { /* unsupported */ }
 }
 
 /** Play one set on its own: the queue is cleared. `startAt` (seconds) replaces
