@@ -234,6 +234,14 @@ describe("play queue", () => {
     expect(seen).toHaveLength(3);
   });
 
+  it("playSingle with an empty queue still notifies exactly once", async () => {
+    const audio = await engine();
+    const seen: { slugs: string[]; index: number }[] = [];
+    audio.onQueueChange((q) => seen.push(structuredClone(q)));
+    await audio.playSingle(makeSet("solo"));
+    expect(seen).toEqual([{ slugs: [], index: 0 }]);
+  });
+
   it("shouldAutoload is false while a queue is loaded, playing or paused", async () => {
     const audio = await engine();
     expect(audio.shouldAutoload()).toBe(true);

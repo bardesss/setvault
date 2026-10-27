@@ -1,9 +1,11 @@
 // Keeps the play queue in sync: localStorage + server (last write wins), and
-// offers (never autoplays) a newer queue found on the server.
+// offers (never autoplays) a queue found on the server or kept locally.
+// Sync only runs while a user is signed in, and is wiped on logout.
 import { writable, get } from "svelte/store";
 import { getQueue, putQueue } from "#lib/api/queue.ts";
 import { getSet } from "#lib/api/sets.ts";
 import { onQueueChange, playQueue, player, queue, type PlayQueue } from "./audio";
+import { session } from "./session";
 
 export interface ResumeOffer { slugs: string[]; index: number; title: string }
 export const resumeOffer = writable<ResumeOffer | null>(null);
@@ -14,9 +16,12 @@ const DEBOUNCE_MS = 500;
 interface LocalQueue { slugs: string[]; index: number; updatedAt: string | null }
 
 let started = false;
+let userId: string | null = null;
+/** The sync base: never loaded into `queue` except through an accepted offer. */
 let local: LocalQueue | null = null;
 let putTimer: ReturnType<typeof setTimeout> | null = null;
 let fetchSeq = 0;
+let epoch = 0;
 
 function readLocal(): LocalQueue | null {
   try {
@@ -45,19 +50,37 @@ function isNewer(serverAt: string | null): boolean {
   return Date.parse(serverAt) > Date.parse(local.updatedAt);
 }
 
+function clampIndex(index: number, length: number): number {
+  return Math.max(0, Math.min(length - 1, Math.trunc(index) || 0));
+}
+
+function clearAll(): void {
+  epoch++;
+  fetchSeq++;
+  if (putTimer) clearTimeout(putTimer);
+  putTimer = null;
+  local = null;
+  try { localStorage.removeItem(KEY); } catch { /* unavailable */ }
+  resumeOffer.set(null);
+  queue.set({ slugs: [], index: 0 });
+}
+
 async function sendQueue(): Promise<void> {
   putTimer = null;
-  const q = local ?? get(queue);
+  const q = get(queue);
+  const myEpoch = epoch;
   try {
     // base_updated_at is echoed exactly as the server sent it (a string).
     const res = await putQueue({ slugs: q.slugs, index: q.index, base_updated_at: local?.updatedAt ?? null });
-    local = { slugs: q.slugs, index: q.index, updatedAt: res.updated_at };
+    if (myEpoch !== epoch) return;
+    local = { slugs: local?.slugs ?? q.slugs, index: local?.index ?? q.index, updatedAt: res.updated_at };
     writeLocal();
-    if (res.overwrote_newer) void fetchServerQueue();
+    if (res.overwrote_newer) void fetchServerQueue(false);
   } catch { /* best-effort; the next change retries */ }
 }
 
 function onChange(q: PlayQueue): void {
+  fetchSeq++; // an in-flight fetch must not clobber this fresh change
   local = { slugs: q.slugs.slice(), index: q.index, updatedAt: local?.updatedAt ?? null };
   writeLocal();
   resumeOffer.set(null);
@@ -65,38 +88,67 @@ function onChange(q: PlayQueue): void {
   putTimer = setTimeout(() => void sendQueue(), DEBOUNCE_MS);
 }
 
-async function fetchServerQueue(): Promise<void> {
+function flushOnPageHide(): void {
+  if (!putTimer) return;
+  clearTimeout(putTimer);
+  putTimer = null;
+  const q = get(queue);
+  void putQueue({ slugs: q.slugs, index: q.index, base_updated_at: local?.updatedAt ?? null }, { keepalive: true })
+    .catch(() => undefined);
+}
+
+async function fetchServerQueue(startup: boolean): Promise<void> {
+  if (!get(session)) return;
   const seq = ++fetchSeq;
   try {
     const server = await getQueue();
-    if (seq !== fetchSeq || server.slugs.length === 0 || !isNewer(server.updated_at)) return;
-    const index = Math.max(0, Math.min(server.slugs.length - 1, server.index));
-    const copy: LocalQueue = { slugs: server.slugs, index, updatedAt: server.updated_at };
+    if (seq !== fetchSeq) return;
+    const serverNewer = isNewer(server.updated_at);
+    let cand: LocalQueue | null = null;
+    if (serverNewer) {
+      if (server.slugs.length === 0) {
+        // Cleared on another device: mirror it and drop any offer.
+        local = { slugs: [], index: 0, updatedAt: server.updated_at };
+        writeLocal();
+        resumeOffer.set(null);
+        return;
+      }
+      cand = { slugs: server.slugs, index: server.index, updatedAt: server.updated_at };
+    } else if (startup && local && local.slugs.length > 0) {
+      cand = local;
+    }
+    if (!cand) return;
+    const index = clampIndex(cand.index, cand.slugs.length);
+    cand = { slugs: cand.slugs, index, updatedAt: cand.updatedAt };
     if (get(player).playing) {
-      local = copy;
-      writeLocal();
+      if (serverNewer) { local = cand; writeLocal(); }
       return;
     }
-    const set = await getSet(server.slugs[index]);
+    const set = await getSet(cand.slugs[index]);
     if (seq !== fetchSeq || get(player).playing) return;
-    local = copy;
-    writeLocal();
-    resumeOffer.set({ slugs: server.slugs, index, title: set.title });
-  } catch { /* offline or the set is gone: no offer */ }
+    if (serverNewer) { local = cand; writeLocal(); }
+    resumeOffer.set({ slugs: cand.slugs, index, title: set.title });
+  } catch { /* offline, signed out, or the set is gone: no offer */ }
 }
 
 export function startQueueSync(): void {
   if (started || typeof window === "undefined") return;
   started = true;
-  local = readLocal();
-  if (local && local.slugs.length > 0 && get(queue).slugs.length === 0) {
-    queue.set({ slugs: local.slugs.slice(), index: Math.max(0, Math.min(local.slugs.length - 1, local.index)) });
-  }
   onQueueChange(onChange);
+  window.addEventListener("pagehide", flushOnPageHide);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") void fetchServerQueue();
+    if (document.visibilityState === "visible") void fetchServerQueue(false);
   });
-  void fetchServerQueue();
+  player.subscribe((p) => { if (p.playing) resumeOffer.set(null); });
+  session.subscribe((user) => {
+    const id = user?.id ?? null;
+    if (id === userId) return;
+    if (userId !== null) clearAll(); // logout or a different user
+    userId = id;
+    if (id === null) return;
+    local = readLocal();
+    void fetchServerQueue(true);
+  });
 }
 
 export async function acceptOffer(): Promise<void> {

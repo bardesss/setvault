@@ -122,7 +122,8 @@
   },
   "queue": {
     "continue": "Continue: {title}",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "resume_label": "Resume queue"
   },
   "nav": {
     "browse": "Browse",

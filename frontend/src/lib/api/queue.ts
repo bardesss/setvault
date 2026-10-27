@@ -19,5 +19,5 @@ export interface QueuePutResult {
 
 export const getQueue = () => api<QueueOut>("/api/me/queue");
 
-export const putQueue = (body: QueuePutBody) =>
-  api<QueuePutResult>("/api/me/queue", { method: "PUT", body: JSON.stringify(body) });
+export const putQueue = (body: QueuePutBody, init: RequestInit = {}) =>
+  api<QueuePutResult>("/api/me/queue", { ...init, method: "PUT", body: JSON.stringify(body) });

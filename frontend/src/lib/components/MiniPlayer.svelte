@@ -12,7 +12,7 @@
 </script>
 
 {#if $resumeOffer && !st.playing}
-  <div class="m-bottom-sheet" role="region" aria-label="resume queue">
+  <div class="m-bottom-sheet" role="region" aria-label={$_("queue.resume_label")}>
     <div class="m-sheet-row">
       <button type="button" class="m-sheet-meta" data-test="queue-continue" on:click={acceptOffer}>
         <div class="m-sheet-title">{$_("queue.continue", { values: { title: $resumeOffer.title } })}</div>
