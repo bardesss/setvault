@@ -412,7 +412,12 @@
     >
       {#each items as wh (wh.id)}
         <tr class:is-disabled={!wh.enabled}>
-          <td>{wh.name}</td>
+          <td>
+            {wh.name}
+            {#if wh.headers_unreadable}
+              <p class="admin-msg is-error" role="alert">{$_("admin.webhooks.headers_unreadable")}</p>
+            {/if}
+          </td>
           <td class="mono ellipsis" title={wh.target_url}>{wh.target_url}</td>
           <td class="mono">{wh.events.join(", ")}</td>
           <td>{wh.enabled ? "✓" : "—"}</td>

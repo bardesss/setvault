@@ -322,7 +322,7 @@ def test_real_rq_retry_round_trip(http, monkeypatch):
     from rq.timeouts import TimerDeathPenalty
 
     http.status = 503
-    r = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/3"))
+    r = Redis.from_url(os.environ.get("TEST_WEBHOOK_REDIS_URL", "redis://localhost:6379/11"))
     r.flushdb()
     q = Queue("default", connection=r)
     worker = SimpleWorker([q], connection=r)
@@ -387,3 +387,89 @@ def test_real_rq_retry_round_trip(http, monkeypatch):
     finally:
         run_job(_cleanup(wid))
         r.flushdb()
+
+
+async def test_stored_lowercase_reserved_header_cannot_shadow_signature(http, make_webhook):
+    wid = await make_webhook(
+        secret=SECRET,
+        headers={"x-setvault-signature": "forged", "content-type": "text/plain"})
+    await _go(wid)
+    req = http.requests[0]
+    assert req.headers.get_list("X-SetVault-Signature") == [
+        ws.sign(SECRET, int(req.headers["X-SetVault-Timestamp"]), req.content)]
+    assert req.headers.get_list("Content-Type") == ["text/plain"]
+
+
+async def test_content_type_defaults_to_json_when_absent(http, make_webhook):
+    wid = await make_webhook(headers={"X-A": "1"})
+    await _go(wid)
+    assert http.requests[0].headers.get_list("Content-Type") == ["application/json"]
+
+
+async def test_undecryptable_headers_are_a_permanent_logged_failure(http, make_webhook):
+    wid = await make_webhook()
+    async with session_factory()() as s:
+        row = await s.get(LibraryWebhook, uuid.UUID(wid))
+        row.encrypted_headers = Crypter("another-secret-key-0123456789").encrypt(b'{"A":"1"}')
+        await s.commit()
+    result = await _go(wid)  # must not raise RetryableDeliveryError
+    assert http.requests == []
+    assert "cannot decrypt" in result["error"]
+    (d,) = await _deliveries(wid)
+    assert d.status_code is None
+    assert d.error == "cannot decrypt webhook headers/secret (SECRET_KEY changed?)"
+    async with session_factory()() as s:
+        got = await s.get(LibraryWebhook, uuid.UUID(wid))
+        assert got.last_error == d.error
+
+
+async def test_undecryptable_secret_is_a_permanent_logged_failure(http, make_webhook):
+    wid = await make_webhook()
+    async with session_factory()() as s:
+        row = await s.get(LibraryWebhook, uuid.UUID(wid))
+        row.encrypted_secret = Crypter("another-secret-key-0123456789").encrypt(b"s")
+        await s.commit()
+    await _go(wid)
+    assert http.requests == []
+    (d,) = await _deliveries(wid)
+    assert "cannot decrypt" in d.error
+
+
+def _run_with_job(monkeypatch, job, fake):
+    monkeypatch.setattr(wd, "dispatch_webhook", fake)
+    monkeypatch.setattr(wd, "run_job", asyncio.run)
+    monkeypatch.setattr(wd, "get_current_job", lambda: job)
+
+
+def test_non_retrying_job_swallows_retryable_error(monkeypatch):
+    async def fake(**kw):
+        raise wd.RetryableDeliveryError(
+            "HTTP 503", result={"status_code": 503, "error": "HTTP 503"})
+
+    _run_with_job(monkeypatch, type("J", (), {"retries_left": None})(), fake)
+    assert wd.run_dispatch_webhook(webhook_id="x", event="e", delivery_id="d") == {
+        "status_code": 503, "error": "HTTP 503"}
+
+
+def test_retrying_job_still_raises(monkeypatch):
+    async def fake(**kw):
+        raise wd.RetryableDeliveryError("HTTP 503")
+
+    for left in (5, 0):
+        _run_with_job(monkeypatch, type("J", (), {"retries_left": left})(), fake)
+        with pytest.raises(wd.RetryableDeliveryError):
+            wd.run_dispatch_webhook(webhook_id="x", event="e", delivery_id="d")
+
+
+def test_delivery_id_is_optional_for_old_in_flight_jobs(monkeypatch):
+    seen = []
+
+    async def fake(**kw):
+        seen.append(kw["delivery_id"])
+        return {}
+
+    _run_with_job(monkeypatch, None, fake)
+    wd.run_dispatch_webhook(webhook_id="x", event="e")
+    wd.run_dispatch_webhook(webhook_id="x", event="e", delivery_id="given")
+    assert uuid.UUID(seen[0]).version == 4
+    assert seen[1] == "given"

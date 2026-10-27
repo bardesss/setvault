@@ -236,3 +236,117 @@ async def test_test_button_does_not_retry(authed_admin_client, monkeypatch):
     assert r.status_code == 200
     assert r.json() == {"status": "queued", "delivery_id": "did-1"}
     assert seen["retry"] is False and seen["event"] == "webhook.test"
+
+
+@pytest.mark.parametrize("field", ["name", "target_url", "events", "enabled"])
+async def test_patch_rejects_explicit_null(authed_admin_client, field):
+    wh = (await _create(authed_admin_client)).json()
+    r = await authed_admin_client.patch(f"/api/admin/webhooks/{wh['id']}", json={field: None})
+    assert r.status_code == 400
+    assert field in r.json()["detail"]
+
+
+async def test_patch_null_body_template_clears_and_null_headers_is_noop(authed_admin_client):
+    wh = (await _create(
+        authed_admin_client, body_template={"a": "b"}, headers={"A": "1"})).json()
+    r = await authed_admin_client.patch(
+        f"/api/admin/webhooks/{wh['id']}", json={"body_template": None, "headers": None})
+    assert r.status_code == 200
+    assert r.json()["body_template"] is None
+    assert await _stored_headers(wh["id"]) == {"A": "1"}
+
+
+@pytest.mark.parametrize("name", [
+    "x-setvault-signature", "X-SetVault-Event", "Host", "content-length",
+    "Transfer-Encoding", "CONNECTION",
+])
+async def test_rejects_reserved_header_names(authed_admin_client, name):
+    assert (await _create(authed_admin_client, headers={name: "v"})).status_code == 400
+    wh = (await _create(authed_admin_client)).json()
+    r = await authed_admin_client.patch(
+        f"/api/admin/webhooks/{wh['id']}", json={"headers": {name: "v"}})
+    assert r.status_code == 400
+
+
+async def test_rejects_case_insensitive_duplicate_header_names(authed_admin_client):
+    assert (await _create(
+        authed_admin_client, headers={"X-A": "1", "x-a": "2"})).status_code == 400
+    wh = (await _create(authed_admin_client)).json()
+    r = await authed_admin_client.patch(
+        f"/api/admin/webhooks/{wh['id']}", json={"headers": {"X-A": "1", "x-a": "2"}})
+    assert r.status_code == 400
+
+
+@pytest.mark.parametrize("value", ["a\r\nX-Evil: 1", "a\nb", "a\rb", "a\x00b", "a\x7fb"])
+async def test_rejects_control_chars_in_header_values(authed_admin_client, value):
+    assert (await _create(authed_admin_client, headers={"X-A": value})).status_code == 400
+    wh = (await _create(authed_admin_client)).json()
+    r = await authed_admin_client.patch(
+        f"/api/admin/webhooks/{wh['id']}", json={"headers": {"X-A": value}})
+    assert r.status_code == 400
+
+
+async def test_patch_matches_stored_header_names_case_insensitively(authed_admin_client):
+    wh = (await _create(
+        authed_admin_client, headers={"X-Plex-Token": "old", "X-B": "b"})).json()
+    r = await authed_admin_client.patch(
+        f"/api/admin/webhooks/{wh['id']}", json={"headers": {"x-plex-token": "new"}})
+    assert r.status_code == 200
+    assert await _stored_headers(wh["id"]) == {"X-Plex-Token": "new", "X-B": "b"}
+    r = await authed_admin_client.patch(
+        f"/api/admin/webhooks/{wh['id']}", json={"headers": {"X-PLEX-TOKEN": ""}})
+    assert r.status_code == 200
+    assert await _stored_headers(wh["id"]) == {"X-B": "b"}
+
+
+async def _row_with_foreign_key(make_cols):
+    other = Crypter("another-secret-key-0123456789")
+    async with session_factory()() as s:
+        row = LibraryWebhook(name="foreign", target_url=URL, events=[], **make_cols(other))
+        s.add(row)
+        await s.commit()
+        return str(row.id)
+
+
+async def test_list_tolerates_undecryptable_data(authed_admin_client):
+    wid = await _row_with_foreign_key(lambda c: {
+        "encrypted_headers": c.encrypt(b'{"A":"1"}'),
+        "encrypted_secret": c.encrypt(b"s"),
+    })
+    r = await authed_admin_client.get("/api/admin/webhooks")
+    assert r.status_code == 200
+    (item,) = [i for i in r.json()["items"] if i["id"] == wid]
+    assert item["header_names"] == []
+    assert item["headers_unreadable"] is True
+    assert item["secret_set"] is True
+
+
+async def test_readable_row_is_not_flagged_unreadable(authed_admin_client):
+    wh = (await _create(authed_admin_client, headers={"A": "1"})).json()
+    assert wh["headers_unreadable"] is False
+
+
+async def test_patch_headers_on_undecryptable_row_starts_fresh(authed_admin_client):
+    wid = await _row_with_foreign_key(lambda c: {"encrypted_headers": c.encrypt(b'{"A":"1"}')})
+    r = await authed_admin_client.patch(
+        f"/api/admin/webhooks/{wid}", json={"headers": {"B": "2"}})
+    assert r.status_code == 200
+    assert r.json()["headers_unreadable"] is False
+    assert await _stored_headers(wid) == {"B": "2"}
+
+
+async def test_deliveries_tie_break_on_id(authed_admin_client):
+    wh = (await _create(authed_admin_client)).json()
+    same = datetime.now(UTC)
+    async with session_factory()() as s:
+        for i in range(3):
+            s.add(WebhookDelivery(
+                webhook_id=uuid.UUID(wh["id"]), delivery_id=f"t{i}", event="set.published",
+                attempt=1, status_code=200, created_at=same))
+        await s.commit()
+        ids = (await s.execute(
+            select(WebhookDelivery.delivery_id, WebhookDelivery.id)
+            .where(WebhookDelivery.webhook_id == uuid.UUID(wh["id"]))
+            .order_by(WebhookDelivery.id.desc()))).all()
+    r = await authed_admin_client.get(f"/api/admin/webhooks/{wh['id']}/deliveries")
+    assert [i["delivery_id"] for i in r.json()["items"]] == [d for d, _ in ids]

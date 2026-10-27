@@ -4,6 +4,7 @@ import subprocess
 import sys
 import uuid
 from hashlib import sha256
+from pathlib import Path
 
 import pytest
 from setvault_core.models.library_webhook import LibraryWebhook
@@ -12,6 +13,7 @@ from setvault_core.services.crypto import Crypter
 from sqlalchemy import delete, select
 
 KEY = "k" * 32
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.fixture
@@ -103,7 +105,7 @@ def test_migration_0036_round_trips():
         for args in (["upgrade", "head"], ["downgrade", "-1"], ["upgrade", "head"]):
             r = subprocess.run(  # noqa: S603 — fixed argv
                 [sys.executable, "-m", "alembic", *args], env=env,
-                capture_output=True, text=True)
+                capture_output=True, text=True, cwd=REPO_ROOT)
             assert r.returncode == 0, r.stderr
     finally:
         asyncio.run(_ddl(f'drop database if exists "{name}" with (force)'))

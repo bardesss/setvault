@@ -15,6 +15,7 @@ import uuid
 from datetime import UTC, datetime
 
 import httpx
+from cryptography.fernet import InvalidToken
 from rq import Queue, Retry, get_current_job
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -33,8 +34,15 @@ RETRY_INTERVALS: tuple[int, ...] = (60, 300, 1800, 7200, 21600)
 KEEP_DELIVERIES = 50
 
 
+UNDECRYPTABLE = "cannot decrypt webhook headers/secret (SECRET_KEY changed?)"
+
+
 class RetryableDeliveryError(Exception):
     """Raised after the attempt is logged, so RQ schedules the next retry."""
+
+    def __init__(self, message: str, result: dict | None = None) -> None:
+        super().__init__(message)
+        self.result = result or {"status_code": None, "error": message}
 
 
 def is_retryable(status: int | None, error: str | None) -> bool:
@@ -96,26 +104,32 @@ async def dispatch_webhook(
         body_bytes = json.dumps(body, separators=(",", ":")).encode()
         timestamp = int(time.time())
 
-        headers = {"Content-Type": "application/json"}
-        headers.update({str(k): str(v) for k, v in get_headers(row, crypter).items()})
-        headers["X-SetVault-Event"] = event
-        headers["X-SetVault-Delivery"] = delivery_id
-        headers["X-SetVault-Timestamp"] = str(timestamp)
-        secret = get_secret(row, crypter)
-        if secret is not None:
-            headers["X-SetVault-Signature"] = sign(secret, timestamp, body_bytes)
-
         wh_id = row.id
         status: int | None = None
         error: str | None = None
         permanent = False
         started = time.monotonic()
         try:
+            # httpx.Headers is case-insensitive: our X-SetVault-* values replace
+            # any same-named stored header instead of being sent alongside it.
+            headers = httpx.Headers({str(k): str(v) for k, v in get_headers(row, crypter).items()})
+            secret = get_secret(row, crypter)
+            headers["X-SetVault-Event"] = event
+            headers["X-SetVault-Delivery"] = delivery_id
+            headers["X-SetVault-Timestamp"] = str(timestamp)
+            if secret is not None:
+                headers["X-SetVault-Signature"] = sign(secret, timestamp, body_bytes)
+            if "Content-Type" not in headers:
+                headers["Content-Type"] = "application/json"
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.post(row.target_url, content=body_bytes, headers=headers)
             status = resp.status_code
             if not 200 <= status < 300:
                 error = f"HTTP {status}"
+        except InvalidToken:
+            error = UNDECRYPTABLE
+            permanent = True
+            logger.error("webhook %s: %s", webhook_id, error)
         except (httpx.InvalidURL, httpx.UnsupportedProtocol, UnicodeEncodeError) as exc:
             # A bad target URL or header can never succeed: no retry.
             error = (str(exc) or type(exc).__name__)[:500]
@@ -156,7 +170,8 @@ async def dispatch_webhook(
             return {"skipped": True, "reason": "deleted during delivery"}
 
     if not permanent and is_retryable(status, error):
-        raise RetryableDeliveryError(error or f"HTTP {status}")
+        raise RetryableDeliveryError(
+            error or f"HTTP {status}", {"status_code": status, "error": error})
     return {"status_code": status, "error": error}
 
 
@@ -164,19 +179,28 @@ def run_dispatch_webhook(
     *,
     webhook_id: str,
     event: str,
-    delivery_id: str,
+    delivery_id: str | None = None,
     set_slug: str | None = None,
     set_id: str | None = None,
     title: str | None = None,
 ) -> dict:
-    """RQ entry point. The attempt number comes from the job's retry state."""
+    """RQ entry point. The attempt number comes from the job's retry state.
+
+    ``delivery_id`` is optional for jobs enqueued before it existed. A job with
+    no retry state (the admin Test button) reports a retryable failure in its
+    result instead of failing: nothing would retry it anyway."""
     job = get_current_job()
     left = getattr(job, "retries_left", None)
     attempt = 1 if left is None else 1 + (len(RETRY_INTERVALS) - left)
-    return run_job(dispatch_webhook(
-        webhook_id=webhook_id, event=event, delivery_id=delivery_id,
-        set_slug=set_slug, set_id=set_id, title=title, attempt=attempt,
-    ))
+    try:
+        return run_job(dispatch_webhook(
+            webhook_id=webhook_id, event=event, delivery_id=delivery_id or str(uuid.uuid4()),
+            set_slug=set_slug, set_id=set_id, title=title, attempt=attempt,
+        ))
+    except RetryableDeliveryError as exc:
+        if left is None:
+            return exc.result
+        raise
 
 
 def enqueue_dispatch(

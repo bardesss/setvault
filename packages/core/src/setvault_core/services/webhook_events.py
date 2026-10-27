@@ -38,6 +38,7 @@ async def _announce_live(
             title=live.title if title is None else title,
         )
 
+
 async def announce_updated(live: LiveSet) -> None:
     """``set.updated`` for an edited published set."""
     await _announce_live(
@@ -56,6 +57,7 @@ async def announce_recycled(
     """
     announce = live.status == "published" if was_published is None else was_published
     await _announce_live(live, "set.deleted", announce=announce, title=title)
+
 
 async def announce_restored(live: LiveSet) -> None:
     """``set.restored`` for a published set taken out of the recycle bin."""

@@ -56,7 +56,9 @@ async def migrate_plaintext_headers(session: AsyncSession, crypter: Crypter) -> 
     """Encrypt every row that still holds plaintext headers. Idempotent; the
     caller commits."""
     rows = (await session.execute(
-        select(LibraryWebhook).where(LibraryWebhook.encrypted_headers.is_(None))
+        select(LibraryWebhook)
+        .where(LibraryWebhook.encrypted_headers.is_(None), LibraryWebhook.headers != {})
+        .with_for_update()
     )).scalars().all()
     changed = 0
     for row in rows:

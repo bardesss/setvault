@@ -335,6 +335,7 @@
       "add_header": "Add header",
       "remove_header": "Remove header",
       "headers_hint": "Header values are stored encrypted and are never shown again. Leave a value empty to keep it.",
+      "headers_unreadable": "The stored headers and signing secret cannot be decrypted (SECRET_KEY changed). Re-enter the headers and rotate the secret.",
       "edit_headers": "Edit headers",
       "save_headers": "Save headers",
       "headers_saved": "Headers saved",

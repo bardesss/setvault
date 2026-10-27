@@ -7,6 +7,8 @@ export interface Webhook {
   events: string[];
   body_template: Record<string, unknown> | null;
   header_names: string[];
+  /** Stored headers cannot be decrypted (SECRET_KEY changed). */
+  headers_unreadable: boolean;
   secret_set: boolean;
   enabled: boolean;
   last_call_at: string | null;

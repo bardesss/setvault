@@ -8,10 +8,11 @@ header values are never returned, only their names.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Mapping
 from typing import Annotated
 from urllib.parse import urlparse
 
+from cryptography.fernet import InvalidToken
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from redis import Redis
@@ -38,6 +39,11 @@ from setvault_web.deps import current_user, db_session, parse_uuid, require_admi
 router = APIRouter(prefix="/api/admin/webhooks", tags=["admin"])
 
 _HEADER_NAME = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+# Names the dispatcher owns or the HTTP stack must set itself.
+_RESERVED_HEADER = re.compile(
+    r"^(x-setvault-.*|host|content-length|transfer-encoding|connection)$", re.IGNORECASE)
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+_NOT_NULLABLE = ("name", "target_url", "events", "enabled")
 _DELIVERIES_LIMIT = 50
 
 
@@ -80,20 +86,38 @@ def _validate_url(url: str) -> None:
         raise _bad("target_url must be an http or https URL")
 
 
-def _validate_header_names(names: Iterable[str]) -> None:
-    for name in names:
+def _validate_headers(headers: Mapping[str, str | None]) -> None:
+    seen: set[str] = set()
+    for name, value in headers.items():
         if not _HEADER_NAME.match(name):
             raise _bad("header names may only contain letters, digits and '-' (max 64)")
+        if _RESERVED_HEADER.match(name):
+            raise _bad(f"header name '{name}' is reserved")
+        if name.lower() in seen:
+            raise _bad(f"duplicate header name '{name}'")
+        seen.add(name.lower())
+        if value and _CONTROL_CHARS.search(value):
+            raise _bad(f"header '{name}' has a value with control characters")
+
+
+def _readable_headers(row: LibraryWebhook, crypter: Crypter) -> dict[str, str] | None:
+    """Decrypted headers, or None when they cannot be decrypted (SECRET_KEY changed)."""
+    try:
+        return get_headers(row, crypter)
+    except InvalidToken:
+        return None
 
 
 def _to_out(row: LibraryWebhook, crypter: Crypter) -> dict:
+    headers = _readable_headers(row, crypter)
     return {
         "id": str(row.id),
         "name": row.name,
         "target_url": row.target_url,
         "events": row.events,
         "body_template": row.body_template,
-        "header_names": sorted(get_headers(row, crypter)),
+        "header_names": sorted(headers or {}),
+        "headers_unreadable": headers is None,
         "secret_set": row.encrypted_secret is not None,
         "enabled": row.enabled,
         "last_call_at": row.last_call_at.isoformat() if row.last_call_at else None,
@@ -132,7 +156,7 @@ async def create_webhook(
 ):
     _validate_events(body.events)
     _validate_url(body.target_url)
-    _validate_header_names(body.headers)
+    _validate_headers(body.headers)
     crypter = Crypter(settings.secret_key)
     secret = generate_secret()
     row = LibraryWebhook(
@@ -169,24 +193,31 @@ async def update_webhook(
 ):
     row = await _get_or_404(session, wh_id)
     changes = body.model_dump(exclude_unset=True)
+    for field in _NOT_NULLABLE:
+        if field in changes and changes[field] is None:
+            raise _bad(f"{field} cannot be null")
     if changes.get("events") is not None:
         _validate_events(changes["events"])
     if changes.get("target_url") is not None:
         _validate_url(changes["target_url"])
     header_changes = changes.pop("headers", None)
     if header_changes is not None:
-        _validate_header_names(header_changes)
+        _validate_headers(header_changes)
     crypter = Crypter(settings.secret_key)
     for field, value in changes.items():
         setattr(row, field, value)
     changed = sorted(changes)
     if header_changes is not None:
-        merged = get_headers(row, crypter)
+        # Undecryptable stored headers are unrecoverable: start from scratch.
+        merged = _readable_headers(row, crypter) or {}
+        stored = {k.lower(): k for k in merged}
         for name, value in header_changes.items():
+            key = stored.get(name.lower(), name)
             if value:
-                merged[name] = value
+                merged[key] = value
+                stored[name.lower()] = key
             else:
-                merged.pop(name, None)
+                merged.pop(key, None)
         set_headers(row, merged, crypter)
         changed = sorted([*changed, "headers"])
     await audit_log(
@@ -233,7 +264,7 @@ async def list_deliveries(
     deliveries = (await session.execute(
         select(WebhookDelivery)
         .where(WebhookDelivery.webhook_id == row.id)
-        .order_by(WebhookDelivery.created_at.desc())
+        .order_by(WebhookDelivery.created_at.desc(), WebhookDelivery.id.desc())
         .limit(_DELIVERIES_LIMIT)
     )).scalars().all()
     return {"items": [
