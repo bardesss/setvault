@@ -38,6 +38,8 @@ from setvault_web.api import monitors as monitors_api
 from setvault_web.api import notes as notes_api
 from setvault_web.api import notifications as notifications_api
 from setvault_web.api import password_reset as password_reset_api
+from setvault_web.api import play_queue as play_queue_api
+from setvault_web.api import playlists as playlists_api
 from setvault_web.api import providers as providers_api
 from setvault_web.api import recycle as recycle_api
 from setvault_web.api import scheduled_tasks as scheduled_tasks_api
@@ -145,6 +147,8 @@ def create_app() -> FastAPI:
     app.include_router(comments_api.router)
     app.include_router(bookmarks_api.router)
     app.include_router(favorites_api.router)
+    app.include_router(playlists_api.router)
+    app.include_router(play_queue_api.router)
     app.include_router(notes_api.router)
     app.include_router(notifications_api.router)
     app.include_router(url_rip_api.router)
