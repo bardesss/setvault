@@ -42,7 +42,8 @@ _HEADER_NAME = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 # Names the dispatcher owns or the HTTP stack must set itself.
 _RESERVED_HEADER = re.compile(
     r"^(x-setvault-.*|host|content-length|transfer-encoding|connection)$", re.IGNORECASE)
-_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+# Tab is legal inside a header value (RFC 9110); CR, LF and other controls are not.
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 _NOT_NULLABLE = ("name", "target_url", "events", "enabled")
 _DELIVERIES_LIMIT = 50
 
@@ -91,7 +92,8 @@ def _validate_headers(headers: Mapping[str, str | None]) -> None:
     for name, value in headers.items():
         if not _HEADER_NAME.match(name):
             raise _bad("header names may only contain letters, digits and '-' (max 64)")
-        if _RESERVED_HEADER.match(name):
+        # Removing a reserved name (empty value) is allowed so legacy rows can be cleaned up.
+        if value and _RESERVED_HEADER.match(name):
             raise _bad(f"header name '{name}' is reserved")
         if name.lower() in seen:
             raise _bad(f"duplicate header name '{name}'")

@@ -9,7 +9,7 @@ from setvault_core.models.library_webhook import LibraryWebhook, WebhookDelivery
 from setvault_core.models.system import AuditEvent
 from setvault_core.services.crypto import Crypter
 from setvault_core.services.passwords import hash_password
-from setvault_core.services.webhook_security import get_headers, get_secret
+from setvault_core.services.webhook_security import get_headers, get_secret, set_headers
 from setvault_web.config import get_settings
 from sqlalchemy import select
 
@@ -26,6 +26,15 @@ async def _stored_headers(wh_id):
     async with session_factory()() as s:
         row = await s.get(LibraryWebhook, uuid.UUID(wh_id))
         return get_headers(row, crypter)
+
+
+async def _store_headers(wh_id, headers):
+    """Write headers directly, bypassing API validation (legacy data)."""
+    crypter = Crypter(get_settings().secret_key)
+    async with session_factory()() as s:
+        row = await s.get(LibraryWebhook, uuid.UUID(wh_id))
+        set_headers(row, headers, crypter)
+        await s.commit()
 
 
 async def _audit(action):
@@ -266,6 +275,20 @@ async def test_rejects_reserved_header_names(authed_admin_client, name):
     r = await authed_admin_client.patch(
         f"/api/admin/webhooks/{wh['id']}", json={"headers": {name: "v"}})
     assert r.status_code == 400
+
+
+async def test_patch_can_remove_a_stored_reserved_header(authed_admin_client):
+    wh = (await _create(authed_admin_client, headers={"X-B": "b"})).json()
+    await _store_headers(wh["id"], {"Content-Length": "1", "X-B": "b"})
+    r = await authed_admin_client.patch(
+        f"/api/admin/webhooks/{wh['id']}", json={"headers": {"content-length": ""}})
+    assert r.status_code == 200
+    assert await _stored_headers(wh["id"]) == {"X-B": "b"}
+
+
+async def test_allows_tab_in_header_value(authed_admin_client):
+    r = await _create(authed_admin_client, headers={"X-A": "a\tb"})
+    assert r.status_code == 201
 
 
 async def test_rejects_case_insensitive_duplicate_header_names(authed_admin_client):

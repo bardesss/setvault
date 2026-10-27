@@ -400,6 +400,15 @@ async def test_stored_lowercase_reserved_header_cannot_shadow_signature(http, ma
     assert req.headers.get_list("Content-Type") == ["text/plain"]
 
 
+async def test_stored_framing_headers_are_dropped(http, make_webhook):
+    wid = await make_webhook(headers={"Content-Length": "1", "Host": "evil", "X-A": "1"})
+    await _go(wid)
+    req = http.requests[0]
+    assert req.headers.get_list("Content-Length") == [str(len(req.content))]
+    assert req.headers.get_list("Host") != ["evil"]
+    assert req.headers["X-A"] == "1"
+
+
 async def test_content_type_defaults_to_json_when_absent(http, make_webhook):
     wid = await make_webhook(headers={"X-A": "1"})
     await _go(wid)

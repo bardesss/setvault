@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 # Seconds before retry 1..5, so at most 6 attempts in total.
 RETRY_INTERVALS: tuple[int, ...] = (60, 300, 1800, 7200, 21600)
 KEEP_DELIVERIES = 50
+# Framing headers httpx must compute itself; a stored (legacy) value is dropped.
+_FRAMING_HEADERS = frozenset({"host", "content-length", "transfer-encoding", "connection"})
 
 
 UNDECRYPTABLE = "cannot decrypt webhook headers/secret (SECRET_KEY changed?)"
@@ -112,7 +114,10 @@ async def dispatch_webhook(
         try:
             # httpx.Headers is case-insensitive: our X-SetVault-* values replace
             # any same-named stored header instead of being sent alongside it.
-            headers = httpx.Headers({str(k): str(v) for k, v in get_headers(row, crypter).items()})
+            headers = httpx.Headers({
+                str(k): str(v) for k, v in get_headers(row, crypter).items()
+                if str(k).lower() not in _FRAMING_HEADERS
+            })
             secret = get_secret(row, crypter)
             headers["X-SetVault-Event"] = event
             headers["X-SetVault-Delivery"] = delivery_id
