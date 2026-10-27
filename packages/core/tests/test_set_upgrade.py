@@ -793,3 +793,44 @@ async def test_upgrade_event_truncates_long_url(tmp_path: Path):
         assert ev.to_source_url == long_url[:2048]
         assert ev.reason == "r" * 200
         assert ev.candidate_external_id == "e" * 255
+
+
+@pytest.fixture
+def library_events(monkeypatch):
+    """Every ``fan_out_webhook_event`` call as ``(event, slug, id, title)``."""
+    from setvault_core.jobs import ready
+
+    calls: list[tuple] = []
+
+    async def fake(event, *, set_slug, set_id, title):
+        calls.append((event, set_slug, set_id, title))
+
+    monkeypatch.setattr(ready, "fan_out_webhook_event", fake)
+    return calls
+
+
+async def test_swap_of_a_published_arrival_fires_deleted(
+    tmp_path: Path, webhooks, library_events,
+):
+    """The old copy leaves the library as a draft but was published."""
+    ids = await _seed(tmp_path)
+    async with session_factory()() as s:
+        (await s.get(LiveSet, ids["arrival"])).status = "published"
+        await s.commit()
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    assert library_events == [(
+        "set.deleted", f"arrival-{ids['arrival'].hex[:6]}", str(ids["arrival"]),
+        "Set X (Bandcamp)",
+    )]
+    assert webhooks == [(ids["target"], "set.published")]
+
+
+async def test_swap_of_a_draft_arrival_fires_no_deleted(
+    tmp_path: Path, webhooks, library_events,
+):
+    ids = await _seed(tmp_path)
+    async with session_factory()() as s:
+        await _apply(s, ids)
+    assert library_events == []
+    assert webhooks == [(ids["target"], "set.published")]

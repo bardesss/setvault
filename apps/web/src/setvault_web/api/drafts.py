@@ -24,6 +24,7 @@ from setvault_core.models.catalog import LiveSet
 from setvault_core.models.identity import User
 from setvault_core.models.url_rip import RipJob
 from setvault_core.services.audit import log as audit_log
+from setvault_core.services.webhook_events import announce_recycled
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -153,4 +154,5 @@ async def discard_draft(
         after={"purge_after_at": live.purge_after_at.isoformat()},
     )
     await session.commit()
+    await announce_recycled(live)
     return {"slug": slug, "outcome": "recycled"}

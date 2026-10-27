@@ -46,6 +46,7 @@ from setvault_core.services.set_merge import TRACKLIST_KEPT
 from setvault_core.services.sets import UnknownArtistError, replace_artists, replace_tags
 from setvault_core.services.signed_urls import verify_stream_sig
 from setvault_core.services.system_config import get_config
+from setvault_core.services.webhook_events import announce_recycled, announce_updated
 from sqlalchemy import exists, extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -449,6 +450,8 @@ async def edit_set(
         and any(tok in template for k in changed for tok in _NAMING_TOKENS.get(k, ()))
     ):
         enqueue_apply_naming(live.id)
+    if changed:
+        await announce_updated(live)
     return await show_set(slug, session, user)
 
 
@@ -547,6 +550,7 @@ async def delete_set(
     live.deleted_at = now
     live.purge_after_at = now + timedelta(days=14)
     await session.commit()
+    await announce_recycled(live)
 
 
 @router.get("/{slug}/stream")

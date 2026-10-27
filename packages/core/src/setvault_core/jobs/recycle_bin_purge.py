@@ -28,6 +28,7 @@ from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.services.audit import log as audit_log
 from setvault_core.services.storage import path_in_use
+from setvault_core.services.webhook_events import announce_purged
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,8 @@ async def purge_recycle_bin() -> dict:
                     for p in paths_to_delete:
                         _rmdir_empty_parents(p, host_root / "originals")
 
+                was_published = live.status == "published"
+                slug, title = live.slug, live.title
                 await audit_log(
                     s,
                     actor_user_id=live.uploaded_by,
@@ -133,6 +136,10 @@ async def purge_recycle_bin() -> dict:
                 await s.delete(live)
                 await s.commit()
                 summary["purged"] += 1
+                await announce_purged(
+                    was_published=was_published, set_slug=slug,
+                    set_id=str(live_set_id), title=title,
+                )
             except Exception:
                 summary["errors"] += 1
                 logger.exception("purge: failed for set %s", live_set_id)

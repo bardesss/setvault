@@ -21,6 +21,7 @@ from setvault_core.services.audio_match import (
 from setvault_core.services.audit import log as audit_log
 from setvault_core.services.quality_profile import get_profile, is_better
 from setvault_core.services.set_match import find_original_match, match_upgrade_target
+from setvault_core.services.webhook_events import announce_recycled, announce_restored
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,8 @@ async def fingerprint_audio(
             raise RuntimeError(f"LiveSet {live_set_id} missing")
         await store_fingerprint(s, live.id, raw_bytes, digest, duration)
         matched = await s.get(LiveSet, match_id) if match_id is not None else None
+        restored: LiveSet | None = None
+        recycled: LiveSet | None = None
 
         if upgrade_target_id is not None:
             await _flag_upgrade_target_match(s, live, matched, result, duration)
@@ -158,6 +161,7 @@ async def fingerprint_audio(
                     # delete_set) and the purge job (5B.5) cleans it up.
                     existing_live.deleted_at = None
                     existing_live.purge_after_at = None
+                    restored, recycled = existing_live, live
                     now = datetime.now(UTC)
                     live.deleted_at = now
                     live.purge_after_at = now + timedelta(days=14)
@@ -175,6 +179,10 @@ async def fingerprint_audio(
             )
         await s.commit()
         _publish_done(live)
+        if restored is not None:
+            await announce_restored(restored)
+        if recycled is not None:
+            await announce_recycled(recycled)
 
 
 def _publish_done(live: LiveSet) -> None:

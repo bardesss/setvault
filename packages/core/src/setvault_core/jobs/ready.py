@@ -20,13 +20,17 @@ from setvault_core.services.activity import record
 logger = logging.getLogger(__name__)
 
 
-async def fan_out_webhooks(live: LiveSet, event: str) -> None:
+async def fan_out_webhook_event(
+    event: str, *, set_slug: str | None, set_id: str | None, title: str | None,
+) -> None:
     """Enqueue a dispatch job for every enabled webhook whose ``events``
     array includes ``event``. Errors are logged but never re-raise — the
     set-publish flow must not block on webhook config issues."""
     try:
         from redis import Redis
         from rq import Queue
+
+        from setvault_core.jobs.webhook_dispatch import enqueue_dispatch
 
         async with session_factory()() as s:  # type: AsyncSession
             rows = (await s.execute(
@@ -41,16 +45,19 @@ async def fan_out_webhooks(live: LiveSet, event: str) -> None:
         for wh in rows:
             if event not in (wh.events or []):
                 continue
-            queue.enqueue(
-                "setvault_core.jobs.webhook_dispatch.run_dispatch_webhook",
-                webhook_id=str(wh.id),
-                event=event,
-                set_slug=live.slug,
-                set_id=str(live.id),
-                title=live.title,
+            enqueue_dispatch(
+                queue, webhook_id=str(wh.id), event=event,
+                set_slug=set_slug, set_id=set_id, title=title,
             )
     except Exception:
         logger.exception("webhook fan-out failed for %s", event)
+
+
+async def fan_out_webhooks(live: LiveSet, event: str) -> None:
+    """:func:`fan_out_webhook_event` for a live set."""
+    await fan_out_webhook_event(
+        event, set_slug=live.slug, set_id=str(live.id), title=live.title,
+    )
 
 
 async def publish_live_set(s: AsyncSession, live: LiveSet) -> None:

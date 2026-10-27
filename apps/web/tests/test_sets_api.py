@@ -489,3 +489,38 @@ async def test_track_filter_unknown_track_empty(authed_admin_client, library):
     r = await authed_admin_client.get(f"/api/sets?track={_uuid.uuid4()}")
     assert r.status_code == 200
     assert r.json() == {"items": [], "total": 0}
+
+
+@pytest.fixture
+def fired(monkeypatch):
+    """Every ``fan_out_webhook_event`` call as ``(event, slug, id, title)``."""
+    from setvault_core.jobs import ready
+
+    calls: list[tuple] = []
+
+    async def fake(event, *, set_slug, set_id, title):
+        calls.append((event, set_slug, set_id, title))
+
+    monkeypatch.setattr(ready, "fan_out_webhook_event", fake)
+    return calls
+
+
+async def test_edit_fires_updated(authed_admin_client, seeded_live_set, fired):
+    slug = seeded_live_set["slug"]
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={"title": "Edited"})
+    assert r.status_code == 200
+    assert fired == [("set.updated", slug, seeded_live_set["id"], "Edited")]
+
+
+async def test_noop_edit_fires_nothing(authed_admin_client, seeded_live_set, fired):
+    slug = seeded_live_set["slug"]
+    r = await authed_admin_client.patch(f"/api/sets/{slug}", json={})
+    assert r.status_code == 200
+    assert fired == []
+
+
+async def test_delete_fires_deleted(authed_admin_client, seeded_live_set, fired):
+    slug = seeded_live_set["slug"]
+    r = await authed_admin_client.delete(f"/api/sets/{slug}")
+    assert r.status_code == 204
+    assert fired == [("set.deleted", slug, seeded_live_set["id"], "seeded set")]

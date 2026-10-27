@@ -23,6 +23,7 @@ from setvault_core.models.catalog import LiveSet, MediaRoot
 from setvault_core.models.identity import User
 from setvault_core.services.audit import log as audit_log
 from setvault_core.services.storage import path_in_use, resolve_set_path
+from setvault_core.services.webhook_events import announce_purged, announce_restored
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -97,6 +98,7 @@ async def restore_set(
     await session.commit()
     if needs_stream:
         enqueue_transcode(live.id)
+    await announce_restored(live)
     return _set_to_dict(live)
 
 
@@ -158,5 +160,10 @@ async def purge_now(
         target_id=str(live.id),
         before={"slug": live.slug, "title": live.title},
     )
+    was_published = live.status == "published"
+    slug, set_id, title = live.slug, str(live.id), live.title
     await session.delete(live)
     await session.commit()
+    await announce_purged(
+        was_published=was_published, set_slug=slug, set_id=set_id, title=title,
+    )

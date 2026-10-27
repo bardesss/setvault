@@ -21,7 +21,7 @@ from setvault_core.models.engagement_3c import (
 )
 from setvault_core.models.identity import EmailToken, NotificationPreference, User
 from setvault_core.models.ingest_sources import IngestSourceState
-from setvault_core.models.library_webhook import LibraryWebhook
+from setvault_core.models.library_webhook import LibraryWebhook, WebhookDelivery
 from setvault_core.models.monitors import Monitor, MonitorDiscovery
 from setvault_core.models.system import AuditEvent, Job, NotificationConnector
 from setvault_core.models.system_config import SystemConfig
@@ -67,4 +67,5 @@ __all__ = [
                                           "UuidPkMixin",
                                           "Venue",
                                           "WatchFolder",
+                                          "WebhookDelivery",
 ]

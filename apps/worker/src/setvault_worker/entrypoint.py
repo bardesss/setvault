@@ -27,7 +27,10 @@ from rq_scheduler import Scheduler
 from setvault_core.db import init_engine
 from setvault_core.jobs import size_backfill
 from setvault_core.jobs.backup import BACKUP_JOB_TIMEOUT
+from setvault_core.jobs.email import SECRET_KEY_ENV
 from setvault_core.jobs.upgrade_search import UPGRADE_QUEUE, UPGRADE_SEARCH_JOB_TIMEOUT
+from setvault_core.services import webhook_security
+from setvault_core.services.crypto import Crypter
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -125,12 +128,50 @@ def _queue_size_backfill(database_url: str, redis: Redis) -> None:
                        "worker without waiting for it", SIZE_BACKFILL_CHECK_SECONDS)
 
 
+async def _migrate_webhook_headers_async(database_url: str, secret_key: str) -> int:
+    engine = create_async_engine(
+        database_url, poolclass=NullPool,
+        connect_args={"timeout": SIZE_BACKFILL_CHECK_SECONDS},
+    )
+    try:
+        async with async_sessionmaker(engine)() as s:
+            n = await webhook_security.migrate_plaintext_headers(s, Crypter(secret_key))
+            await s.commit()
+            return n
+    finally:
+        await engine.dispose()
+
+
+def _migrate_webhook_headers(database_url: str, secret_key: str) -> None:
+    """Encrypt webhook headers still stored as plaintext. Best effort and
+    bounded, like the size backfill: a failure is logged, never fatal."""
+    def _run() -> None:
+        try:
+            n = asyncio.run(_migrate_webhook_headers_async(database_url, secret_key))
+            if n:
+                logger.info("encrypted the headers of %d webhook(s)", n)
+        except Exception:
+            logger.exception("migrating the webhook headers failed")
+
+    thread = threading.Thread(target=_run, name="webhook-headers-migrate", daemon=True)
+    thread.start()
+    thread.join(SIZE_BACKFILL_CHECK_SECONDS)
+    if thread.is_alive():
+        logger.warning("webhook headers migration still running after %ss; starting "
+                       "the worker without waiting for it", SIZE_BACKFILL_CHECK_SECONDS)
+
+
 def main() -> None:
     database_url = os.environ["DATABASE_URL"]
     init_engine(database_url)
     redis = Redis.from_url(os.environ["REDIS_URL"])
     _bootstrap_scheduler(redis)
     _queue_size_backfill(database_url, redis)
+    secret_key = os.environ.get(SECRET_KEY_ENV)
+    if secret_key:
+        _migrate_webhook_headers(database_url, secret_key)
+    else:
+        logger.warning("SECRET_KEY not set; skipping the webhook headers migration")
     queues = [Queue(name, connection=redis) for name in _QUEUE_ORDER]
     # Records each run in the jobs table (Admin -> Jobs).
     RecordingWorker(queues, connection=redis, database_url=database_url).work(
