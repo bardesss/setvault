@@ -99,3 +99,49 @@ async def test_restore_survives_enqueue_failure(
     assert r.status_code == 200, r.text
     async with session_factory()() as s:
         assert (await s.get(LiveSet, uuid.UUID(seeded_live_set["id"]))).deleted_at is None
+
+
+@pytest.fixture
+def fired(monkeypatch):
+    """Every ``fan_out_webhook_event`` call as ``(event, slug)``."""
+    from setvault_core.jobs import ready
+
+    calls: list[tuple[str, str | None]] = []
+
+    async def fake(event, *, set_slug, set_id, title):
+        calls.append((event, set_slug))
+
+    monkeypatch.setattr(ready, "fan_out_webhook_event", fake)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_restore_fires_restored(authed_admin_client, seeded_live_set, fired):
+    await _recycle(seeded_live_set["id"], streaming_path="stream/x.opus")
+    slug = seeded_live_set["slug"]
+    r = await authed_admin_client.post(f"/api/admin/recycle/{slug}/restore")
+    assert r.status_code == 200, r.text
+    assert fired == [("set.restored", slug)]
+
+
+@pytest.mark.asyncio
+async def test_purge_now_fires_purged(authed_admin_client, seeded_live_set, fired):
+    await _recycle(seeded_live_set["id"], streaming_path="stream/x.opus")
+    slug = seeded_live_set["slug"]
+    r = await authed_admin_client.post(f"/api/admin/recycle/{slug}/purge-now")
+    assert r.status_code == 204, r.text
+    assert fired == [("set.purged", slug)]
+    async with session_factory()() as s:
+        assert await s.get(LiveSet, uuid.UUID(seeded_live_set["id"])) is None
+
+
+@pytest.mark.asyncio
+async def test_purge_now_of_a_draft_fires_nothing(authed_admin_client, seeded_live_set, fired):
+    await _recycle(seeded_live_set["id"], streaming_path=None)
+    async with session_factory()() as s:
+        (await s.get(LiveSet, uuid.UUID(seeded_live_set["id"]))).status = "draft"
+        await s.commit()
+    slug = seeded_live_set["slug"]
+    r = await authed_admin_client.post(f"/api/admin/recycle/{slug}/purge-now")
+    assert r.status_code == 204, r.text
+    assert fired == []

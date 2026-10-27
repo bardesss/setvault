@@ -38,15 +38,19 @@ from setvault_core.services.storage import (
     probe,
     resolve_set_path,
 )
+from setvault_core.services.webhook_events import announce_recycled
 
 logger = logging.getLogger(__name__)
 
 PURGE_GRACE_DAYS = 14
 
 
-async def _soft_delete_one(s: AsyncSession, live: LiveSet, *, actor_id: uuid.UUID | None) -> None:
+async def _soft_delete_one(
+    s: AsyncSession, live: LiveSet, *, actor_id: uuid.UUID | None,
+) -> bool:
+    """Recycle ``live``; False when it was already in the recycle bin."""
     if live.deleted_at is not None:
-        return
+        return False
     now = datetime.now(UTC)
     live.deleted_at = now
     live.purge_after_at = now + timedelta(days=PURGE_GRACE_DAYS)
@@ -57,6 +61,7 @@ async def _soft_delete_one(s: AsyncSession, live: LiveSet, *, actor_id: uuid.UUI
         target_type="LiveSet",
         target_id=str(live.id),
     )
+    return True
 
 
 async def _retag_one(
@@ -350,9 +355,10 @@ async def bulk_action(
                 continue
             slug = live.slug
 
+            recycled = False
             try:
                 if action == "soft_delete":
-                    await _soft_delete_one(s, live, actor_id=actor)
+                    recycled = await _soft_delete_one(s, live, actor_id=actor)
                 elif action == "retag":
                     await _retag_one(
                         s, live,
@@ -372,6 +378,8 @@ async def bulk_action(
                 # Commit per item so a later failure can't roll this one back.
                 await s.commit()
                 summary["processed"] += 1
+                if recycled:
+                    await announce_recycled(live)
             except MoveRootError as exc:
                 summary["errors"] += 1
                 summary["failed"].append({"slug": slug, "reason": str(exc)})

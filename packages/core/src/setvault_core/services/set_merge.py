@@ -77,6 +77,7 @@ from setvault_core.services.set_upgrade import (
     upgrade_refusal,
     whole_seconds,
 )
+from setvault_core.services.webhook_events import announce_recycled
 
 logger = logging.getLogger(__name__)
 
@@ -689,12 +690,15 @@ async def merge_pair(
             raise ValueError("survivor or loser no longer exists")
         if survivor.deleted_at is not None or loser.deleted_at is not None:
             raise ValueError("survivor or loser is in the recycle bin")
+        # _merge_rows flips the loser to draft; remember what it was.
+        loser_was_published = loser.status == "published"
         event = await _merge_rows(session, survivor=survivor, loser=loser,
                                   offset_seconds=offset_seconds, trigger=trigger)
         await session.commit()
     except Exception:
         await session.rollback()
         raise
+    await announce_recycled(loser, was_published=loser_was_published)
     return event
 
 

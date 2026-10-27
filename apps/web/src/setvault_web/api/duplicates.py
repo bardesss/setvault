@@ -31,6 +31,7 @@ from setvault_core.services.audio_quality import quality_label
 from setvault_core.services.audit import log as audit_log
 from setvault_core.services.notifications import source_name
 from setvault_core.services.set_merge import merge_pair
+from setvault_core.services.webhook_events import announce_recycled
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -191,4 +192,5 @@ async def discard_duplicate(
         after={"duplicate_of": str(live.duplicate_of), "outcome": outcome},
     )
     await session.commit()
+    await announce_recycled(live)
     return {"slug": slug, "outcome": outcome}
