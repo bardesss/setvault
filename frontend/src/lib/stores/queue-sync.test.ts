@@ -4,6 +4,8 @@ import { get } from "svelte/store";
 const getQueue = vi.fn();
 const putQueue = vi.fn();
 const getSet = vi.fn();
+const pause = vi.fn();
+const resetQueue = vi.fn();
 let listener: ((q: { slugs: string[]; index: number }) => void) | null = null;
 const playQueue = vi.fn(async (slugs: string[], index: number) => {
   const { queue } = await import("./audio");
@@ -18,10 +20,13 @@ vi.mock("#lib/api/queue.ts", () => ({
 vi.mock("#lib/api/sets.ts", () => ({ getSet: (s: string) => getSet(s) }));
 vi.mock("./audio", async () => {
   const { writable } = await import("svelte/store");
+  const queue = writable({ slugs: [], index: 0 });
   return {
-    queue: writable({ slugs: [], index: 0 }),
+    queue,
     player: writable({ playing: false, position: 0, set: null }),
     onQueueChange: (fn: typeof listener) => { listener = fn; },
+    pause: () => pause(),
+    resetQueue: () => { queue.set({ slugs: [], index: 0 }); resetQueue(); },
     playQueue: (s: string[], i: number) => playQueue(s, i),
   };
 });
@@ -92,6 +97,8 @@ beforeEach(() => {
   putQueue.mockReset().mockResolvedValue({ updated_at: T1, overwrote_newer: false });
   getSet.mockReset().mockImplementation(async (slug: string) => ({ slug, title: `Set ${slug}` }));
   playQueue.mockClear();
+  pause.mockReset();
+  resetQueue.mockReset();
 });
 
 afterEach(() => {
@@ -186,7 +193,7 @@ describe("queue sync: offers", () => {
   });
 
   it("a local copy is offered at startup but never loaded into the queue", async () => {
-    localStorage.setItem(KEY, JSON.stringify({ slugs: ["x", "y"], index: 1, updatedAt: T2 }));
+    localStorage.setItem(KEY, JSON.stringify({ userId: "u1", slugs: ["x", "y"], index: 1, updatedAt: T2 }));
     getQueue.mockResolvedValue({ slugs: ["x", "y"], index: 1, updated_at: T2 });
     const { sync, audio } = await boot();
     expect(get(sync.resumeOffer)).toEqual({ slugs: ["x", "y"], index: 1, title: "Set y" });
@@ -194,7 +201,7 @@ describe("queue sync: offers", () => {
   });
 
   it("older server queue is ignored", async () => {
-    localStorage.setItem(KEY, JSON.stringify({ slugs: ["x"], index: 0, updatedAt: T2 }));
+    localStorage.setItem(KEY, JSON.stringify({ userId: "u1", slugs: ["x"], index: 0, updatedAt: T2 }));
     getQueue.mockResolvedValue({ slugs: ["a", "b"], index: 1, updated_at: T1 });
     const { sync } = await boot();
     expect(get(sync.resumeOffer)).toEqual({ slugs: ["x"], index: 0, title: "Set x" });
@@ -229,7 +236,7 @@ describe("queue sync: offers", () => {
   });
 
   it("visibilitychange to visible refetches and offers only a newer server copy", async () => {
-    localStorage.setItem(KEY, JSON.stringify({ slugs: ["x"], index: 0, updatedAt: T1 }));
+    localStorage.setItem(KEY, JSON.stringify({ userId: "u1", slugs: ["x"], index: 0, updatedAt: T1 }));
     getQueue.mockResolvedValue({ slugs: ["x"], index: 0, updated_at: T1 });
     const { sync } = await boot();
     sync.dismissOffer();
@@ -250,7 +257,7 @@ describe("queue sync: offers", () => {
   });
 
   it("a newer but empty server queue is mirrored locally and drops the offer", async () => {
-    localStorage.setItem(KEY, JSON.stringify({ slugs: ["x"], index: 0, updatedAt: T1 }));
+    localStorage.setItem(KEY, JSON.stringify({ userId: "u1", slugs: ["x"], index: 0, updatedAt: T1 }));
     getQueue.mockResolvedValue({ slugs: ["x"], index: 0, updated_at: T1 });
     const { sync } = await boot();
     expect(get(sync.resumeOffer)).not.toBeNull();
@@ -258,7 +265,7 @@ describe("queue sync: offers", () => {
     doc.dispatchEvent(new Event("visibilitychange"));
     await flush();
     expect(get(sync.resumeOffer)).toBeNull();
-    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ slugs: [], index: 0, updatedAt: T2 });
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ userId: "u1", slugs: [], index: 0, updatedAt: T2 });
   });
 
   it("acceptOffer plays at the offered index and PUTs exactly once", async () => {
@@ -274,6 +281,35 @@ describe("queue sync: offers", () => {
 });
 
 describe("queue sync: races", () => {
+  it("after a PUT, local mirrors the body that was sent", async () => {
+    const { audio, sync } = await boot();
+    change(audio, { slugs: ["a"], index: 0 });
+    audio.queue.set({ slugs: ["a", "b"], index: 1 }); // live queue moved on, no listener call
+    await vi.advanceTimersByTimeAsync(600);
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ userId: "u1", slugs: ["a", "b"], index: 1, updatedAt: T1 });
+    void sync;
+  });
+
+  it("a keepalive PUT response updates the base for the next PUT", async () => {
+    const { audio } = await boot();
+    change(audio, { slugs: ["a"], index: 0 });
+    win.dispatchEvent(new Event("pagehide"));
+    await flush();
+    expect(JSON.parse(localStorage.getItem(KEY)!).updatedAt).toBe(T1);
+    change(audio, { slugs: ["a", "b"], index: 0 });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(putQueue).toHaveBeenLastCalledWith({ slugs: ["a", "b"], index: 0, base_updated_at: T1 }, undefined);
+  });
+
+  it("a failing keepalive PUT is swallowed", async () => {
+    const { audio } = await boot();
+    change(audio, { slugs: ["a"], index: 0 });
+    putQueue.mockRejectedValue(new Error("gone"));
+    win.dispatchEvent(new Event("pagehide"));
+    await flush();
+    expect(putQueue).toHaveBeenCalledTimes(1);
+  });
+
   it("a fetch in flight cannot clobber a fresh local change", async () => {
     const d = deferred<{ slugs: string[]; index: number; updated_at: string }>();
     getQueue.mockReturnValue(d.promise);
@@ -300,6 +336,43 @@ describe("queue sync: races", () => {
 });
 
 describe("queue sync: auth", () => {
+  it("discards a copy stored by another user", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ userId: "other", slugs: ["theirs"], index: 0, updatedAt: T2 }));
+    getQueue.mockResolvedValue({ slugs: [], index: 0, updated_at: null });
+    const m = await mod();
+    m.sync.startQueueSync();
+    m.session.set(USER);
+    await flush();
+    expect(get(m.sync.resumeOffer)).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+    change(m.audio, { slugs: ["mine"], index: 0 });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(putQueue).toHaveBeenCalledWith({ slugs: ["mine"], index: 0, base_updated_at: null }, undefined);
+  });
+
+  it("discards a legacy copy without a userId", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ slugs: ["old"], index: 0, updatedAt: T2 }));
+    const m = await boot();
+    expect(get(m.sync.resumeOffer)).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("ignores queue changes while logged out", async () => {
+    const m = await mod();
+    m.sync.startQueueSync();
+    change(m.audio, { slugs: ["a"], index: 0 });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(putQueue).not.toHaveBeenCalled();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("logout resets the queue (stopping an advance) and pauses", async () => {
+    const m = await boot();
+    m.session.set(null);
+    expect(resetQueue).toHaveBeenCalledTimes(1);
+    expect(pause).toHaveBeenCalledTimes(1);
+  });
+
   it("does not fetch while logged out", async () => {
     const m = await mod();
     m.sync.startQueueSync();

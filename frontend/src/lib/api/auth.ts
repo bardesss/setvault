@@ -22,6 +22,7 @@ export async function logout() {
   } finally {
     // Purge cached user-scoped data so it can't bleed to the next session.
     await clearScopedCaches();
+    try { localStorage.removeItem("setvault.playQueue"); } catch { /* unavailable */ }
   }
 }
 

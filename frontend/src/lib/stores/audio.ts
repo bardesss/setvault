@@ -298,6 +298,13 @@ export async function playQueue(slugs: string[], startIndex = 0): Promise<void> 
   await advanceTo(index);
 }
 
+/** Drop the queue without notifying and abandon any in-flight advance (logout). */
+export function resetQueue(): void {
+  queueToken++;
+  pendingIndex = null;
+  queue.set({ slugs: [], index: 0 });
+}
+
 /** Play one set on its own: the queue is cleared. */
 export async function playSingle(set: SetDetail): Promise<void> {
   queueToken++;

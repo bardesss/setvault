@@ -309,6 +309,25 @@ describe("queue races and edge cases", () => {
     expect(lastAudio?.srcs.some((s) => s.includes("s2"))).toBe(false);
   });
 
+  it("resetQueue empties the queue silently and abandons an in-flight advance", async () => {
+    const audio = await engine();
+    await audio.playQueue(slugs, 0);
+    const seen: unknown[] = [];
+    audio.onQueueChange((q) => seen.push(q));
+    const late = deferred<never>();
+    getSet.mockImplementation(async (slug: string) => (slug === "s2" ? late.promise : makeSet(slug)));
+    audio.next();
+    audio.resetQueue();
+    late.resolve(makeSet("s2"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(get(audio.queue)).toEqual({ slugs: [], index: 0 });
+    expect(get(audio.player).set?.slug).toBe("s1");
+    expect(lastAudio?.srcs.some((s) => s.includes("s2"))).toBe(false);
+    expect(seen).toEqual([]);
+    // A stale pendingIndex must not leak into the next press.
+    expect(audio.shouldAutoload()).toBe(false); // s1 is still playing
+  });
+
   it("two quick next() presses move two sets ahead", async () => {
     const audio = await engine();
     await audio.playQueue(["s1", "s2", "s3", "s4"], 0);
