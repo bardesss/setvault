@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from redis import Redis
 from rq import Queue
 from setvault_core.config import redis_url
+from setvault_core.jobs.webhook_dispatch import enqueue_dispatch
 from setvault_core.models.identity import User
 from setvault_core.models.library_webhook import LibraryWebhook
 from setvault_core.services.audit import log as audit_log
@@ -163,13 +164,13 @@ async def test_webhook(
         raise HTTPException(status_code=404) from exc
     if row is None:
         raise HTTPException(status_code=404)
-    redis = Redis.from_url(redis_url())
-    Queue("default", connection=redis).enqueue(
-        "setvault_core.jobs.webhook_dispatch.run_dispatch_webhook",
+    delivery_id = enqueue_dispatch(
+        Queue("default", connection=Redis.from_url(redis_url())),
         webhook_id=str(row.id),
         event="webhook.test",
         set_slug="test-set-slug",
         set_id="00000000-0000-0000-0000-000000000000",
         title="(test event)",
+        retry=False,
     )
-    return {"status": "queued"}
+    return {"status": "queued", "delivery_id": delivery_id}
