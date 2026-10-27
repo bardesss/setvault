@@ -1,17 +1,26 @@
 <script lang="ts">
   import type { SetSummary } from "#lib/api/sets.ts";
+  import AddToPlaylist from "#lib/components/AddToPlaylist.svelte";
   export let set: SetSummary;
+  export let actions = true;
 </script>
 
-<a class="set-card" href={`/sets/${set.slug}`}>
-  <div class="ttl">{set.title}</div>
-  <div class="meta">
-    {#each set.artists as a (a.id)}<span>{a.name}</span>{/each}
-    {#if set.date}<time>{set.date}</time>{/if}
-  </div>
-</a>
+<div class="set-card-wrap">
+  <a class="set-card" href={`/sets/${set.slug}`}>
+    <div class="ttl">{set.title}</div>
+    <div class="meta">
+      {#each set.artists as a (a.id)}<span>{a.name}</span>{/each}
+      {#if set.date}<time>{set.date}</time>{/if}
+    </div>
+  </a>
+  {#if actions}
+    <div class="card-actions"><AddToPlaylist slug={set.slug} compact /></div>
+  {/if}
+</div>
 
 <style>
+  .set-card-wrap { position: relative; }
+  .card-actions { position: absolute; top: var(--sp-2); right: var(--sp-2); }
   .set-card {
     display: grid;
     gap: var(--sp-1);

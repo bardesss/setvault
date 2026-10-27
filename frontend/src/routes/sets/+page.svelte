@@ -240,7 +240,7 @@
                 >
                   <span class="checkbox" data-checked={selected.has(s.id)}></span>
                 </button>
-                <SetCard set={s} />
+                <SetCard set={s} actions={false} />
               </div>
             {:else}
               <SetCard set={s} />
