@@ -302,9 +302,8 @@ export async function playQueue(slugs: string[], startIndex = 0): Promise<void> 
 export async function playSingle(set: SetDetail): Promise<void> {
   queueToken++;
   pendingIndex = null;
-  const hadQueue = get(queue).slugs.length > 0;
   queue.set({ slugs: [], index: 0 });
-  if (hadQueue) notifyQueue();
+  notifyQueue();
   await load(set);
   await play();
 }

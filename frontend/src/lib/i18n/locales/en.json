@@ -120,6 +120,10 @@
       "view_jobs": "View all jobs"
     }
   },
+  "queue": {
+    "continue": "Continue: {title}",
+    "dismiss": "Dismiss"
+  },
   "nav": {
     "browse": "Browse",
     "artists": "Artists",
