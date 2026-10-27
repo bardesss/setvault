@@ -1,8 +1,3 @@
-import pytest
-
-pytestmark = pytest.mark.anyio
-
-
 async def test_request_reset_unknown_email_returns_204_no_leak(client):
     response = await client.post("/api/password-reset/request",
                                  json={"email": "ghost@example.test"})
