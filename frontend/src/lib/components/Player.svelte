@@ -2,11 +2,12 @@
   import { onMount } from "svelte";
   import Waveform from "#lib/components/Waveform.svelte";
   import type { SetDetail } from "#lib/api/sets.ts";
-  import { player, load, toggle, seekBy, setRate, clearLoop, formatTime, fullscreenOpen } from "#lib/stores/audio.ts";
+  import { player, load, toggle, playSingle, shouldAutoload, seekBy, setRate, clearLoop, formatTime, fullscreenOpen } from "#lib/stores/audio.ts";
 
   export let set: SetDetail;
 
-  onMount(() => { void load(set); });
+  // Opening a set page never takes over a queue or a track that is playing.
+  onMount(() => { if (shouldAutoload()) void load(set); });
 
   $: st = $player;
   $: isCurrent = st.set?.slug === set.slug;
@@ -35,7 +36,7 @@
 
     <div class="transport-controls">
       <button type="button" class="btn btn-icon" on:click={() => seekBy(-10)} aria-label="Back 10 seconds">−10</button>
-      <button type="button" class="play-large" on:click={toggle}
+      <button type="button" class="play-large" on:click={() => (isCurrent ? toggle() : void playSingle(set))}
         data-test="play-state" data-state={isCurrent && st.playing ? "playing" : "paused"}
         aria-label={isCurrent && st.playing ? "pause" : "play"}>
         {#if isCurrent && st.playing}

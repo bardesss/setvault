@@ -115,6 +115,9 @@ export const patchSet = (slug: string, patch: SetPatch) =>
     body: JSON.stringify(patch),
   });
 
+export const getSet = (slug: string) =>
+  api<SetDetail>(`/api/sets/${encodeURIComponent(slug)}`);
+
 export const getSetState = (slug: string) =>
   api<SetState>(`/api/sets/${slug}/state`);
 

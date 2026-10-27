@@ -1,0 +1,243 @@
+// Queue tests: advancing on `ended`, next/prev falling through to neighbouring
+// sets, and a set page not taking over playback. Same harness as audio-engine.test.ts.
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { get } from "svelte/store";
+import { ApiError } from "#lib/api/client.ts";
+
+const putSetState = vi.fn(async (_slug: string, _state: unknown, _init?: RequestInit) => undefined);
+const getSetState = vi.fn();
+const getSet = vi.fn();
+
+vi.mock("$app/env", () => ({ browser: true }));
+vi.mock("#lib/api/sets.ts", () => ({
+  getSet: (slug: string) => getSet(slug),
+  getSetState: (slug: string) => getSetState(slug),
+  putSetState: (slug: string, state: unknown, init?: RequestInit) =>
+    putSetState(slug, state, init),
+}));
+vi.mock("#lib/api/tracklist.ts", () => ({
+  listTracklist: async (slug: string) => tracklists[slug] ?? [],
+}));
+
+let tracklists: Record<string, { start_seconds: number }[]> = {};
+let constructed = 0;
+let lastAudio: FakeAudio | null = null;
+let playImpl: (a: FakeAudio) => Promise<void>;
+
+class FakeAudio extends EventTarget {
+  src = "";
+  preload = "";
+  currentTime = 0;
+  duration = NaN;
+  paused = true;
+  playbackRate = 1;
+  style: Record<string, string> = {};
+  play(): Promise<void> { return playImpl(this); }
+  pause(): void {
+    if (this.paused) return;
+    this.paused = true;
+    this.dispatchEvent(new Event("pause"));
+  }
+  constructor() {
+    super();
+    constructed++;
+    lastAudio = this;
+  }
+}
+
+function makeSet(slug: string) {
+  return {
+    slug, title: slug, duration_seconds: 3600, artists: [],
+    audio_stream_url: `/api/sets/${slug}/stream`,
+  } as never;
+}
+
+async function engine() {
+  return await import("./audio");
+}
+
+async function endCurrent() {
+  lastAudio!.dispatchEvent(new Event("ended"));
+  await vi.advanceTimersByTimeAsync(0);
+}
+
+beforeEach(() => {
+  vi.resetModules();
+  vi.useFakeTimers();
+  lastAudio = null;
+  constructed = 0;
+  tracklists = {};
+  putSetState.mockClear();
+  getSetState.mockReset();
+  getSetState.mockResolvedValue({ position_seconds: 0, completed: false, playback_rate: 1 });
+  getSet.mockReset();
+  getSet.mockImplementation(async (slug: string) => makeSet(slug));
+  playImpl = async (a) => { a.paused = false; a.dispatchEvent(new Event("play")); };
+  vi.stubGlobal("Audio", FakeAudio);
+  vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("document", { body: { appendChild: () => undefined } });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+const slugs = ["s1", "s2", "s3"];
+
+describe("play queue", () => {
+  it("playQueue loads the start set and plays", async () => {
+    const audio = await engine();
+    const play = vi.spyOn(FakeAudio.prototype, "play");
+    await audio.playQueue(slugs, 1);
+    expect(getSet).toHaveBeenCalledWith("s2");
+    expect(getSet).not.toHaveBeenCalledWith("s1");
+    expect(play).toHaveBeenCalled();
+    expect(get(audio.player).set?.slug).toBe("s2");
+    expect(get(audio.queue)).toEqual({ slugs, index: 1 });
+    play.mockRestore();
+  });
+
+  it("ended advances to the next set and plays", async () => {
+    const audio = await engine();
+    await audio.playQueue(slugs, 0);
+    await endCurrent();
+    expect(get(audio.player).set?.slug).toBe("s2");
+    expect(get(audio.queue).index).toBe(1);
+    expect(get(audio.player).playing).toBe(true);
+  });
+
+  it("ended on the last set stops and keeps the queue", async () => {
+    const audio = await engine();
+    await audio.playQueue(slugs, 2);
+    await endCurrent();
+    expect(get(audio.player).set?.slug).toBe("s3");
+    expect(get(audio.player).playing).toBe(false);
+    expect(get(audio.queue)).toEqual({ slugs, index: 2 });
+  });
+
+  it("advance skips a set that 404s", async () => {
+    getSet.mockImplementation(async (slug: string) => {
+      if (slug === "s2") throw new ApiError(404, "not found");
+      return makeSet(slug);
+    });
+    const audio = await engine();
+    await audio.playQueue(slugs, 0);
+    await endCurrent();
+    expect(get(audio.player).set?.slug).toBe("s3");
+    expect(get(audio.queue).index).toBe(2);
+  });
+
+  it("advancing into a completed set starts from 0", async () => {
+    const audio = await engine();
+    await audio.playQueue(slugs, 0);
+    getSetState.mockResolvedValue({ position_seconds: 500, completed: true, playback_rate: 1 });
+    await endCurrent();
+    expect(get(audio.player).set?.slug).toBe("s2");
+    expect(lastAudio?.currentTime).toBe(0);
+    expect(get(audio.player).position).toBe(0);
+  });
+
+  it("next at the last track falls through to the next set", async () => {
+    tracklists = { s1: [{ start_seconds: 0 }, { start_seconds: 600 }] };
+    const audio = await engine();
+    await audio.playQueue(slugs, 0);
+    audio.seekTo(700);
+    lastAudio!.dispatchEvent(new Event("timeupdate"));
+    audio.next();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(get(audio.player).set?.slug).toBe("s2");
+  });
+
+  it("next with a later track seeks instead of leaving the set", async () => {
+    tracklists = { s1: [{ start_seconds: 0 }, { start_seconds: 600 }] };
+    const audio = await engine();
+    await audio.playQueue(slugs, 0);
+    audio.next();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(get(audio.player).set?.slug).toBe("s1");
+    expect(lastAudio?.currentTime).toBe(600);
+  });
+
+  it("prev near the start goes to the previous set", async () => {
+    const audio = await engine();
+    await audio.playQueue(slugs, 1);
+    getSetState.mockResolvedValue({ position_seconds: 900, completed: false, playback_rate: 1 });
+    audio.prev();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(get(audio.player).set?.slug).toBe("s1");
+    expect(get(audio.queue).index).toBe(0);
+    expect(lastAudio?.currentTime).toBe(0);
+  });
+
+  it("prev mid-set rewinds within the set", async () => {
+    tracklists = { s2: [{ start_seconds: 0 }, { start_seconds: 600 }] };
+    const audio = await engine();
+    await audio.playQueue(slugs, 1);
+    audio.seekTo(700);
+    lastAudio!.dispatchEvent(new Event("timeupdate"));
+    audio.prev();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(get(audio.player).set?.slug).toBe("s2");
+    expect(lastAudio?.currentTime).toBe(600);
+  });
+
+  it("advance keeps the same audio element", async () => {
+    const audio = await engine();
+    await audio.playQueue(slugs, 0);
+    const el = lastAudio;
+    await endCurrent();
+    await endCurrent();
+    expect(get(audio.queue).index).toBe(2);
+    expect(constructed).toBe(1);
+    expect(lastAudio).toBe(el);
+  });
+
+  it("rejected play keeps queue", async () => {
+    playImpl = async () => { throw new DOMException("blocked", "NotAllowedError"); };
+    const audio = await engine();
+    await expect(audio.playQueue(slugs, 1)).resolves.toBeUndefined();
+    expect(get(audio.queue)).toEqual({ slugs, index: 1 });
+    expect(get(audio.player).playing).toBe(false);
+    expect(get(audio.player).set?.slug).toBe("s2");
+  });
+
+  it("playSingle clears the queue", async () => {
+    const audio = await engine();
+    await audio.playQueue(slugs, 0);
+    await audio.playSingle(makeSet("solo"));
+    expect(get(audio.queue)).toEqual({ slugs: [], index: 0 });
+    expect(get(audio.player).set?.slug).toBe("solo");
+    expect(get(audio.player).playing).toBe(true);
+    await endCurrent();
+    expect(get(audio.player).set?.slug).toBe("solo");
+  });
+
+  it("onQueueChange fires on playQueue, advance and playSingle", async () => {
+    const audio = await engine();
+    const seen: { slugs: string[]; index: number }[] = [];
+    audio.onQueueChange((q) => seen.push(structuredClone(q)));
+    await audio.playQueue(slugs, 0);
+    expect(seen.at(-1)).toEqual({ slugs, index: 0 });
+    await endCurrent();
+    expect(seen.at(-1)).toEqual({ slugs, index: 1 });
+    await audio.playSingle(makeSet("solo"));
+    expect(seen.at(-1)).toEqual({ slugs: [], index: 0 });
+    expect(seen).toHaveLength(3);
+  });
+
+  it("test_load_from_set_page_does_not_hijack_queue", async () => {
+    // Player.svelte mounts with `if (shouldAutoload()) load(set)`.
+    // (@testing-library/svelte is not a devDependency, so the guard is tested directly.)
+    const audio = await engine();
+    expect(audio.shouldAutoload()).toBe(true);
+    await audio.playQueue(slugs, 1);
+    expect(audio.shouldAutoload()).toBe(false);
+    if (audio.shouldAutoload()) await audio.load(makeSet("page-set"));
+    expect(get(audio.player).set?.slug).toBe("s2");
+    expect(get(audio.queue)).toEqual({ slugs, index: 1 });
+    // A paused queue is still a queue.
+    audio.pause();
+    expect(audio.shouldAutoload()).toBe(false);
+  });
+});
