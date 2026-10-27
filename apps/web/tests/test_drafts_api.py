@@ -122,3 +122,20 @@ async def test_discard_refuses_a_draft_still_processing(authed_admin_client, see
 @pytest.mark.asyncio
 async def test_drafts_require_admin(client):
     assert (await client.get("/api/admin/drafts")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_discarding_a_draft_fires_nothing(authed_admin_client, seeded_live_set, monkeypatch):
+    from setvault_core.jobs import ready
+
+    calls: list = []
+
+    async def fake(event, **kw):
+        calls.append(event)
+
+    monkeypatch.setattr(ready, "fan_out_webhook_event", fake)
+    slug = await _add_set(seeded_live_set)
+    r = await authed_admin_client.post(f"/api/admin/drafts/{slug}/discard")
+    assert r.status_code == 200, r.text
+    assert (await _get(slug)).deleted_at is not None
+    assert calls == []

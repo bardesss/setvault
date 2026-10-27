@@ -327,3 +327,22 @@ async def test_discard_conflicts_when_the_original_changes_meanwhile(
         row = await s.get(LiveSet, sid)
         assert row.deleted_at is None and row.status == "published"
         assert row.backfill_matched_at is not None
+
+
+@pytest.mark.asyncio
+async def test_discarding_a_draft_duplicate_fires_nothing(
+    authed_admin_client, seeded_live_set, monkeypatch,
+):
+    from setvault_core.jobs import ready
+
+    calls: list = []
+
+    async def fake(event, **kw):
+        calls.append(event)
+
+    monkeypatch.setattr(ready, "fan_out_webhook_event", fake)
+    slug, _ = await _held_duplicate(seeded_live_set["id"])
+    r = await authed_admin_client.post(f"/api/admin/duplicates/{slug}/discard")
+    assert r.status_code == 200, r.text
+    assert r.json()["outcome"] == "recycled"
+    assert calls == []

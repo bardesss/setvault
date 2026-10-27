@@ -358,6 +358,7 @@ async def apply_upgrade(
         now = datetime.now(UTC)
         base = target.title[: _TITLE_MAX - len(_REPLACED_SUFFIX)]
         arrival_was_published = arrival.status == "published"
+        arrival_title = arrival.title
         arrival.title = f"{base}{_REPLACED_SUFFIX}"
         arrival.status = "draft"
         # R31: the old copy stays a duplicate of the target, so restoring it
@@ -391,7 +392,9 @@ async def apply_upgrade(
     if target.status == "published" and target.deleted_at is None:
         await fan_out_webhooks(target, "set.published")
     # The recycled old copy leaves the library (a draft arrival is a no-op).
-    await announce_recycled(arrival, was_published=arrival_was_published)
+    await announce_recycled(
+        arrival, was_published=arrival_was_published, title=arrival_title,
+    )
     if not notify:
         return event
     try:

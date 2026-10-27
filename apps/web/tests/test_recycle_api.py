@@ -103,13 +103,13 @@ async def test_restore_survives_enqueue_failure(
 
 @pytest.fixture
 def fired(monkeypatch):
-    """Every ``fan_out_webhook_event`` call as ``(event, slug)``."""
+    """Every ``fan_out_webhook_event`` call as ``(event, slug, id, title)``."""
     from setvault_core.jobs import ready
 
-    calls: list[tuple[str, str | None]] = []
+    calls: list[tuple] = []
 
     async def fake(event, *, set_slug, set_id, title):
-        calls.append((event, set_slug))
+        calls.append((event, set_slug, set_id, title))
 
     monkeypatch.setattr(ready, "fan_out_webhook_event", fake)
     return calls
@@ -121,7 +121,7 @@ async def test_restore_fires_restored(authed_admin_client, seeded_live_set, fire
     slug = seeded_live_set["slug"]
     r = await authed_admin_client.post(f"/api/admin/recycle/{slug}/restore")
     assert r.status_code == 200, r.text
-    assert fired == [("set.restored", slug)]
+    assert fired == [("set.restored", slug, seeded_live_set["id"], "seeded set")]
 
 
 @pytest.mark.asyncio
@@ -130,7 +130,7 @@ async def test_purge_now_fires_purged(authed_admin_client, seeded_live_set, fire
     slug = seeded_live_set["slug"]
     r = await authed_admin_client.post(f"/api/admin/recycle/{slug}/purge-now")
     assert r.status_code == 204, r.text
-    assert fired == [("set.purged", slug)]
+    assert fired == [("set.purged", slug, seeded_live_set["id"], "seeded set")]
     async with session_factory()() as s:
         assert await s.get(LiveSet, uuid.UUID(seeded_live_set["id"])) is None
 

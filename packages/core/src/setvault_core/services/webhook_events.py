@@ -18,7 +18,8 @@ async def _announce(
     event: str, *, set_slug: str, set_id: str, title: str,
 ) -> None:
     try:
-        # Lazy: jobs/ready and services/set_upgrade import each other.
+        # Lazy: jobs.ready pulls in the queue and dispatch stack, which this
+        # light module must not import at load time.
         from setvault_core.jobs.ready import fan_out_webhook_event
 
         await fan_out_webhook_event(
@@ -28,16 +29,14 @@ async def _announce(
         logger.exception("webhook announce failed for %s", event)
 
 
-async def _announce_live(live: LiveSet, event: str, *, announce: bool) -> None:
-    try:
-        if not announce:
-            return
+async def _announce_live(
+    live: LiveSet, event: str, *, announce: bool, title: str | None = None,
+) -> None:
+    if announce:
         await _announce(
-            event, set_slug=live.slug, set_id=str(live.id), title=live.title,
+            event, set_slug=live.slug, set_id=str(live.id),
+            title=live.title if title is None else title,
         )
-    except Exception:
-        logger.exception("webhook announce failed for %s", event)
-
 
 async def announce_updated(live: LiveSet) -> None:
     """``set.updated`` for an edited published set."""
@@ -46,20 +45,17 @@ async def announce_updated(live: LiveSet) -> None:
     )
 
 
-async def announce_recycled(live: LiveSet, *, was_published: bool | None = None) -> None:
+async def announce_recycled(
+    live: LiveSet, *, was_published: bool | None = None, title: str | None = None,
+) -> None:
     """``set.deleted`` for a set that went to the recycle bin.
 
-    ``was_published`` is for callers that flip the status to draft as part of
-    recycling (merge loser, upgrade swap): they capture it first. Left None,
-    the set's current status decides.
+    ``was_published`` and ``title`` are for callers that rewrite the status
+    and title as part of recycling (merge loser, upgrade swap): they capture
+    both first. Left None, the set's current values are used.
     """
-    try:
-        announce = live.status == "published" if was_published is None else was_published
-    except Exception:
-        logger.exception("webhook announce failed for set.deleted")
-        return
-    await _announce_live(live, "set.deleted", announce=announce)
-
+    announce = live.status == "published" if was_published is None else was_published
+    await _announce_live(live, "set.deleted", announce=announce, title=title)
 
 async def announce_restored(live: LiveSet) -> None:
     """``set.restored`` for a published set taken out of the recycle bin."""
