@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
   import { deleteComment, listComments, type Comment } from "#lib/api/comments.ts";
-  import { seekTo } from "#lib/stores/audio.ts";
+  import { seekInSet } from "#lib/stores/audio.ts";
   import { session } from "#lib/stores/session.ts";
   import CommentComposer from "./CommentComposer.svelte";
   import { fmtDuration } from "#lib/format.ts";
@@ -47,7 +47,7 @@
           <span class="author">{c.author.display_name ?? c.author.username}</span>
           {#if c.position_seconds !== null}
             {@const pos = c.position_seconds}
-            <button class="seek" on:click={() => seekTo(pos)}>{fmtDuration(pos)}</button>
+            <button class="seek" on:click={() => void seekInSet(slug, pos)}>{fmtDuration(pos)}</button>
           {/if}
           <time>{new Date(c.created_at).toLocaleString()}</time>
         </header>

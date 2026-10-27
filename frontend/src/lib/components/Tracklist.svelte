@@ -3,7 +3,7 @@
   import { _ } from "svelte-i18n";
   import { bulkResolve } from "#lib/api/enrichment.ts";
   import { createEntry, listTracklist, type TracklistEntry } from "#lib/api/tracklist.ts";
-  import { player, seekTo } from "#lib/stores/audio.ts";
+  import { player, seekInSet } from "#lib/stores/audio.ts";
   import { shouldIgnoreShortcut } from "#lib/keyboard.ts";
   import { tracklist, setEntries, upsertEntry, removeEntry } from "#lib/stores/tracklist.ts";
   import ResolveCandidatesPopover from "./ResolveCandidatesPopover.svelte";
@@ -31,7 +31,7 @@
   });
 
   async function addAtPlayhead() {
-    const seconds = Math.floor($player.position ?? 0);
+    const seconds = Math.floor($player.set?.slug === slug ? $player.position : 0);
     const tentative: TracklistEntry = {
       id: `pending-${Date.now()}`,
       position: $tracklist.entries.length,
@@ -61,11 +61,12 @@
 
   function indexAtPlayhead(): number {
     const entries = $tracklist.entries;
+    const pos = $player.set?.slug === slug ? $player.position : 0;
     return entries.findIndex((e, i) => {
       const next = entries[i + 1];
       return (
-        e.start_seconds <= $player.position &&
-        (!next || next.start_seconds > $player.position)
+        e.start_seconds <= pos &&
+        (!next || next.start_seconds > pos)
       );
     });
   }
@@ -118,7 +119,7 @@
     <div>
       {#each $tracklist.entries as entry, idx (entry.id)}
         <div class="track-row" class:now={idx === currentIdx}>
-          <button class="ts seek-cell" on:click={() => seekTo(entry.start_seconds)}>{fmtDuration(entry.start_seconds)}</button>
+          <button class="ts seek-cell" on:click={() => void seekInSet(slug, entry.start_seconds)}>{fmtDuration(entry.start_seconds)}</button>
           <span class="pos">{String(idx + 1).padStart(2, "0")}.</span>
           <div class="track-main">
             <div class="tn">{entry.raw_label}</div>

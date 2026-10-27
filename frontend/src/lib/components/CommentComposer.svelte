@@ -19,7 +19,7 @@
       const c = await postComment(slug, {
         body,
         parent_id,
-        position_seconds: attachTimestamp ? Math.floor($player.position ?? 0) : null,
+        position_seconds: attachTimestamp ? Math.floor($player.set?.slug === slug ? $player.position : 0) : null,
       });
       dispatch("posted", c);
       body = "";

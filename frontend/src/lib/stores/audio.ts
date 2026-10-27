@@ -129,7 +129,7 @@ export function init(): void {
     stopSaving();
     void saveState();
     const q = get(queue);
-    if (q.index < q.slugs.length - 1) void advanceTo(q.index + 1);
+    if (pendingIndex === null && q.index < q.slugs.length - 1) void advanceTo(q.index + 1);
   });
   if (typeof window !== "undefined") window.addEventListener("pagehide", onPageHide);
 }
@@ -244,59 +244,92 @@ export function shouldAutoload(): boolean {
   return get(queue).slugs.length === 0 && !get(player).playing;
 }
 
-/** Load and play queue entry `from` (or the first later one that still exists).
- *  Reuses the one audio element; a rejected play() leaves the queue paused. */
-async function advanceTo(from: number, opts?: { fromStart?: boolean }): Promise<void> {
+/** Queue index an in-flight advance is heading for, so quick presses stack. */
+let pendingIndex: number | null = null;
+
+/** Load and play the first existing queue entry from `from`, stepping by `step`
+ *  (a 404 set is skipped). Reuses the one audio element; the queue index is
+ *  committed once `load` has switched the source. A rejected play() leaves the
+ *  queue in place and paused. Returns whether an entry was committed. */
+async function advanceTo(from: number, step: 1 | -1 = 1, fromStart = false): Promise<boolean> {
   const token = ++queueToken;
+  pendingIndex = from;
   const { slugs } = get(queue);
-  for (let i = from; i < slugs.length; i++) {
-    let set: SetDetail;
-    try {
-      set = await getSet(slugs[i]);
-    } catch (e) {
-      if (token !== queueToken) return;
-      if ((e as { status?: number }).status === 404) continue; // recycled / unpublished
-      break;
+  try {
+    for (let i = from; i >= 0 && i < slugs.length; i += step) {
+      pendingIndex = i;
+      let set: SetDetail;
+      try {
+        set = await getSet(slugs[i]);
+      } catch (e) {
+        if (token !== queueToken) return false;
+        if ((e as { status?: number }).status === 404) continue; // recycled / unpublished
+        return false;
+      }
+      if (token !== queueToken) return false;
+      const alreadyLoaded = get(player).set?.slug === set.slug;
+      await load(set, { restartCompleted: true });
+      if (token !== queueToken) return false;
+      let restart = fromStart;
+      if (alreadyLoaded && !restart) {
+        // load() was a no-op: a finished set still has to start from the top.
+        try { restart = (await getSetState(set.slug)).completed; } catch { /* keep position */ }
+        if (token !== queueToken) return false;
+      }
+      if (restart) { seekTo(0); patch({ position: 0 }); }
+      const moved = get(queue).index !== i;
+      queue.update((q) => ({ ...q, index: i }));
+      if (moved) notifyQueue();
+      await play();
+      return true;
     }
-    if (token !== queueToken) return;
-    queue.update((q) => ({ ...q, index: i }));
-    await load(set, { restartCompleted: true });
-    if (token !== queueToken) return;
-    if (opts?.fromStart) seekTo(0);
-    await play();
-    notifyQueue();
-    return;
+    return false;
+  } finally {
+    if (token === queueToken) pendingIndex = null;
   }
-  notifyQueue();
 }
 
 export async function playQueue(slugs: string[], startIndex = 0): Promise<void> {
-  if (!browser) return;
+  if (!browser || slugs.length === 0) return;
   if (!initialized) init();
-  queue.set({ slugs: slugs.slice(), index: startIndex });
-  await advanceTo(startIndex);
+  const index = Math.max(0, Math.min(slugs.length - 1, Math.trunc(startIndex) || 0));
+  queue.set({ slugs: slugs.slice(), index });
+  notifyQueue();
+  await advanceTo(index);
 }
 
 /** Play one set on its own: the queue is cleared. */
 export async function playSingle(set: SetDetail): Promise<void> {
   queueToken++;
+  pendingIndex = null;
+  const hadQueue = get(queue).slugs.length > 0;
   queue.set({ slugs: [], index: 0 });
+  if (hadQueue) notifyQueue();
   await load(set);
   await play();
-  notifyQueue();
+}
+
+/** Seek within `slug`; if another set is current, start `slug` singly at `seconds`. */
+export async function seekInSet(slug: string, seconds: number): Promise<void> {
+  if (get(player).set?.slug === slug) { seekTo(seconds); return; }
+  try {
+    await playSingle(await getSet(slug));
+  } catch { return; }
+  seekTo(seconds);
 }
 
 export function next(): void {
   const t = pickNext(tracklist, get(player).position);
   if (t !== null) { seekTo(t); return; }
   const q = get(queue);
-  if (q.index < q.slugs.length - 1) void advanceTo(q.index + 1);
+  const base = pendingIndex ?? q.index;
+  if (base < q.slugs.length - 1) void advanceTo(base + 1);
 }
 export function prev(): void {
   const position = get(player).position;
   const t = pickPrev(tracklist, position);
   const q = get(queue);
-  if (t === 0 && position <= 3 && q.index > 0) void advanceTo(q.index - 1, { fromStart: true });
+  const base = pendingIndex ?? q.index;
+  if (t === 0 && position <= 3 && base > 0) void advanceTo(base - 1, -1, true);
   else seekTo(t);
 }
-
