@@ -279,3 +279,24 @@ async def test_requires_login(client):
     assert (await client.get("/api/me/playlists")).status_code == 401
     assert (await client.get(f"/api/me/playlists/{fake}")).status_code == 401
     assert (await client.get("/api/sets/x/playlists")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_add_past_cap_is_400(authed_admin_client, seeded_live_set, monkeypatch):
+    from setvault_core.services import playlists as svc
+
+    monkeypatch.setattr(svc, "MAX_ITEMS", 2)
+    c = authed_admin_client
+    a = seeded_live_set["slug"]
+    b, d = await _more_sets(seeded_live_set, 2)
+    pl = await _create(c)
+    url = f"/api/me/playlists/{pl['id']}/items"
+    assert (await c.post(url, json={"slug": a})).status_code == 204
+    assert (await c.post(url, json={"slug": b})).status_code == 204
+    assert (await c.post(url, json={"slug": d})).status_code == 400
+    # a duplicate of a present set is still a no-op at the cap
+    assert (await c.post(url, json={"slug": a})).status_code == 204
+    # a reorder list longer than the cap is refused up front
+    assert (await c.put(url, json={"slugs": [a, b, d]})).status_code == 400
+    got = (await c.get(f"/api/me/playlists/{pl['id']}")).json()
+    assert [i["slug"] for i in got["items"]] == [a, b]

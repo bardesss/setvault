@@ -149,6 +149,8 @@ async def reorder_playlist(
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
     pl = await _owned_or_404(session, user, playlist_id)
+    if len(body.slugs) > svc.MAX_ITEMS:
+        raise HTTPException(status_code=400, detail=_MISMATCH)
     found = dict((await session.execute(
         select(LiveSet.slug, LiveSet.id).where(
             LiveSet.slug.in_(body.slugs), *svc.visible_clause())
@@ -187,8 +189,7 @@ async def remove_playlist_item(
     session: Annotated[AsyncSession, Depends(db_session)],
 ):
     pl = await _owned_or_404(session, user, playlist_id)
-    # A recycled or unpublished set can still be taken out of a playlist, so
-    # the slug only has to exist.
+    # No visibility check: recycled or unpublished sets must stay removable.
     live_id = (await session.execute(
         select(LiveSet.id).where(LiveSet.slug == slug)
     )).scalar_one_or_none()

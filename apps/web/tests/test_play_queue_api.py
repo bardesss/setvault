@@ -123,7 +123,17 @@ async def test_put_unknown_slugs_dropped_and_index_reaimed(
     # index on an unknown slug: clamped into the kept list
     await c.put("/api/me/queue", json=_body([a, ghost, b], 1))
     got = (await c.get("/api/me/queue")).json()
-    assert got["slugs"] == [a, b] and got["index"] in (0, 1)
+    assert got["slugs"] == [a, b] and got["index"] == 1
+    # draft and soft-deleted slugs are dropped like unknown ones
+    draft, gone = await _more_sets(seeded_live_set, 2)
+    await _set_state(draft, status="draft")
+    await _set_state(gone, deleted_at=datetime.now(UTC))
+    await c.put("/api/me/queue", json=_body([a, draft, gone, b], 3))
+    got = (await c.get("/api/me/queue")).json()
+    assert got["slugs"] == [a, b] and got["index"] == 1
+    await c.put("/api/me/queue", json=_body([a, b, draft], 2))
+    got = (await c.get("/api/me/queue")).json()
+    assert got["slugs"] == [a, b] and got["index"] == 1
     # nothing resolves: an empty queue
     await c.put("/api/me/queue", json=_body([ghost]))
     got = (await c.get("/api/me/queue")).json()
@@ -160,3 +170,17 @@ async def test_too_many_slugs_is_400(authed_admin_client):
 async def test_requires_login(client):
     assert (await client.get("/api/me/queue")).status_code == 401
     assert (await client.put("/api/me/queue", json=_body([]))).status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_queue_exactly_1000_slugs_ok(authed_admin_client, seeded_live_set, monkeypatch):
+    from setvault_core.services import play_queue as svc
+
+    monkeypatch.setattr(svc, "MAX_QUEUE", 3)
+    c = authed_admin_client
+    a = seeded_live_set["slug"]
+    b, d, e = await _more_sets(seeded_live_set, 3)
+    ok = await c.put("/api/me/queue", json=_body([a, b, d], 2))
+    assert ok.status_code == 200, ok.text
+    assert (await c.get("/api/me/queue")).json()["slugs"] == [a, b, d]
+    assert (await c.put("/api/me/queue", json=_body([a, b, d, e]))).status_code == 400
