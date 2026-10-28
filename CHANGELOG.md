@@ -4,6 +4,38 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0](https://github.com/bardesss/setvault/compare/v0.24.0...v0.25.0) (2026-10-28)
+
+
+### Features
+
+* **api:** playlists and synced play queue endpoints ([1021e28](https://github.com/bardesss/setvault/commit/1021e28328e797775d469bc80e2d43ac1766957c))
+* **api:** webhook secrets shown once, masked headers, validation, delivery log ([c8da51a](https://github.com/bardesss/setvault/commit/c8da51a241e9c028f3ee0eae1f3a502bdff31926))
+* **core:** encrypted webhook headers and secrets, delivery log table ([15dbd5c](https://github.com/bardesss/setvault/commit/15dbd5c7ab63e59cb1afbdfadde87d0fe1efb962))
+* **core:** playlists and play queue models, services and merge re-point ([37d2374](https://github.com/bardesss/setvault/commit/37d2374a23afbc9eb17f76e5e3ab2b5e94a2277b))
+* **core:** sign, log and retry webhook deliveries ([9b95339](https://github.com/bardesss/setvault/commit/9b95339a5e974900a5708a8bfddbff6d28e87709))
+* fire set.updated, set.deleted, set.restored and set.purged webhooks ([e75995a](https://github.com/bardesss/setvault/commit/e75995a655930c7fc42d1df87fd9eb5f54e213a3))
+* P4a webhook hardening (signing, encrypted headers, retries, delivery log, more events) ([8276f17](https://github.com/bardesss/setvault/commit/8276f175a5daabb893090638d8e0538e2eadcdf4))
+* P4b playlists and a cross-device play queue ([9ba17ba](https://github.com/bardesss/setvault/commit/9ba17bae90b622d315a3d2427b3f9168058eae7d))
+* **player:** cross-set play queue with auto-advance ([d7ad7f0](https://github.com/bardesss/setvault/commit/d7ad7f07cb82830fb77822baf2dc20e27ecc9da9))
+* **player:** sync the play queue across devices ([907ed5f](https://github.com/bardesss/setvault/commit/907ed5f308b01e44c6794e2c4575bb6de4b92115))
+* **web:** playlists pages and add-to-playlist menu ([47f6b48](https://github.com/bardesss/setvault/commit/47f6b48a88c116f03064887d81bddab201772ab8))
+* **web:** webhooks page with secrets, masked headers and delivery log ([65a4c88](https://github.com/bardesss/setvault/commit/65a4c88800efac9d03850d52953024d190b8ab8c))
+
+
+### Bug Fixes
+
+* **core:** empty reorder, naive queue base time, ordering ties and test gaps ([f15cde8](https://github.com/bardesss/setvault/commit/f15cde8610575626a6b227ead427b36e23c695eb))
+* **core:** real RQ retry test, permanent bad-URL failures, safer delete re-check ([a78cdea](https://github.com/bardesss/setvault/commit/a78cdead024833fe9c865ccceee2bd039207aa5f))
+* **player:** clear lock-screen metadata on logout, correct reset comment ([24ed9dd](https://github.com/bardesss/setvault/commit/24ed9dd3a84b39a00bda4e0fa44663917a522976))
+* **player:** final P4b review fixes ([e7d8f5b](https://github.com/bardesss/setvault/commit/e7d8f5bdc671ebbbe1a312a44900c7ac9a5d7e1a))
+* **player:** queue sync races, auth scoping and resume semantics ([08e99fe](https://github.com/bardesss/setvault/commit/08e99fe7861040323122a39a2775ce76564f0c9d))
+* **player:** scope the stored queue to its user and stop advances on logout ([240df04](https://github.com/bardesss/setvault/commit/240df042548a808f290cc94bbfde6276c198e676))
+* **player:** set-page controls respect the current set; queue race and index fixes ([3b45630](https://github.com/bardesss/setvault/commit/3b456301c118bb6ebd44dbed3f678f3085c453ae))
+* real titles in recycle events, cover upgrade swap and draft sites ([8052ebf](https://github.com/bardesss/setvault/commit/8052ebf4f70f12f868713e5fe47784137e99fb66))
+* **webhooks:** drop stored framing headers, allow removing reserved names, accept tabs ([e4b57bd](https://github.com/bardesss/setvault/commit/e4b57bdc47e89ac0266eef674b8c62e4f81857e6))
+* **webhooks:** harden headers, undecryptable data and job edge cases ([4c1b841](https://github.com/bardesss/setvault/commit/4c1b841104dd1fa9bfd713121fc59022ba19437f))
+
 ## [0.24.0](https://github.com/bardesss/setvault/compare/v0.23.0...v0.24.0) (2026-10-26)
 
 
