@@ -343,7 +343,10 @@ upload the cookies again, or use **Remove** to stop sending them.
 
 Translations live in [`frontend/src/lib/i18n/locales/`](frontend/src/lib/i18n/locales/), one
 JSON file per language, with `en.json` as the source. To help, open a PR that edits your
-language's file (or adds a new one and registers it in `frontend/src/lib/i18n/index.ts`).
+language's file. SetVault ships English and Dutch; for a new language, copy `en.json`
+to `<code>.json`, translate it, and add the code to `SUPPORTED_LOCALES` in
+`frontend/src/lib/i18n/locale.ts` and `packages/core/src/setvault_core/locales.py`,
+plus a `register(...)` line in `frontend/src/lib/i18n/index.ts`.
 
 - Keys missing from a locale fall back to English, so partial translations are fine.
 - Don't add keys that aren't in `en.json`, and keep every `{placeholder}` and ICU

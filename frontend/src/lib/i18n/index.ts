@@ -10,9 +10,6 @@ export function setupI18n(): Promise<void> {
   if (ready) return ready;
   addMessages("en", en);
   register("nl", () => import("./locales/nl.json"));
-  register("de", () => import("./locales/de.json"));
-  register("es", () => import("./locales/es.json"));
-  register("fr", () => import("./locales/fr.json"));
   const start = pickStartLocale({
     cached: readCachedLocale(),
     navigator: typeof window !== "undefined" ? getLocaleFromNavigator() : null,

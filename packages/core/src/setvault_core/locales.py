@@ -3,4 +3,4 @@
 
 from __future__ import annotations
 
-SUPPORTED_LOCALES: tuple[str, ...] = ("en", "nl", "de", "es", "fr")
+SUPPORTED_LOCALES: tuple[str, ...] = ("en", "nl")
