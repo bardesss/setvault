@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { _ } from "svelte-i18n";
+  import { _, locale } from "svelte-i18n";
   import type { PageData } from "./$types";
   import AdminTable from "#lib/components/AdminTable.svelte";
   import ConfirmDialog from "#lib/components/ConfirmDialog.svelte";
@@ -18,7 +18,7 @@
     type AdminSettings,
   } from "#lib/api/settings.ts";
   import { toast } from "#lib/stores/toast.ts";
-  import { fmtBytes } from "#lib/format.ts";
+  import { fmtBytes, fmtLocalDateTime } from "#lib/format.ts";
 
   export let data: PageData;
 
@@ -30,7 +30,7 @@
   let pendingDelete: string | null = null;
 
   function fmtWhen(iso: string | null): string {
-    return iso ? new Date(iso).toLocaleString() : "–";
+    return iso ? fmtLocalDateTime(iso, $locale) : "–";
   }
 
   function errText(e: unknown): string {
@@ -128,7 +128,7 @@
       })}
     {:else}
       {$_("admin.backups.status_ok", {
-        values: { when: fmtWhen(last.at), size: fmtBytes(last.bytes) },
+        values: { when: fmtWhen(last.at), size: fmtBytes(last.bytes, $locale) },
       })}
     {/if}
   </p>
@@ -220,7 +220,7 @@
         <tr data-testid="backup-file">
           <td class="mono">{f.name}</td>
           <td>{fmtWhen(f.created_at)}</td>
-          <td>{fmtBytes(f.bytes)}</td>
+          <td>{fmtBytes(f.bytes, $locale)}</td>
           <td class="actions">
             <a class="btn btn-sm" href={backupUrl(f.name)} download>
               {$_("admin.backups.download")}

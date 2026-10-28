@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { _ } from "svelte-i18n";
+  import { _, locale } from "svelte-i18n";
   import { deleteComment, listComments, type Comment } from "#lib/api/comments.ts";
   import { seekInSet } from "#lib/stores/audio.ts";
   import { session } from "#lib/stores/session.ts";
   import CommentComposer from "./CommentComposer.svelte";
-  import { fmtDuration } from "#lib/format.ts";
+  import { fmtDuration, fmtLocalDateTime } from "#lib/format.ts";
 
   export let slug: string;
   export let flat = false;
@@ -49,7 +49,7 @@
             {@const pos = c.position_seconds}
             <button class="seek" on:click={() => void seekInSet(slug, pos)}>{fmtDuration(pos)}</button>
           {/if}
-          <time>{new Date(c.created_at).toLocaleString()}</time>
+          <time>{fmtLocalDateTime(c.created_at, $locale)}</time>
         </header>
         {#if c.deleted_at}
           <p class="placeholder">{$_("comments.deleted_placeholder")}</p>
@@ -71,7 +71,7 @@
               <li class:deleted={!!r.deleted_at}>
                 <header>
                   <span class="author">{r.author.display_name ?? r.author.username}</span>
-                  <time>{new Date(r.created_at).toLocaleString()}</time>
+                  <time>{fmtLocalDateTime(r.created_at, $locale)}</time>
                 </header>
                 {#if r.deleted_at}
                   <p class="placeholder">{$_("comments.deleted_placeholder")}</p>

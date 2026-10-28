@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { _ } from "svelte-i18n";
+  import { _, locale } from "svelte-i18n";
+  import { fmtLocalDateTime } from "#lib/format.ts";
   import type { PageData } from "./$types";
   import type { JobRow } from "./+page";
   import AdminTable from "#lib/components/AdminTable.svelte";
@@ -15,7 +16,7 @@
   }
 
   function when(iso: string | null): string {
-    return iso ? new Date(iso).toLocaleString() : "—";
+    return iso ? fmtLocalDateTime(iso, $locale) : "—";
   }
 
   function duration(j: JobRow): string {

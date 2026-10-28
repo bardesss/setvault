@@ -2,8 +2,9 @@ const BYTE_UNITS = ["B", "K", "M", "G", "T"];
 
 /** A byte count for display, on a 1024 base: "512 B", "1.5 K", "10 K",
  *  "3.2 T". One decimal below 10, none from 10 up; whole bytes never get a
- *  decimal. Nothing (null, 0 or less) reads "—". */
-export function fmtBytes(n: number | null | undefined): string {
+ *  decimal. The decimal mark follows the UI language ("1,5 K" in Dutch).
+ *  Nothing (null, 0 or less) reads "—". */
+export function fmtBytes(n: number | null | undefined, locale?: string | null): string {
   if (n == null || !Number.isFinite(n) || n <= 0) return "—";
   let value = n;
   let i = 0;
@@ -17,7 +18,18 @@ export function fmtBytes(n: number | null | undefined): string {
     i += 1;
   }
   const oneDecimal = i > 0 && value.toFixed(1) !== "10.0" && value < 10;
-  return `${oneDecimal ? value.toFixed(1) : Math.round(value)} ${BYTE_UNITS[i]}`;
+  const digits = oneDecimal ? 1 : 0;
+  const shown = new Intl.NumberFormat(locale || "en", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    useGrouping: false,
+  }).format(oneDecimal ? value : Math.round(value));
+  return `${shown} ${BYTE_UNITS[i]}`;
+}
+
+/** A count with the UI language's digit grouping ("1,234" / "1.234"). */
+export function fmtNumber(n: number, locale?: string | null): string {
+  return new Intl.NumberFormat(locale || "en").format(n);
 }
 
 const AGO_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
@@ -45,6 +57,15 @@ export function fmtDuration(seconds: number | null | undefined): string {
   const m = Math.floor((s % 3600) / 60);
   const ss = String(s % 60).padStart(2, "0");
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+/** A calendar date in the UI language ("Jan 2, 2026" / "2 jan 2026"); "—"
+ *  for nothing or an unparsable value. */
+export function fmtDate(iso: string | null | undefined, locale?: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(locale || "en", { dateStyle: "medium" });
 }
 
 /** A timestamp in the app's UI language (svelte-i18n `$locale`, default "en") and the browser's time zone. */

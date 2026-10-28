@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { _ } from "svelte-i18n";
+  import { _, locale } from "svelte-i18n";
+  import { fmtLocalDateTime } from "#lib/format.ts";
   import ConfirmDialog from "#lib/components/ConfirmDialog.svelte";
   import StatusBlock from "#lib/components/StatusBlock.svelte";
   import { ApiError } from "#lib/api/client.ts";
@@ -75,7 +76,7 @@
         {$_("sources.cookies.status_set", {
           values: {
             count: status.youtube_cookies,
-            when: status.uploaded_at ? new Date(status.uploaded_at).toLocaleString() : "–",
+            when: status.uploaded_at ? fmtLocalDateTime(status.uploaded_at, $locale) : "–",
           },
         })}
       {:else}

@@ -106,9 +106,9 @@
             <td>{r.name}{r.default_for_ingest ? " ★" : ""}</td>
             <td class="mono">{r.host_path}</td>
             <td class={statusClass(r.last_health_status)}>{r.last_health_status}</td>
-            <td class="mono">{fmtBytes(r.free_bytes)}</td>
-            <td class="mono">{fmtBytes(r.used_bytes)} {fmtPct(r.used_bytes, r.total_bytes)}</td>
-            <td class="mono">{fmtBytes(r.total_bytes)}</td>
+            <td class="mono">{fmtBytes(r.free_bytes, $locale)}</td>
+            <td class="mono">{fmtBytes(r.used_bytes, $locale)} {fmtPct(r.used_bytes, r.total_bytes)}</td>
+            <td class="mono">{fmtBytes(r.total_bytes, $locale)}</td>
           </tr>
         {/each}
       </AdminTable>

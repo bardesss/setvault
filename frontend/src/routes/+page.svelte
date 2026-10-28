@@ -84,7 +84,7 @@
           delta={fmtDelta(summary.tracks_needing_ids_delta)}
         />
         <Kpi
-          value={fmtBytes(summary.audio_bytes)}
+          value={fmtBytes(summary.audio_bytes, $locale)}
           label="Audio storage"
         />
       </KpiGrid>
