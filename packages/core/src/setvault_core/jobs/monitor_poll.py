@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_core.db import init_engine, run_job, session_factory
 from setvault_core.models.monitors import Monitor
-from setvault_core.services.discoveries import process_candidates
+from setvault_core.services.discoveries import process_candidates, revert_failed_auto_ingest
 from setvault_core.services.ingest_sources import (
     SourceDisabledError,
     SourceRateLimitedError,
@@ -61,13 +61,21 @@ async def poll_monitor(session: AsyncSession, *, monitor_id: uuid.UUID) -> dict:
 
     summary = await process_candidates(session, monitor=monitor, candidates=candidates)
     rip_jobs = summary.pop("rip_jobs", [])
+    notification = summary.pop("notification", None)
     monitor.last_checked_at = datetime.now(UTC)
     await session.flush()
     await session.commit()
     # Commit first so workers can see the RipJobs. A failed enqueue marks that
-    # job failed (enqueue_rip) and must not abort the other rips.
-    for rip_job in rip_jobs:
-        await enqueue_rip(session, rip_job)
+    # job failed (enqueue_rip) and must not abort the other rips; its discovery
+    # goes back to review so the owner can rip it again.
+    failed = [j.id for j in rip_jobs if not await enqueue_rip(session, j)]
+    moved = await revert_failed_auto_ingest(
+        session, failed_job_ids=failed, notification=notification,
+    )
+    if moved:
+        await session.commit()
+        summary["auto_ingested"] -= moved
+        summary["pending_review"] += moved
     return summary
 
 

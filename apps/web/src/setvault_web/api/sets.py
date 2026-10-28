@@ -40,6 +40,7 @@ from setvault_core.schemas.sets import (
 from setvault_core.services.audio_quality import quality_label
 from setvault_core.services.audit import log as audit_log
 from setvault_core.services.favorites import is_favorite
+from setvault_core.services.listening import record_listen
 from setvault_core.services.notifications import event_labels, source_name
 from setvault_core.services.sessions import SESSION_COOKIE, SessionSigner
 from setvault_core.services.set_merge import TRACKLIST_KEPT
@@ -679,4 +680,5 @@ async def put_state(
         state.completed = body.completed
         if body.playback_rate is not None:
             state.playback_rate = body.playback_rate
+    await record_listen(session, user.id, live.id, body.position_seconds)
     await session.commit()
