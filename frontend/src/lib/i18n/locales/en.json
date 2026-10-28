@@ -89,7 +89,10 @@
     "save": "Save",
     "access_title": "Access",
     "single_user_auto_login": "Skip login (auto-sign-in as the only user)",
-    "single_user_auto_login_warning": "Only for trusted local/VPN use: while on, anyone who can reach this instance is signed in as you, with no password. Disabled automatically once a second user is added."
+    "single_user_auto_login_warning": "Only for trusted local/VPN use: while on, anyone who can reach this instance is signed in as you, with no password. Disabled automatically once a second user is added.",
+    "language": "Language",
+    "language_browser": "Follow browser",
+    "language_failed": "Could not save the language. Try again."
   },
   "library": {
     "sort_recent": "Recently added",

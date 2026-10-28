@@ -14,6 +14,15 @@
     type RssTokenWithPlaintext,
   } from "#lib/api/feeds.ts";
   import { session } from "#lib/stores/session.ts";
+  import { setMyLocale } from "#lib/api/me.ts";
+  import {
+    LOCALE_NAMES,
+    SUPPORTED_LOCALES,
+    applyLocale,
+    browserLocale,
+    normalizeLocale,
+    writeCachedLocale,
+  } from "#lib/i18n/locale.ts";
   import { _ } from "svelte-i18n";
 
   let active = "profile";
@@ -129,6 +138,32 @@
     void setPref(kind, target.value as Channel);
   }
 
+  // "" is "follow the browser" (null on the account).
+  $: languageChoice = normalizeLocale($session?.locale) ?? "";
+  let languageError: string | null = null;
+
+  async function useLanguage(value: string) {
+    const chosen = normalizeLocale(value);
+    writeCachedLocale(chosen);
+    await applyLocale(chosen ?? browserLocale());
+    return chosen;
+  }
+
+  async function onLanguageChange(ev: Event) {
+    const select = ev.currentTarget as HTMLSelectElement;
+    const previous = languageChoice;
+    languageError = null;
+    const chosen = await useLanguage(select.value);
+    try {
+      await setMyLocale(chosen);
+      session.update((u) => (u ? { ...u, locale: chosen } : u));
+    } catch {
+      select.value = previous;
+      await useLanguage(previous);
+      languageError = $_("settings.language_failed");
+    }
+  }
+
   onMount(() => {
     void loadPrefs();
     void loadRssTokens();
@@ -173,6 +208,16 @@
           { label: $_("settings.role"), value: $session.role },
         ]}
       />
+      <label class="admin-field language">
+        <span>{$_("settings.language")}</span>
+        <select value={languageChoice} on:change={onLanguageChange} data-test="language-select">
+          <option value="">{$_("settings.language_browser")}</option>
+          {#each SUPPORTED_LOCALES as l (l)}
+            <option value={l} lang={l}>{LOCALE_NAMES[l]}</option>
+          {/each}
+        </select>
+      </label>
+      {#if languageError}<p class="admin-msg is-error" role="alert">{languageError}</p>{/if}
     {/if}
   {:else if active === "security"}
     <AdminForm title={$_("settings.change_password")} on:submit={submit}>
@@ -323,6 +368,16 @@
     overflow-wrap: anywhere;
   }
 
+  .language select {
+    max-width: 100%;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--bg-base);
+    border: 1px solid var(--border-default);
+    border-radius: var(--r-md);
+    color: inherit;
+    font: inherit;
+  }
+
   .prefs dl {
     display: grid;
     grid-template-columns: max-content 1fr;
@@ -344,7 +399,17 @@
   @media (max-width: 600px) {
     .settings { padding: var(--sp-3); max-width: none; }
     input { font-size: 16px; }  /* prevents iOS auto-zoom on focus */
-    .prefs dl { grid-template-columns: 1fr; gap: var(--sp-1); }
+    .language select {
+    max-width: 100%;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--bg-base);
+    border: 1px solid var(--border-default);
+    border-radius: var(--r-md);
+    color: inherit;
+    font: inherit;
+  }
+
+  .prefs dl { grid-template-columns: 1fr; gap: var(--sp-1); }
     .feeds .just-minted li {
       grid-template-columns: 1fr;
       gap: var(--sp-1);

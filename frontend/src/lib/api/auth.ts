@@ -7,6 +7,8 @@ export interface CurrentUser {
   username: string;
   display_name: string;
   role: "admin" | "user";
+  /** Saved UI language; null follows the browser. */
+  locale: string | null;
 }
 
 export function login(email: string, password: string) {
