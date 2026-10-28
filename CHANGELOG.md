@@ -4,6 +4,27 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0](https://github.com/bardesss/setvault/compare/v0.25.1...v0.26.0) (2026-10-28)
+
+
+### Features
+
+* **i18n:** ship only English and Dutch ([af80a2b](https://github.com/bardesss/setvault/commit/af80a2b7f33cbf2870a813db23397a309d9d7649))
+* translated screens (English + Dutch) ([47c1c52](https://github.com/bardesss/setvault/commit/47c1c520e57ebd60bb87e201fa62757d868ff1d0))
+
+
+### Bug Fixes
+
+* **i18n:** Dutch for the party editor keys that landed on main ([60a1294](https://github.com/bardesss/setvault/commit/60a12946362fee4dc17595fa68060bbcc43271e5))
+* **player:** skip waveform markers past the end of the set ([54a9977](https://github.com/bardesss/setvault/commit/54a99771d3bbcc6895b6507204e29f50dd9918c1))
+* **ui:** no sideways page scroll at phone and tablet widths ([9f516e4](https://github.com/bardesss/setvault/commit/9f516e493f4ac043ccb972f2c833c4a7ceeea8d6))
+* **ui:** no sideways page scroll at phone and tablet widths ([26f77cf](https://github.com/bardesss/setvault/commit/26f77cf15b893ea9defc50963919c3e14cd5da78))
+
+
+### Documentation
+
+* README translation guide welcomes any language ([85b89a1](https://github.com/bardesss/setvault/commit/85b89a1701f385782c055845d19d818dff5bb305))
+
 ## [0.25.1](https://github.com/bardesss/setvault/compare/v0.25.0...v0.25.1) (2026-10-28)
 
 
