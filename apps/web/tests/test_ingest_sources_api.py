@@ -254,6 +254,9 @@ async def test_search_rate_limited(authed_admin_client, monkeypatch):
     from setvault_web.api import ingest_sources as api
 
     monkeypatch.setattr(api, "SEARCH_LIMIT", 2)
+    # Pin the limiter's clock so all three searches share one 60s bucket; with
+    # a real clock they can straddle a minute boundary and reset the count.
+    monkeypatch.setattr("setvault_web.rate_limit.time", SimpleNamespace(time=lambda: 1_000_000.0))
     result = SimpleNamespace(candidates=[], errored_kinds=[], throttled_kinds=[])
     with patch("setvault_web.api.ingest_sources.search_all_sources", return_value=result):
         for _ in range(2):

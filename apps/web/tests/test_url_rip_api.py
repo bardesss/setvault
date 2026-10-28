@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid as uuidmod
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -106,6 +107,8 @@ async def test_submit_url_rip_rate_limit_per_user(authed_admin_client, monkeypat
         return job
 
     monkeypatch.setattr(_service, "submit_rip", _fake_submit)
+    # One hourly bucket for all six, even if the test crosses the hour.
+    monkeypatch.setattr("setvault_web.rate_limit.time", SimpleNamespace(time=lambda: 1_000_000.0))
 
     for _ in range(5):
         r = await authed_admin_client.post(
