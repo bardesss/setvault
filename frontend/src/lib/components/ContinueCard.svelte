@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { _ } from "svelte-i18n";
   import { fmtDuration } from "#lib/format.ts";
   export let slug: string;
   export let title: string;
@@ -18,7 +19,7 @@
     {#if artist}<div class="artist">{artist}</div>{/if}
     <div class="progress-time">
       {fmtDuration(positionSeconds)} / {durationSeconds ? fmtDuration(durationSeconds) : "?"}
-      {#if pct > 0} · {pct.toFixed(0)}% played{/if}
+      {#if pct > 0} · {$_("cards.percent_played", { values: { pct: pct.toFixed(0) } })}{/if}
     </div>
     <div class="progress-bar"><div class="progress-fill" style="width: {pct}%"></div></div>
   </div>

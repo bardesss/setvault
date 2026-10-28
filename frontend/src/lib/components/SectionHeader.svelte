@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { _ } from "svelte-i18n";
   export let title: string;
   export let subMeta: string | null = null;
   export let moreHref: string | null = null;
-  export let moreLabel: string = "view all →";
+  export let moreLabel: string | null = null;
 </script>
 
 <div class="section-head">
@@ -11,6 +12,6 @@
     {#if subMeta}<p class="sub-meta">{subMeta}</p>{/if}
   </div>
   {#if moreHref}
-    <a class="show-more" href={moreHref}>{moreLabel}</a>
+    <a class="show-more" href={moreHref}>{moreLabel ?? $_("components.view_all")}</a>
   {/if}
 </div>

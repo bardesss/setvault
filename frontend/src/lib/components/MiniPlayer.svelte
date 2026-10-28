@@ -21,10 +21,10 @@
     </div>
   </div>
 {:else if st.set}
-  <div class="m-bottom-sheet" role="region" aria-label="now playing">
+  <div class="m-bottom-sheet" role="region" aria-label={$_("player.now_playing_lower")}>
     <div class="m-sheet-progress"><div class="fill" style="width: {pct}%"></div></div>
     <div class="m-sheet-row">
-      <button class="m-sheet-cover" on:click={open} aria-label="Open full-screen player">{cover}</button>
+      <button class="m-sheet-cover" on:click={open} aria-label={$_("player.open_fullscreen")}>{cover}</button>
       <button class="m-sheet-meta" on:click={open}>
         <div class="m-sheet-title">{st.set.title}</div>
         <div class="m-sheet-sub">{artists}</div>
@@ -33,7 +33,7 @@
         <span class="time mono" aria-hidden="true">{formatTime(st.position)} / {formatTime(st.duration)}</span>
         <button type="button" class="btn btn-icon" on:click={toggle}
           data-test="mini-play-state" data-state={st.playing ? "playing" : "paused"}
-          aria-label={st.playing ? "pause" : "play"}>
+          aria-label={st.playing ? $_("player.pause") : $_("player.play")}>
           {#if st.playing}
             <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="4" y="3" width="3" height="10"/><rect x="9" y="3" width="3" height="10"/></svg>
           {:else}

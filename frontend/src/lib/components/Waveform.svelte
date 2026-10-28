@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { _ } from "svelte-i18n";
   import { onMount, onDestroy } from "svelte";
   import WaveSurfer from "wavesurfer.js";
   import { listComments } from "#lib/api/comments.ts";
@@ -106,11 +107,11 @@
 </script>
 
 <div class="wave-wrap">
-  <div class="wave" bind:this={container} data-ready={ready ? "true" : "false"} aria-label="audio waveform"></div>
+  <div class="wave" bind:this={container} data-ready={ready ? "true" : "false"} aria-label={$_("player.waveform")}></div>
   {#if duration > 0 && loopStart !== null && loopEnd !== null}
     <div class="loop-band" data-test="loop-band"
       style="left: {(loopStart / duration) * 100}%; width: {((loopEnd - loopStart) / duration) * 100}%"
-      aria-label="A↔B loop region"></div>
+      aria-label={$_("player.loop_region")}></div>
   {/if}
   {#if duration > 0 && markers.length > 0}
     <div class="markers" aria-hidden="true">

@@ -34,7 +34,7 @@
   }
 
   function errText(e: unknown): string {
-    return e instanceof Error ? e.message : "failed";
+    return e instanceof Error ? e.message : $_("admin.common.failed");
   }
 
   function adopt(s: AdminSettings) {

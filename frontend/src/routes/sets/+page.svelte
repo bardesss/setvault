@@ -158,7 +158,7 @@
   }
 </script>
 
-<svelte:head><title>Library - SetVault</title></svelte:head>
+<svelte:head><title>{$_("library.title")} - SetVault</title></svelte:head>
 
 <FilterBar
   bind:query
@@ -207,7 +207,7 @@
               indeterminate={selected.size > 0 && selected.size < filteredSets.length}
               on:change={toggleAll}
             />
-            Select all ({selected.size}/{filteredSets.length})
+            {$_("library.select_all", { values: { selected: selected.size, total: filteredSets.length } })}
           </label>
         </p>
       {/if}
@@ -234,7 +234,7 @@
                 <button
                   type="button"
                   class="select-toggle"
-                  aria-label="Toggle selection"
+                  aria-label={$_("library.toggle_selection")}
                   aria-pressed={selected.has(s.id)}
                   on:click|preventDefault={(e) => toggle(s.id, i, e.shiftKey)}
                 >

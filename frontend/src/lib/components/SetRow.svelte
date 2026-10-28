@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { _ } from "svelte-i18n";
   export let slug: string;
   export let title: string;
   export let artist: string = "";
@@ -9,8 +10,8 @@
   function fmt(s: number): string {
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
+    if (h > 0) return $_("cards.duration_hm", { values: { h, m } });
+    return $_("cards.duration_m", { values: { m } });
   }
 </script>
 

@@ -12,8 +12,12 @@
   import ConfirmDialog from "#lib/components/ConfirmDialog.svelte";
   import { toast } from "#lib/stores/toast.ts";
 
-  const TIER_LABELS: Record<string, string> = {
-    lossless: "Lossless", high: "High", good: "Good", ok: "OK", low: "Low",
+  const TIER_KEYS: Record<string, string> = {
+    lossless: "admin.quality.tier_lossless",
+    high: "admin.quality.tier_high",
+    good: "admin.quality.tier_good",
+    ok: "admin.quality.tier_ok",
+    low: "admin.quality.tier_low",
   };
 
   let settings: AdminSettings | null = null;
@@ -61,16 +65,12 @@
     }
   }
 
-  function plural(n: number, one: string, many: string): string {
-    return `${n} ${n === 1 ? one : many}`;
-  }
-
   function pairsText(b: BackfillDryRun): string {
     if (b.duplicate_pairs === null) return $_("admin.quality.scan.never");
-    const pairs = plural(b.duplicate_pairs, "duplicate pair", "duplicate pairs");
+    const values = { count: b.duplicate_pairs };
     return b.duplicate_pairs_complete
-      ? `${pairs} found.`
-      : `At least ${pairs} found (the count stopped early on this large library).`;
+      ? $_("admin.quality.pairs_found", { values })
+      : $_("admin.quality.pairs_found_partial", { values });
   }
 
   onMount(async () => {
@@ -80,7 +80,7 @@
       const target = settings.loudness_target_lufs ?? null;
       loudnessText = target === null ? "" : String(target);
     } catch (e) {
-      error = msg(e, "Could not load quality settings.");
+      error = msg(e, $_("admin.quality.load_failed"));
     } finally {
       loading = false;
     }
@@ -131,7 +131,7 @@
   }
 
   function tierName(t: string): string {
-    return TIER_LABELS[t] ?? t;
+    return TIER_KEYS[t] ? $_(TIER_KEYS[t]) : t;
   }
 
   async function save() {
@@ -149,7 +149,7 @@
       order = [...settings.quality_tiers_order];
       saved = true;
     } catch (e) {
-      error = msg(e, "Save failed.");
+      error = msg(e, $_("admin.common.save_failed"));
     } finally {
       busy = false;
     }
@@ -184,7 +184,7 @@
       loudnessText = s.loudness_target_lufs === null ? "" : String(s.loudness_target_lufs);
       toast.success($_("admin.quality.loudness.saved"));
     } catch (e) {
-      loudnessError = msg(e, "Save failed.");
+      loudnessError = msg(e, $_("admin.common.save_failed"));
     } finally {
       loudnessBusy = false;
     }
@@ -212,12 +212,12 @@
         body: JSON.stringify({ cleanup, retry_failed: retryFailed }),
       });
       if (r && (r as { status?: string }).status === "already_running") {
-        backfillMsg = "A backfill is already running. Nothing was changed; check back when it finishes.";
+        backfillMsg = $_("admin.quality.backfill_already_running");
         return;
       }
       backfillMsg = cleanup
-        ? "Backfill started. Duplicates are cleaned up when it finishes."
-        : "Backfill started.";
+        ? $_("admin.quality.backfill_started_cleanup")
+        : $_("admin.quality.backfill_started");
       // The response carries fresh fingerprint/measure counts; the duplicate
       // pair count is a slow scan and isn't re-run here.
       if (backfill && r && typeof r.to_fingerprint === "number" && typeof r.to_measure === "number") {
@@ -230,7 +230,7 @@
       }
       retryFailed = false;
     } catch (e) {
-      backfillMsg = msg(e, "Could not start the backfill.");
+      backfillMsg = msg(e, $_("admin.quality.backfill_failed"));
     } finally {
       backfillBusy = false;
     }
@@ -239,8 +239,8 @@
 
 <section class="quality">
   <header>
-    <h2>Quality</h2>
-    <p class="muted">Sets are rated by how good their audio is. When a set sits below the cutoff, SetVault can look for a better copy and swap it in.</p>
+    <h2>{$_("admin.quality.title")}</h2>
+    <p class="muted">{$_("admin.quality.intro")}</p>
   </header>
 
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
@@ -249,8 +249,8 @@
     <p class="muted">{$_("common.loading")}</p>
   {:else if settings}
     <div class="card">
-      <h3>Quality order</h3>
-      <p class="muted">Best first. Use the arrows to reorder.</p>
+      <h3>{$_("admin.quality.order_title")}</h3>
+      <p class="muted">{$_("admin.quality.order_help")}</p>
       <ol class="tiers" data-testid="tier-order">
         {#each order as tier, i (tier)}
           <li>
@@ -259,14 +259,14 @@
               type="button"
               class="btn btn-sm"
               disabled={i === 0 || busy}
-              aria-label={`Move ${tierName(tier)} up`}
+              aria-label={$_("admin.quality.move_up", { values: { tier: tierName(tier) } })}
               on:click={() => move(i, -1)}
             >↑</button>
             <button
               type="button"
               class="btn btn-sm"
               disabled={i === order.length - 1 || busy}
-              aria-label={`Move ${tierName(tier)} down`}
+              aria-label={$_("admin.quality.move_down", { values: { tier: tierName(tier) } })}
               on:click={() => move(i, 1)}
             >↓</button>
           </li>
@@ -274,34 +274,34 @@
       </ol>
 
       <label class="row">
-        <span>Cutoff</span>
+        <span>{$_("admin.quality.cutoff")}</span>
         <select bind:value={settings.quality_cutoff} disabled={busy}>
           {#each order as tier (tier)}
             <option value={tier}>{tierName(tier)}</option>
           {/each}
         </select>
       </label>
-      <p class="muted">Sets below this tier are wanted and get upgrade searches.</p>
+      <p class="muted">{$_("admin.quality.cutoff_help")}</p>
 
       <label class="row">
         <input type="checkbox" bind:checked={settings.auto_upgrades_enabled} disabled={busy} />
-        <span>Automatic upgrades</span>
+        <span>{$_("admin.quality.auto_upgrades")}</span>
       </label>
 
       <label class="row">
-        <span>Upgrade search</span>
+        <span>{$_("admin.quality.upgrade_search")}</span>
         <select bind:value={settings.upgrade_search_schedule} disabled={busy}>
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-          <option value="off">Off</option>
+          <option value="daily">{$_("admin.quality.schedule_daily")}</option>
+          <option value="weekly">{$_("admin.quality.schedule_weekly")}</option>
+          <option value="off">{$_("admin.quality.schedule_off")}</option>
         </select>
       </label>
 
       <div class="row">
         <button type="button" class="btn btn-primary btn-sm" disabled={busy} on:click={save}>
-          {busy ? "Saving…" : "Save"}
+          {busy ? $_("admin.common.saving") : $_("admin.common.save")}
         </button>
-        {#if saved}<span class="muted" role="status">Saved.</span>{/if}
+        {#if saved}<span class="muted" role="status">{$_("admin.common.saved")}</span>{/if}
       </div>
     </div>
 
@@ -345,17 +345,17 @@
     </div>
 
     <div class="card">
-      <h3>Backfill</h3>
-      <p class="muted">Fingerprint and measure the quality of sets added before upgrades existed.</p>
+      <h3>{$_("admin.quality.backfill_title")}</h3>
+      <p class="muted">{$_("admin.quality.backfill_intro")}</p>
       {#if backfillLoading && !backfill}
-        <p class="muted">Counting…</p>
+        <p class="muted">{$_("admin.quality.counting")}</p>
       {:else if backfill}
         <p data-testid="backfill-counts">
-          {`${backfill.to_fingerprint} to fingerprint, ${backfill.to_measure} to measure.`}
+          {$_("admin.quality.backfill_counts", { values: { fingerprint: backfill.to_fingerprint, measure: backfill.to_measure } })}
         </p>
         {#if (backfill.failed ?? 0) > 0}
           <p data-testid="backfill-failed">
-            {plural(backfill.failed ?? 0, "set", "sets")} failed earlier and {(backfill.failed ?? 0) === 1 ? "is" : "are"} skipped.
+            {$_("admin.quality.backfill_failed_earlier", { values: { count: backfill.failed ?? 0 } })}
           </p>
         {/if}
         <p data-testid="backfill-pairs">{pairsText(backfill)}</p>
@@ -375,26 +375,19 @@
       </div>
       <label class="row">
         <input type="checkbox" bind:checked={cleanup} disabled={backfillBusy} />
-        <span>Clean up duplicates</span>
+        <span>{$_("admin.quality.cleanup")}</span>
       </label>
       {#if (backfill?.failed ?? 0) > 0}
         <label class="row">
           <input type="checkbox" bind:checked={retryFailed} disabled={backfillBusy} />
-          <span>Retry failed sets</span>
+          <span>{$_("admin.quality.retry_failed")}</span>
         </label>
-        <p class="muted">Sets that could not be fingerprinted or measured are skipped unless you retry them.</p>
+        <p class="muted">{$_("admin.quality.retry_help")}</p>
       {/if}
-      <p class="muted">
-        When two published sets turn out to be the same audio, keep the better copy and move the
-        other to the recycle bin. Comments, bookmarks and play history move to the set that stays;
-        a tracklist moves only when the set that stays has none (otherwise it stays with the
-        recycled copy). Sets with upgrades off, duplicates you chose to keep, and copies from another
-        owner are not merged; they show up on the Duplicates page instead. Sets that still need a fingerprint are
-        only counted after the backfill.
-      </p>
+      <p class="muted">{$_("admin.quality.cleanup_help")}</p>
       <div class="row">
         <button type="button" class="btn btn-sm" disabled={backfillBusy} on:click={runBackfill}>
-          Run backfill
+          {$_("admin.quality.run_backfill")}
         </button>
         {#if backfillMsg}<span class="muted" role="status">{backfillMsg}</span>{/if}
       </div>

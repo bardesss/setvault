@@ -36,7 +36,7 @@
   <h1 class="favorites-heading">{$_("favorites.my_title")}</h1>
 
   {#if !loaded}
-    <p class="hint">Loading…</p>
+    <p class="hint">{$_("common.loading")}</p>
   {:else if items.length === 0 && failed}
     <p class="hint">{$_("favorites.load_error")}</p>
   {:else if items.length === 0}

@@ -51,7 +51,7 @@
       jobs = [job, ...jobs];
       url = "";
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "submission failed";
+      error = e instanceof ApiError ? e.detail : $_("url_rip.submission_failed");
     } finally {
       busy = false;
     }
@@ -72,7 +72,7 @@
       <input
         type="url"
         bind:value={url}
-        placeholder="https://www.youtube.com/watch?v=…"
+        placeholder={"https://www.youtube.com/watch?v=…"}
         required
         disabled={busy}
       />

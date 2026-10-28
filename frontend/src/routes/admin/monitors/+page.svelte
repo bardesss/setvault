@@ -33,7 +33,7 @@
   });
 
   function msg(e: unknown): string {
-    return e instanceof ApiError ? e.detail : e instanceof Error ? e.message : "failed";
+    return e instanceof ApiError ? e.detail : e instanceof Error ? e.message : $_("admin.common.failed");
   }
 
   $: helpKey = ["youtube", "soundcloud"].includes(sourceKind)
@@ -192,7 +192,7 @@
             {m.query_text ?? m.external_id}
             {#if m.catalog_kind && m.catalog_slug}
               <a class="linked" href={`/${ENTITY_PATH[m.catalog_kind]}/${m.catalog_slug}`}>
-                {$_("monitors.linked_to")} {m.catalog_name}
+                {$_("admin.monitors.linked_to_name", { values: { name: m.catalog_name ?? "" } })}
               </a>
             {/if}
           </td>

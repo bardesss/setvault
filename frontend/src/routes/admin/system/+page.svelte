@@ -9,6 +9,7 @@
     updateSettings,
     type AdminSettings,
   } from "#lib/api/settings.ts";
+  import { codeParts } from "../codeParts.ts";
   export let data: PageData;
 
   $: envEntries = Object.entries(data.info.env).sort(([a], [b]) =>
@@ -23,7 +24,7 @@
     try {
       settings = await getSettings();
     } catch (e) {
-      settingsError = e instanceof Error ? e.message : "failed";
+      settingsError = e instanceof Error ? e.message : $_("admin.common.failed");
     }
   });
 
@@ -37,7 +38,7 @@
         monitor_interval_seconds: settings.monitor_interval_seconds,
       });
     } catch (e) {
-      settingsError = e instanceof Error ? e.message : "failed";
+      settingsError = e instanceof Error ? e.message : $_("admin.common.failed");
     } finally {
       settingsBusy = false;
     }
@@ -56,7 +57,7 @@
         single_user_auto_login: settings.single_user_auto_login,
       });
     } catch (e) {
-      settingsError = e instanceof Error ? e.message : "failed";
+      settingsError = e instanceof Error ? e.message : $_("admin.common.failed");
       if (settings) settings.single_user_auto_login = !settings.single_user_auto_login;
     } finally {
       settingsBusy = false;
@@ -64,18 +65,18 @@
   }
 </script>
 
-<h2>System</h2>
+<h2>{$_("admin.system.title")}</h2>
 
 <StatusBlock
-  title="Build"
+  title={$_("admin.system.build")}
   rows={[
-    { label: "Version", value: String(data.info.version) },
-    { label: "Users", value: String(data.info.user_count) },
-    { label: "Sets", value: String(data.info.set_count) },
+    { label: $_("admin.system.version"), value: String(data.info.version) },
+    { label: $_("admin.system.users"), value: String(data.info.user_count) },
+    { label: $_("admin.system.sets"), value: String(data.info.set_count) },
   ]}
 />
 
-<StatusBlock title="Monitoring">
+<StatusBlock title={$_("admin.system.monitoring")}>
   {#if settingsError}
     <p class="admin-msg is-error" role="alert">{settingsError}</p>
   {/if}
@@ -126,23 +127,20 @@
   </StatusBlock>
 {/if}
 
-<StatusBlock title="Backup">
+<StatusBlock title={$_("admin.system.backup")}>
   <p class="hint">
-    Downloads a <code>.tar</code> archive containing a Postgres dump and
-    every file under each configured media root. Streaming starts as soon as
-    <code>pg_dump</code> begins producing output. {$_("admin.backups.system_link")}
+    {#each codeParts($_, "admin.system.backup_hint", { tar: ".tar", pg_dump: "pg_dump" }) as part}{#if part.code}<code>{part.text}</code>{:else}{part.text}{/if}{/each}
+    {$_("admin.backups.system_link")}
   </p>
-  <a class="btn btn-primary" href="/api/admin/backup" download>Download backup</a>
+  <a class="btn btn-primary" href="/api/admin/backup" download>{$_("admin.system.download_backup")}</a>
   <a class="btn" href="/admin/backups">{$_("admin.backups.title")}</a>
 </StatusBlock>
 
-<StatusBlock title="Environment">
+<StatusBlock title={$_("admin.system.environment")}>
   <p class="hint">
-    Secrets ending in <code>_KEY</code>, <code>_SECRET</code>,
-    <code>_TOKEN</code>, <code>_PASSWORD</code>, <code>_HOOK_SECRET</code> are
-    redacted.
+    {#each codeParts($_, "admin.system.redacted_hint", { a: "_KEY", b: "_SECRET", c: "_TOKEN", d: "_PASSWORD", e: "_HOOK_SECRET" }) as part}{#if part.code}<code>{part.text}</code>{:else}{part.text}{/if}{/each}
   </p>
-  <AdminTable columns={["Name", "Value"]}>
+  <AdminTable columns={[$_("admin.system.col_name"), $_("admin.system.col_value")]}>
     {#each envEntries as [k, v] (k)}
       <tr>
         <td class="mono">{k}</td>

@@ -89,7 +89,7 @@
         values: { found: withCands, total: results.length },
       });
     } catch (e) {
-      bulkStatus = e instanceof Error ? e.message : "error";
+      bulkStatus = e instanceof Error ? e.message : $_("tracklist.bulk_resolve_error");
     } finally {
       bulkBusy = false;
     }
@@ -102,7 +102,7 @@
 
 <section class="tracks-section" aria-label={$_("tracklist.heading")}>
   <div class="tracks-header">
-    <h3>{$_("tracklist.heading")} <b>· {$tracklist.entries.length} entries</b></h3>
+    <h3>{$_("tracklist.heading")} <b>· {$_("tracklist.entries_count", { values: { count: $tracklist.entries.length } })}</b></h3>
     <div class="right">
       <button class="btn btn-sm" on:click={addAtPlayhead} disabled={!onThisSet} title={$_("tracklist.add_at_playhead")}>+ <span class="kbd">M</span></button>
       <button class="btn btn-sm" on:click={() => (importModalOpen = true)}>{$_("tracklist.import")}</button>

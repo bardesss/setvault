@@ -10,6 +10,12 @@
   export let data: PageData;
 
   const KINDS: EntityKind[] = ["artists", "venues", "parties", "series"];
+  const KIND_KEYS: Record<EntityKind, string> = {
+    artists: "admin.catalog.kind_artists",
+    venues: "admin.catalog.kind_venues",
+    parties: "admin.catalog.kind_parties",
+    series: "admin.catalog.kind_series",
+  };
   let busy = false;
   let error: string | null = null;
 
@@ -28,7 +34,7 @@
       }
       await refreshAll();
     } catch (e) {
-      error = e instanceof Error ? e.message : "failed";
+      error = e instanceof Error ? e.message : $_("admin.common.failed");
     } finally {
       busy = false;
     }
@@ -42,7 +48,7 @@
       await deleteEntity(data.kind, slug);
       await refreshAll();
     } catch (e) {
-      error = e instanceof Error ? e.message : "failed";
+      error = e instanceof Error ? e.message : $_("admin.common.failed");
     } finally {
       busy = false;
     }
@@ -56,7 +62,7 @@
       await unmergeEntity(data.kind, loserId);
       await refreshAll();
     } catch (e) {
-      error = e instanceof Error ? e.message : "failed";
+      error = e instanceof Error ? e.message : $_("admin.common.failed");
     } finally {
       busy = false;
     }
@@ -68,13 +74,13 @@
 <section class="catalog-admin">
   <h2>{$_("catalog.admin_title")}</h2>
 
-  <nav class="kind-switch" aria-label="Entity kind">
+  <nav class="kind-switch" aria-label={$_("admin.catalog.kind_label")}>
     {#each KINDS as k}
       <button
         type="button"
         class:active={k === data.kind}
         on:click={() => switchKind(k)}
-      >{k}</button>
+      >{$_(KIND_KEYS[k])}</button>
     {/each}
   </nav>
 
@@ -117,7 +123,7 @@
   {#if data.items.length === 0}
     <EmptyState message={$_("catalog.none")} />
   {:else}
-    <AdminTable columns={[$_("catalog.name"), "Slug", $_("catalog.sets"), ""]}>
+    <AdminTable columns={[$_("catalog.name"), $_("admin.catalog.col_slug"), $_("catalog.sets"), ""]}>
       {#each data.items as e (e.id)}
         <tr>
           <td>{e.name}</td>

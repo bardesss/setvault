@@ -15,17 +15,16 @@
     if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
     return n.toString();
   }
-  function fmtDelta(n: number, suffix: string = "this week"): string {
-    if (n === 0) return `— 0 ${suffix}`;
-    const sign = n > 0 ? "▲" : "▼";
-    return `${sign} ${Math.abs(n)} ${suffix}`;
+  function fmtDelta(n: number): string {
+    const sign = n === 0 ? "—" : n > 0 ? "▲" : "▼";
+    return $_("home.delta_this_week", { values: { sign, count: Math.abs(n) } });
   }
 
   $: greeting = (() => {
     const h = new Date().getHours();
-    if (h < 12) return "Morning";
-    if (h < 18) return "Afternoon";
-    return "Evening";
+    if (h < 12) return $_("home.greeting.morning");
+    if (h < 18) return $_("home.greeting.afternoon");
+    return $_("home.greeting.evening");
   })();
 
   $: userName =
@@ -49,43 +48,43 @@
 {#if !data.user}
   <section class="anon">
     <h1>SetVault</h1>
-    <p><a href="/login">Sign in</a> to access the library.</p>
+    <p><a href="/login">{$_("home.anon_sign_in")}</a> {$_("home.anon_access_library")}</p>
   </section>
 {:else}
   <header class="greet">
     <h1>
       {greeting}, <span class="accent">{userName}</span>.
       {#if summary && summary.sets_delta > 0}
-        <b>{summary.sets_delta} new set{summary.sets_delta === 1 ? "" : "s"} landed in the last {summary.deltas_window_days} days.</b>
+        <b>{$_("home.new_sets_landed", { values: { count: summary.sets_delta, days: summary.deltas_window_days } })}</b>
       {/if}
     </h1>
     {#if summary}
       <p class="sub">
-        <b>{fmtNumber(summary.sets_count)} sets</b> · <b>{fmtNumber(summary.tracks_resolved_count)} tracks resolved</b>
+        <b>{$_("home.summary_sets", { values: { count: fmtNumber(summary.sets_count) } })}</b> · <b>{$_("home.summary_tracks_resolved", { values: { count: fmtNumber(summary.tracks_resolved_count) } })}</b>
       </p>
 
       <KpiGrid>
         <Kpi
           value={fmtNumber(summary.sets_count)}
-          label="Sets in vault"
+          label={$_("home.kpi.sets")}
           delta={fmtDelta(summary.sets_delta)}
           deltaUp={summary.sets_delta > 0}
           accent={true}
         />
         <Kpi
           value={fmtNumber(summary.tracks_resolved_count)}
-          label="Tracks resolved"
+          label={$_("home.kpi.tracks_resolved")}
           delta={fmtDelta(summary.tracks_resolved_delta)}
           deltaUp={summary.tracks_resolved_delta > 0}
         />
         <Kpi
           value={fmtNumber(summary.tracks_needing_ids_count)}
-          label="Tracks needing IDs"
+          label={$_("home.kpi.tracks_needing_ids")}
           delta={fmtDelta(summary.tracks_needing_ids_delta)}
         />
         <Kpi
           value={fmtBytes(summary.audio_bytes, $locale)}
-          label="Audio storage"
+          label={$_("home.kpi.audio_storage")}
         />
       </KpiGrid>
     {/if}
@@ -94,8 +93,8 @@
   {#if data.continueListening.length}
     <section class="home-section">
       <SectionHeader
-        title="Continue where you left off"
-        subMeta={`${data.continueListening.length} set${data.continueListening.length === 1 ? "" : "s"} in progress`}
+        title={$_("home.continue_title")}
+        subMeta={$_("home.continue_meta", { values: { count: data.continueListening.length } })}
       />
       <div class="continue">
         {#each data.continueListening as item (item.slug)}
@@ -112,10 +111,10 @@
 
   <section class="home-section">
     <SectionHeader
-      title="Recently added"
-      subMeta={`${data.recent.length} recent`}
+      title={$_("home.recent_title")}
+      subMeta={$_("home.recent_meta", { values: { count: data.recent.length } })}
       moreHref="/sets"
-      moreLabel="browse library →"
+      moreLabel={$_("home.browse_library")}
     />
     <div class="recent-grid">
       {#each data.recent as s (s.slug)}

@@ -55,7 +55,7 @@
         draft.target_media_root_id = roots[0].id;
       }
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "load failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.common.load_failed");
     } finally {
       loading = false;
     }
@@ -72,7 +72,7 @@
       draft = newDraft();
       await load();
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "save failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.watch_folders.save_failed");
     }
   }
 
@@ -86,7 +86,7 @@
       });
       await load();
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "toggle failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.watch_folders.toggle_failed");
     } finally {
       busy[wf.id] = false;
       busy = busy;
@@ -102,7 +102,7 @@
       });
       await load();
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "health-check failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.watch_folders.health_check_failed");
     } finally {
       busy[wf.id] = false;
       busy = busy;
@@ -110,14 +110,14 @@
   }
 
   async function remove(wf: WatchFolder) {
-    if (!confirm(`Delete watch folder "${wf.name}"?`)) return;
+    if (!confirm($_("admin.watch_folders.delete_confirm", { values: { name: wf.name } }))) return;
     busy[wf.id] = true;
     busy = busy;
     try {
       await api(`/api/admin/watch-folders/${wf.id}`, { method: "DELETE" });
       items = items.filter((i) => i.id !== wf.id);
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "delete failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.watch_folders.delete_failed");
     } finally {
       busy[wf.id] = false;
       busy = busy;
@@ -133,12 +133,8 @@
 
 <section class="watch-folders">
   <header>
-    <h2>Watch folders</h2>
-    <p class="muted">
-      Filesystem paths the watcher subscribes to. New audio files appearing
-      in a watched folder enter the ingest pipeline automatically (filename
-      patterns become drafts; ambiguous files land in the Unmatched inbox).
-    </p>
+    <h2>{$_("admin.watch_folders.title")}</h2>
+    <p class="muted">{$_("admin.watch_folders.intro")}</p>
   </header>
 
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
@@ -147,20 +143,20 @@
     type="button"
     class="btn add"
     on:click={() => { draft = newDraft(); if (roots[0]) draft.target_media_root_id = roots[0].id; creating = true; }}
-  >+ New watch folder</button>
+  >{$_("admin.watch_folders.new")}</button>
 
   {#if creating}
     <AdminForm on:submit={save}>
       <label class="admin-field">
-        <span>Name</span>
+        <span>{$_("admin.watch_folders.f_name")}</span>
         <input type="text" bind:value={draft.name} required />
       </label>
       <label class="admin-field">
-        <span>Host path</span>
-        <input type="text" bind:value={draft.host_path} required placeholder="/srv/watch/incoming" />
+        <span>{$_("admin.watch_folders.f_host_path")}</span>
+        <input type="text" bind:value={draft.host_path} required placeholder={"/srv/watch/incoming"} />
       </label>
       <label class="admin-field">
-        <span>Target media root</span>
+        <span>{$_("admin.watch_folders.f_target_root")}</span>
         <select bind:value={draft.target_media_root_id} required>
           {#each roots as r (r.id)}
             <option value={r.id}>{r.name}</option>
@@ -168,8 +164,8 @@
         </select>
       </label>
       <svelte:fragment slot="actions">
-        <button type="submit" class="btn btn-primary">Save</button>
-        <button type="button" class="btn" on:click={() => { creating = false; }}>Cancel</button>
+        <button type="submit" class="btn btn-primary">{$_("admin.common.save")}</button>
+        <button type="button" class="btn" on:click={() => { creating = false; }}>{$_("common.cancel")}</button>
       </svelte:fragment>
     </AdminForm>
   {/if}
@@ -177,17 +173,17 @@
   {#if loading}
     <p class="loading">{$_("common.loading")}</p>
   {:else if items.length === 0}
-    <EmptyState message="No watch folders configured yet." />
+    <EmptyState message={$_("admin.watch_folders.empty")} />
   {:else}
     <AdminTable
       columns={[
-        "Name",
-        "Host path",
-        "Target root",
-        "Enabled",
-        "Health",
-        "Last event",
-        "Actions",
+        $_("admin.watch_folders.col_name"),
+        $_("admin.watch_folders.col_host_path"),
+        $_("admin.watch_folders.col_target_root"),
+        $_("admin.watch_folders.col_enabled"),
+        $_("admin.watch_folders.col_health"),
+        $_("admin.watch_folders.col_last_event"),
+        $_("admin.common.col_actions"),
       ]}
     >
       {#each items as wf (wf.id)}
@@ -199,11 +195,11 @@
           <td class="mono">{wf.last_health_status}</td>
           <td class="mono">{fmtLocalDateTime(wf.last_event_at, $locale) || "—"}</td>
           <td class="cell-actions">
-            <button type="button" class="btn btn-sm" disabled={busy[wf.id]} on:click={() => healthCheck(wf)}>Probe</button>
+            <button type="button" class="btn btn-sm" disabled={busy[wf.id]} on:click={() => healthCheck(wf)}>{$_("admin.watch_folders.probe")}</button>
             <button type="button" class="btn btn-sm" disabled={busy[wf.id]} on:click={() => toggle(wf)}>
-              {wf.enabled ? "Disable" : "Enable"}
+              {wf.enabled ? $_("admin.common.disable") : $_("admin.common.enable")}
             </button>
-            <button type="button" class="btn btn-sm btn-danger" disabled={busy[wf.id]} on:click={() => remove(wf)}>Delete</button>
+            <button type="button" class="btn btn-sm btn-danger" disabled={busy[wf.id]} on:click={() => remove(wf)}>{$_("admin.common.delete")}</button>
           </td>
         </tr>
       {/each}

@@ -21,7 +21,7 @@
 
   function errText(e: unknown): string {
     if (e instanceof ApiError) return e.detail;
-    return e instanceof Error ? e.message : "failed";
+    return e instanceof Error ? e.message : $_("common.failed");
   }
 
   onMount(async () => {

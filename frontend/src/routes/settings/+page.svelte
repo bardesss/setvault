@@ -71,7 +71,7 @@
       rssNewName = "";
       await loadRssTokens();
     } catch (e) {
-      rssError = e instanceof ApiError ? e.detail : "failed";
+      rssError = e instanceof ApiError ? e.detail : $_("settings.failed");
     } finally {
       rssBusy = false;
     }
@@ -83,7 +83,7 @@
       await revokeRssToken(id);
       rssTokens = rssTokens.filter((t) => t.id !== id);
     } catch (e) {
-      rssError = e instanceof ApiError ? e.detail : "failed";
+      rssError = e instanceof ApiError ? e.detail : $_("settings.failed");
     }
   }
 
@@ -284,14 +284,14 @@
               {copyState === "copied" ? $_("feeds.copied") : $_("feeds.copy_failed")}
             </p>
           {/if}
-          <button type="button" class="btn btn-sm" on:click={() => (rssJustMinted = null)}>OK</button>
+          <button type="button" class="btn btn-sm" on:click={() => (rssJustMinted = null)}>{$_("feeds.ok")}</button>
         </aside>
       {/if}
 
       <AdminForm on:submit={mintRssToken}>
         <label class="admin-field">
           <span>{$_("feeds.name_label")}</span>
-          <input type="text" bind:value={rssNewName} disabled={rssBusy} placeholder="Podcast app" />
+          <input type="text" bind:value={rssNewName} disabled={rssBusy} placeholder={$_("feeds.name_placeholder")} />
         </label>
         {#if rssError}<p class="admin-msg is-error">{rssError}</p>{/if}
         <svelte:fragment slot="actions">
@@ -306,7 +306,7 @@
           {#each rssTokens as t (t.id)}
             <li>
               <strong>{t.name}</strong>
-              <span class="muted">— {t.last_used_at ? `used ${t.last_used_at.slice(0, 10)}` : "unused"}</span>
+              <span class="muted">— {t.last_used_at ? $_("feeds.used_on", { values: { date: t.last_used_at.slice(0, 10) } }) : $_("feeds.unused")}</span>
               <button type="button" class="btn btn-sm" on:click={() => doRevoke(t.id)}>{$_("feeds.revoke")}</button>
             </li>
           {/each}

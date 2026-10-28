@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { _ } from "svelte-i18n";
   export let slug: string;
   export let title: string;
   export let artist: string = "";
@@ -9,7 +10,7 @@
 
 <a class="recent-card" href={`/sets/${slug}`}>
   <div class="recent-cover" aria-hidden="true">
-    {#if isNew}<span class="new-pip">new</span>{/if}
+    {#if isNew}<span class="new-pip">{$_("cards.new")}</span>{/if}
   </div>
   <div class="ttl">{title}</div>
   <div class="meta">

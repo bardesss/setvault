@@ -61,7 +61,7 @@ export function scanMarkup(svelte: string): Hit[] {
   src = stripExpressions(src);
   const hits: Hit[] = [];
 
-  const attrRe = new RegExp(`\s(?:${TEXT_ATTRS.join("|")})="([^"]*)"`, "g");
+  const attrRe = new RegExp(String.raw`\s(?:${TEXT_ATTRS.join("|")})="([^"]*)"`, "g");
   for (const m of src.matchAll(attrRe)) {
     if (visible(m[1].replace(/\u0000/g, ""))) {
       hits.push({ line: lineOf(src, m.index!), text: m[0].trim() });

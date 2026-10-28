@@ -26,7 +26,7 @@
           ? await idThis(slug, entry.id)
           : await resolveEntry(slug, entry.id);
     } catch (e) {
-      error = e instanceof Error ? e.message : "error";
+      error = e instanceof Error ? e.message : $_("common.error");
     } finally {
       loading = false;
     }
@@ -55,7 +55,7 @@
 <section class="popover" role="dialog" aria-label={$_("resolve.heading")}>
   <header>
     <h3>{$_("resolve.heading")}: {entry.raw_label}</h3>
-    <button on:click={() => dispatch("close")} aria-label="close">✕</button>
+    <button on:click={() => dispatch("close")} aria-label={$_("components.close_lower")}>✕</button>
   </header>
   <nav class="modes">
     <button class:active={mode === "metadata"} on:click={() => load("metadata")}>

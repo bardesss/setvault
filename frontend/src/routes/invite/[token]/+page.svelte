@@ -30,7 +30,7 @@
     </div>
 
     <h1>{$_("auth.invite.heading")}</h1>
-    <p class="auth-caption">// finish creating your account</p>
+    <p class="auth-caption">// {$_("auth.invite.caption")}</p>
 
     <label>
       <span>{$_("auth.invite.username")}</span>

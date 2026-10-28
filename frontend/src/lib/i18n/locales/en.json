@@ -6,11 +6,22 @@
     "dismiss": "Dismiss",
     "yes": "Yes",
     "no": "No",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "error": "error",
+    "failed": "failed"
   },
   "error": {
     "title": "Something went wrong",
-    "back_home": "Back to home"
+    "back_home": "Back to home",
+    "page_not_found": "Not Found",
+    "not_found": "not found",
+    "artist_not_found": "Artist not found",
+    "party_not_found": "Party not found",
+    "series_not_found": "Series not found",
+    "venue_not_found": "Venue not found",
+    "set_not_found": "Set not found",
+    "library_load_failed": "Failed to load library",
+    "set_load_failed": "Failed to load set"
   },
   "picker": {
     "create": "Create \"{name}\"",
@@ -27,7 +38,8 @@
       "submit": "Sign in",
       "submitting": "Signing in…",
       "invalid_credentials": "invalid credentials",
-      "rate_limited": "too many attempts — try again in a minute"
+      "rate_limited": "too many attempts — try again in a minute",
+      "caption": "access your vault"
     },
     "invite": {
       "heading": "Accept invite",
@@ -35,6 +47,14 @@
       "display_name": "Display name",
       "password": "Password",
       "accept_invite": "Accept invite",
+      "unknown_error": "unknown error",
+      "caption": "finish creating your account"
+    },
+    "reset": {
+      "heading": "Reset password",
+      "caption": "set a new password",
+      "new_password": "New password",
+      "submit": "Reset password",
       "unknown_error": "unknown error"
     }
   },
@@ -111,7 +131,10 @@
     "tag": "Tag",
     "venue_kind": "Venue kind",
     "year": "Year",
-    "all": "All"
+    "all": "All",
+    "title": "Library",
+    "select_all": "Select all ({selected}/{total})",
+    "toggle_selection": "Toggle selection"
   },
   "home": {
     "activity": {
@@ -121,7 +144,29 @@
       "discovery": "Discovery to review",
       "job_failed": "Job failed",
       "view_jobs": "View all jobs"
-    }
+    },
+    "delta_this_week": "{sign} {count} this week",
+    "greeting": {
+      "morning": "Morning",
+      "afternoon": "Afternoon",
+      "evening": "Evening"
+    },
+    "anon_sign_in": "Sign in",
+    "anon_access_library": "to access the library.",
+    "new_sets_landed": "{count, plural, one {# new set} other {# new sets}} landed in the last {days} days.",
+    "summary_sets": "{count} sets",
+    "summary_tracks_resolved": "{count} tracks resolved",
+    "kpi": {
+      "sets": "Sets in vault",
+      "tracks_resolved": "Tracks resolved",
+      "tracks_needing_ids": "Tracks needing IDs",
+      "audio_storage": "Audio storage"
+    },
+    "continue_title": "Continue where you left off",
+    "continue_meta": "{count, plural, one {# set} other {# sets}} in progress",
+    "recent_title": "Recently added",
+    "recent_meta": "{count} recent",
+    "browse_library": "browse library →"
   },
   "queue": {
     "continue": "Continue: {title}",
@@ -160,7 +205,18 @@
     "series": "Series",
     "add_set": "Add set",
     "favorites": "Favorites",
-    "discoveries": "Discoveries"
+    "discoveries": "Discoveries",
+    "primary": "Primary",
+    "home": "Home",
+    "library": "Library",
+    "search": "Search",
+    "yours": "Yours",
+    "bookmarks": "Bookmarks",
+    "downloads": "Downloads",
+    "settings": "Settings",
+    "system": "System",
+    "admin": "Admin",
+    "sign_out": "Sign out"
   },
   "browse": {
     "artists": "Artists",
@@ -217,7 +273,10 @@
     "apply": "Apply",
     "resolve": "Resolve",
     "bulk_resolve": "Bulk resolve",
-    "bulk_resolve_done": "Found candidates for {found} of {total} entries."
+    "bulk_resolve_done": "Found candidates for {found} of {total} entries.",
+    "bulk_resolve_error": "error",
+    "entries_count": "{count} entries",
+    "import_failed": "import failed"
   },
   "resolve": {
     "heading": "Resolve entry",
@@ -236,7 +295,16 @@
       "actions": "Actions",
       "test": "Test",
       "add_or_update": "Add / update provider",
-      "save": "Save"
+      "save": "Save",
+      "load_failed": "Failed to load providers",
+      "user_agent": "User-Agent (per MB ToS)",
+      "discogs_token": "Personal access token",
+      "acoustid_key": "Application API key",
+      "test_ok": "ok",
+      "test_failed": "failed",
+      "state_on": "OK",
+      "state_off": "off",
+      "test_result": "Test: {result}"
     },
     "jobs": {
       "title": "Jobs",
@@ -277,7 +345,11 @@
         "started": "running",
         "finished": "finished",
         "failed": "failed"
-      }
+      },
+      "load_failed": "Failed to load jobs",
+      "duration_s": "{s} s",
+      "duration_m": "{m} min {s} s",
+      "duration_h": "{h} h {m} min"
     },
     "quality": {
       "scan": {
@@ -304,13 +376,60 @@
         "queued": "Re-apply queued. Follow it in Admin → Jobs.",
         "failed": "Could not start the re-apply.",
         "saved": "Loudness target saved."
-      }
+      },
+      "title": "Quality",
+      "intro": "Sets are rated by how good their audio is. When a set sits below the cutoff, SetVault can look for a better copy and swap it in.",
+      "load_failed": "Could not load quality settings.",
+      "tier_lossless": "Lossless",
+      "tier_high": "High",
+      "tier_good": "Good",
+      "tier_ok": "OK",
+      "tier_low": "Low",
+      "pairs_found": "{count, plural, one {# duplicate pair} other {# duplicate pairs}} found.",
+      "pairs_found_partial": "At least {count, plural, one {# duplicate pair} other {# duplicate pairs}} found (the count stopped early on this large library).",
+      "backfill_already_running": "A backfill is already running. Nothing was changed; check back when it finishes.",
+      "backfill_started_cleanup": "Backfill started. Duplicates are cleaned up when it finishes.",
+      "backfill_started": "Backfill started.",
+      "backfill_failed": "Could not start the backfill.",
+      "order_title": "Quality order",
+      "order_help": "Best first. Use the arrows to reorder.",
+      "move_up": "Move {tier} up",
+      "move_down": "Move {tier} down",
+      "cutoff": "Cutoff",
+      "cutoff_help": "Sets below this tier are wanted and get upgrade searches.",
+      "auto_upgrades": "Automatic upgrades",
+      "upgrade_search": "Upgrade search",
+      "schedule_daily": "Daily",
+      "schedule_weekly": "Weekly",
+      "schedule_off": "Off",
+      "backfill_title": "Backfill",
+      "backfill_intro": "Fingerprint and measure the quality of sets added before upgrades existed.",
+      "counting": "Counting…",
+      "backfill_counts": "{fingerprint} to fingerprint, {measure} to measure.",
+      "backfill_failed_earlier": "{count, plural, one {# set failed earlier and is skipped.} other {# sets failed earlier and are skipped.}}",
+      "cleanup": "Clean up duplicates",
+      "retry_failed": "Retry failed sets",
+      "retry_help": "Sets that could not be fingerprinted or measured are skipped unless you retry them.",
+      "cleanup_help": "When two published sets turn out to be the same audio, keep the better copy and move the other to the recycle bin. Comments, bookmarks and play history move to the set that stays; a tracklist moves only when the set that stays has none (otherwise it stays with the recycled copy). Sets with upgrades off, duplicates you chose to keep, and copies from another owner are not merged; they show up on the Duplicates page instead. Sets that still need a fingerprint are only counted after the backfill.",
+      "run_backfill": "Run backfill"
     },
     "wanted": {
       "unfingerprinted": "{count, plural, one {# set below the cutoff isn’t fingerprinted yet, so it can’t be searched.} other {# sets below the cutoff aren’t fingerprinted yet, so they can’t be searched.}}",
       "run_backfill": "Run the backfill on the Quality tab",
       "empty": "Every set meets the quality cutoff.",
-      "empty_pending": "No set can be searched yet."
+      "empty_pending": "No set can be searched yet.",
+      "title": "Wanted",
+      "intro": "Sets below the quality cutoff, least recently searched first. Search now looks for a better copy right away.",
+      "load_failed": "Could not load wanted sets.",
+      "queued": "Queued",
+      "already_queued": "Already queued",
+      "search_failed": "Search failed.",
+      "col_set": "Set",
+      "col_quality": "Quality",
+      "col_last_searched": "Last searched",
+      "col_last_result": "Last result",
+      "never": "Never",
+      "search_now": "Search now"
     },
     "backups": {
       "title": "Backups",
@@ -344,7 +463,8 @@
       "deleted": "Backup deleted",
       "full_export": "Full export",
       "full_export_hint": "A .tar archive with the Postgres dump and every media file. Scheduled backups contain the database only, not media or the secrets key.",
-      "system_link": "Scheduled backups and restore are on the Backups tab."
+      "system_link": "Scheduled backups and restore are on the Backups tab.",
+      "load_failed": "Failed to load backups"
     },
     "webhooks": {
       "title": "Library refresh webhooks",
@@ -456,7 +576,8 @@
         "readonly": "Read-only",
         "near_full": "Nearly full",
         "unknown": "Unknown"
-      }
+      },
+      "load_failed": "Failed to load media roots"
     },
     "email": {
       "title": "Email",
@@ -485,7 +606,233 @@
       "test_needs_save": "Save the settings first, then send a test.",
       "test_dry_ok": "Dry run OK. No email was sent.",
       "test_sent": "Test email sent to {to}.",
-      "test_failed": "Test email failed: {error}"
+      "test_failed": "Test email failed: {error}",
+      "load_failed": "Failed to load email settings"
+    },
+    "layout": {
+      "title": "Admin",
+      "sections": "Admin sections",
+      "update_available": "Update available.",
+      "running_version": "You're running {current}; latest is {latest}.",
+      "release_notes": "Release notes →",
+      "snooze": "Snooze 24h",
+      "tab_users": "Users",
+      "tab_connectors": "Connectors",
+      "tab_email": "Email",
+      "tab_providers": "Providers",
+      "tab_sources": "Sources",
+      "tab_monitors": "Monitors",
+      "tab_storage": "Storage",
+      "tab_watch_folders": "Watch folders",
+      "tab_unmatched": "Unmatched",
+      "tab_drafts": "Drafts",
+      "tab_duplicates": "Duplicates",
+      "tab_quality": "Quality",
+      "tab_wanted": "Wanted",
+      "tab_catalog": "Catalog",
+      "tab_recycle": "Recycle",
+      "tab_jobs": "Jobs",
+      "tab_tasks": "Tasks",
+      "tab_webhooks": "Webhooks",
+      "tab_backups": "Backups",
+      "tab_health": "Health",
+      "tab_system": "System"
+    },
+    "common": {
+      "yes": "yes",
+      "no": "no",
+      "load_failed": "load failed",
+      "discard_failed": "discard failed",
+      "discard": "Discard",
+      "col_source": "Source",
+      "col_length": "Length",
+      "col_arrived": "Arrived",
+      "col_actions": "Actions",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved.",
+      "save_failed": "Save failed.",
+      "failed": "failed",
+      "enable": "Enable",
+      "disable": "Disable",
+      "delete": "Delete"
+    },
+    "connectors": {
+      "title": "Connectors",
+      "empty": "No connectors configured.",
+      "col_name": "Name",
+      "col_kind": "Kind",
+      "col_enabled": "Enabled",
+      "col_scope": "Scope",
+      "load_failed": "Failed to load connectors"
+    },
+    "users": {
+      "title": "Users",
+      "empty": "No users.",
+      "col_email": "Email",
+      "col_username": "Username",
+      "col_display_name": "Display name",
+      "col_role": "Role",
+      "col_status": "Status",
+      "status_disabled": "disabled",
+      "status_active": "active",
+      "load_failed": "Failed to load users"
+    },
+    "sources": {
+      "load_failed": "Failed to load sources"
+    },
+    "system": {
+      "load_failed": "Failed to load system info",
+      "title": "System",
+      "build": "Build",
+      "version": "Version",
+      "users": "Users",
+      "sets": "Sets",
+      "monitoring": "Monitoring",
+      "backup": "Backup",
+      "backup_hint": "Downloads a {tar} archive containing a Postgres dump and every file under each configured media root. Streaming starts as soon as {pg_dump} begins producing output.",
+      "download_backup": "Download backup",
+      "environment": "Environment",
+      "redacted_hint": "Secrets ending in {a}, {b}, {c}, {d}, {e} are redacted.",
+      "col_name": "Name",
+      "col_value": "Value"
+    },
+    "drafts": {
+      "title": "Drafts",
+      "intro": "Sets that never reached Library: still being processed, held as a duplicate, or left unfinished by a failed rip or processing step. Publish one that has a playable stream, or discard it to the recycle bin (purged after 14 days).",
+      "empty": "No drafts. Everything you have is in Library.",
+      "publish_failed": "publish failed",
+      "state_processing": "Processing ({status})",
+      "state_duplicate": "Held as a duplicate",
+      "state_ready": "Ready to publish",
+      "state_rip_failed": "Rip failed",
+      "state_unfinished": "Not finished: no playable stream",
+      "col_set": "Set",
+      "col_state": "State",
+      "duplicate_of": "Duplicate of",
+      "no_stream_yet": "No playable stream yet",
+      "publish": "Publish",
+      "discard_title": "Discard draft?",
+      "discard_message": "“{title}” moves to the recycle bin and is purged after 14 days."
+    },
+    "duplicates": {
+      "title": "Duplicates",
+      "intro": "New arrivals whose audio fingerprint matches a set you already have are held here as drafts instead of being published. Keep one to publish it anyway, or discard it to the recycle bin.",
+      "intro_backfill": "The quality backfill's duplicate cleanup also lists published sets here that are the same audio as an older set but weren't merged automatically (for example: upgrades are off, the copies belong to different owners, or there isn't enough information to compare them). They stay published: Keep removes them from this list, Discard merges their comments, bookmarks and history into the original and moves them to the recycle bin.",
+      "discard_note": "Discard always keeps the original's audio, even when the listed copy has better quality. Each row shows both copies' quality so you can compare.",
+      "empty": "No duplicates waiting for review.",
+      "keep_failed": "keep failed",
+      "col_arrival": "Arrival",
+      "col_duplicate_of": "Duplicate of",
+      "matched_by_backfill": "Published · matched by backfill",
+      "original_removed": "(original removed)",
+      "keep": "Keep",
+      "keep_publish": "Keep & publish"
+    },
+    "health": {
+      "title": "Health",
+      "version": "Version",
+      "running": "Running",
+      "latest_known": "Latest known",
+      "release_notes": "release notes →",
+      "last_checked": "Last checked",
+      "audit_retention": "Audit retention",
+      "retention_days": "{count, plural, one {# day} other {# days}}",
+      "storage_roots": "Storage roots",
+      "col_name": "Name",
+      "col_path": "Path",
+      "col_status": "Status",
+      "col_free": "Free",
+      "col_used": "Used",
+      "col_capacity": "Capacity",
+      "col_kind": "Kind",
+      "col_enabled": "Enabled",
+      "col_last_used": "Last used",
+      "col_priority": "Priority",
+      "providers": "Providers",
+      "providers_empty": "No providers configured.",
+      "api_tokens": "API tokens",
+      "tokens_total": "Total",
+      "tokens_active": "Active",
+      "tokens_revoked": "Revoked"
+    },
+    "recycle": {
+      "title": "Recycle bin",
+      "intro": "Soft-deleted sets are kept here until their grace window expires, then the scheduled purge job removes them. Restore them or purge them now.",
+      "empty": "Nothing in the recycle bin.",
+      "restore_failed": "restore failed",
+      "purge_failed": "purge failed",
+      "purge_confirm": "Hard-delete \"{slug}\" permanently? This cannot be undone.",
+      "col_slug": "Slug",
+      "col_title": "Title",
+      "col_deleted": "Deleted",
+      "col_purge_after": "Auto-purge after",
+      "restore": "Restore",
+      "purge_now": "Purge now"
+    },
+    "tasks": {
+      "title": "Scheduled tasks",
+      "intro": "Periodic jobs registered with rq-scheduler. Re-runs on next interval automatically; the Run-now button enqueues an immediate one-off.",
+      "empty": "No scheduled jobs registered.",
+      "queued": "Queued {name}",
+      "run_now_failed": "run-now failed",
+      "interval_s": "{n}s",
+      "interval_m": "{n}m",
+      "interval_h": "{n}h",
+      "interval_d": "{n}d",
+      "col_job": "Job",
+      "col_interval": "Interval",
+      "col_next_run": "Next run",
+      "col_last_run": "Last run",
+      "col_status": "Status",
+      "run_now": "Run now"
+    },
+    "unmatched": {
+      "title": "Unmatched inbox",
+      "intro": "Files the watcher picked up but couldn't auto-match — no chromaprint hit, no filename pattern. Resolve each by linking to an existing set, creating a draft (admin renames the source file; the watcher catches the rename), or discarding (move to {path}).",
+      "empty": "Inbox is empty.",
+      "resolve_failed": "resolve failed",
+      "col_file": "File",
+      "col_detected": "Detected",
+      "col_error": "Error",
+      "link": "Link…",
+      "draft": "Draft",
+      "picker_label": "Pick set to link",
+      "picker_title": "Link to existing set",
+      "picker_search": "Search slug or title…",
+      "no_matches": "No matches."
+    },
+    "watch_folders": {
+      "title": "Watch folders",
+      "intro": "Filesystem paths the watcher subscribes to. New audio files appearing in a watched folder enter the ingest pipeline automatically (filename patterns become drafts; ambiguous files land in the Unmatched inbox).",
+      "save_failed": "save failed",
+      "toggle_failed": "toggle failed",
+      "health_check_failed": "health-check failed",
+      "delete_failed": "delete failed",
+      "delete_confirm": "Delete watch folder \"{name}\"?",
+      "new": "+ New watch folder",
+      "f_name": "Name",
+      "f_host_path": "Host path",
+      "f_target_root": "Target media root",
+      "empty": "No watch folders configured yet.",
+      "col_name": "Name",
+      "col_host_path": "Host path",
+      "col_target_root": "Target root",
+      "col_enabled": "Enabled",
+      "col_health": "Health",
+      "col_last_event": "Last event",
+      "probe": "Probe"
+    },
+    "catalog": {
+      "kind_label": "Entity kind",
+      "kind_artists": "artists",
+      "kind_venues": "venues",
+      "kind_parties": "parties",
+      "kind_series": "series",
+      "col_slug": "Slug"
+    },
+    "monitors": {
+      "linked_to_name": "Linked to {name}"
     }
   },
   "sources": {
@@ -537,7 +884,14 @@
     }
   },
   "search": {
-    "sources_throttled": "Skipped for now (rate limit reached): {sources}"
+    "sources_throttled": "Skipped for now (rate limit reached): {sources}",
+    "title": "Search",
+    "sort_relevance": "Relevance",
+    "prompt": "Type to search artists, sets, parties…",
+    "searching": "Searching…",
+    "no_matches": "No matches for \"{query}\".",
+    "group_sets": "Sets",
+    "group_artists": "Artists"
   },
   "comments": {
     "heading": "Comments",
@@ -642,7 +996,8 @@
     "tab_ingested": "Ingested",
     "tab_dismissed": "Dismissed",
     "tab_all": "All",
-    "pending_badge": "{count} pending"
+    "pending_badge": "{count} pending",
+    "failed": "failed"
   },
   "url_rip": {
     "tab_label": "URL",
@@ -666,7 +1021,8 @@
       "waveform": "Rendering waveform",
       "ready": "Ready",
       "failed": "Failed"
-    }
+    },
+    "submission_failed": "submission failed"
   },
   "feeds": {
     "description": "Subscribe in any podcast app.",
@@ -679,11 +1035,18 @@
     "copied": "Copied",
     "copy_failed": "Copy failed. Select the URL and copy it manually.",
     "revoke": "Revoke",
-    "shown_once": "These URLs are shown once. Copy and save them now."
+    "shown_once": "These URLs are shown once. Copy and save them now.",
+    "ok": "OK",
+    "name_placeholder": "Podcast app",
+    "used_on": "used {date}",
+    "unused": "unused"
   },
   "embed": {
     "allow_public": "Allow public embedding",
-    "open_in_setvault": "Open in SetVault →"
+    "open_in_setvault": "Open in SetVault →",
+    "home_label": "SetVault home",
+    "track_fallback": "Track {position}",
+    "embedded_from": "Embedded from SetVault"
   },
   "pwa": {
     "cache": {
@@ -719,7 +1082,9 @@
     "merged_title": "Merged entities",
     "no_merged": "Nothing merged yet.",
     "unmerge": "Unmerge",
-    "confirm_unmerge": "Unmerge this entity? References move back to it (field values set during the merge are not reverted)."
+    "confirm_unmerge": "Unmerge this entity? References move back to it (field values set during the merge are not reverted).",
+    "save_failed": "Save failed",
+    "enrich_failed": "Enrich failed"
   },
   "set": {
     "quality": {
@@ -733,6 +1098,15 @@
       "history_line": "Upgraded {date} from {from} to {to}",
       "history_merged_line": "Merged a duplicate copy ({from}) into this set on {date}",
       "history_merged_tracklist_kept": "Merged a duplicate copy ({from}) into this set on {date}; its tracklist stayed with the recycled copy"
+    },
+    "unknown_artist": "Unknown artist",
+    "breadcrumb": "Breadcrumb",
+    "library": "Library",
+    "tags_label": "tags",
+    "about": "About",
+    "artist_role": {
+      "main": "main",
+      "b2b": "b2b"
     }
   },
   "set_edit": {
@@ -775,5 +1149,111 @@
     "unsaved_title": "Discard changes?",
     "unsaved_message": "You have unsaved changes. Leave this page and lose them?",
     "discard": "Discard"
+  },
+  "topbar": {
+    "home": "SetVault home",
+    "open_search": "Open search",
+    "search_placeholder": "Search artists, sets, parties…",
+    "account": "Account"
+  },
+  "panel": {
+    "comments": "Comments",
+    "bookmarks": "Bookmarks",
+    "notes": "Notes",
+    "label": "Set engagement",
+    "your_bookmarks": "Your bookmarks"
+  },
+  "player": {
+    "controls": "player controls",
+    "loop": "Loop {start}…{end}",
+    "clear_loop": "clear loop",
+    "back_10_seconds": "Back 10 seconds",
+    "pause": "pause",
+    "play": "play",
+    "forward_10_seconds": "Forward 10 seconds",
+    "speed": "playback speed",
+    "now_playing_lower": "now playing",
+    "open_fullscreen": "Open full-screen player",
+    "now_playing": "Now playing",
+    "previous_track": "Previous track",
+    "back_10s": "Back 10s",
+    "forward_10s": "Forward 10s",
+    "next_track": "Next track",
+    "jump_to_track": "Jump to track",
+    "waveform": "audio waveform",
+    "loop_region": "A↔B loop region",
+    "unknown_artist": "Unknown"
+  },
+  "components": {
+    "empty_default": "Nothing here yet.",
+    "view_all": "view all →",
+    "sort_duration": "Duration",
+    "view_toggle": "View toggle",
+    "close_lower": "close"
+  },
+  "cards": {
+    "percent_played": "{pct}% played",
+    "new": "new",
+    "duration_hm": "{h}h {m}m",
+    "duration_m": "{m}m"
+  },
+  "upload": {
+    "drop_or_choose": "Drop audio or choose file",
+    "uploading": "Uploading...",
+    "start": "Start upload",
+    "uploaded": "Uploaded: {url}"
+  },
+  "bulk": {
+    "load_roots_failed": "could not load media roots",
+    "submit_failed": "submission failed",
+    "confirm_delete": "Move {count} set(s) to the recycle bin?",
+    "retag_empty": "add or remove tags first",
+    "pick_root": "pick a target root",
+    "label": "bulk actions",
+    "selected": "selected",
+    "delete": "Delete",
+    "retag": "Retag…",
+    "move_root": "Move root…",
+    "clear_selection": "Clear selection",
+    "add": "Add",
+    "remove": "Remove",
+    "tags_placeholder": "comma or space separated",
+    "apply_retag": "Apply retag",
+    "target_root": "Target root",
+    "apply_move": "Apply move"
+  },
+  "sets_new": {
+    "title": "New set"
+  },
+  "me": {
+    "bookmarks_no_match": "No bookmarks match.",
+    "bookmarks_sort_recent": "Recently bookmarked",
+    "bookmarks_sort_title": "Set title A→Z"
+  },
+  "wanted": {
+    "reason": {
+      "different_audio": "Rejected: different audio",
+      "not_better": "Rejected: not better",
+      "not_owner": "Rejected: not the set's owner",
+      "upgrades_off": "Skipped: upgrades are off",
+      "target_unavailable": "Skipped: set unavailable"
+    },
+    "result": {
+      "no_better_copy": "No better copy found",
+      "none_yet": "None yet",
+      "upgraded": "Upgraded",
+      "merged": "Merged",
+      "download_failed": "Download failed",
+      "rejected_reason": "Rejected: {reason}",
+      "rejected": "Rejected"
+    },
+    "refusal": {
+      "not_fingerprinted": "Not fingerprinted yet — run the backfill on the Quality tab",
+      "not_measured": "Quality not measured yet — run the backfill on the Quality tab",
+      "upgrades_off": "Upgrades are off for this set",
+      "meets_cutoff": "Already meets the quality cutoff",
+      "duplicate": "A duplicate of another set — search its original instead",
+      "fallback": "Can't search this set now"
+    }
   }
 }

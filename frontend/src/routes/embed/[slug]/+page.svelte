@@ -12,7 +12,7 @@
 
 <div class="embed-chrome">
   <header class="embed-header">
-    <a class="brand" href="/" target="_top" aria-label="SetVault home">
+    <a class="brand" href="/" target="_top" aria-label={$_("embed.home_label")}>
       <span class="brand-dot"></span>
       <span class="brand-name">SETVAULT</span>
     </a>
@@ -27,7 +27,7 @@
         {#each set.tracklist as t (t.position)}
           <li>
             <span class="ts">{t.start_seconds == null ? "" : fmtDuration(t.start_seconds)}</span>
-            {t.label ?? `Track ${t.position}`}
+            {t.label ?? $_("embed.track_fallback", { values: { position: t.position } })}
           </li>
         {/each}
       </ol>
@@ -35,8 +35,8 @@
   </div>
 
   <footer class="embed-footer">
-    <span>Embedded from SetVault</span>
-    <a href={`/sets/${set.slug}`} target="_top">{$_("embed.open_in_setvault")} →</a>
+    <span>{$_("embed.embedded_from")}</span>
+    <a href={`/sets/${set.slug}`} target="_top">{$_("embed.open_in_setvault")}</a>
   </footer>
 </div>
 

@@ -31,7 +31,7 @@
       });
       editing = false;
     } catch (e) {
-      saveError = e instanceof ApiError ? e.detail : "Save failed";
+      saveError = e instanceof ApiError ? e.detail : $_("catalog.save_failed");
     } finally {
       busy = false;
     }
@@ -46,7 +46,7 @@
       await enrichArtist(artist.slug);
       location.reload();
     } catch (e) {
-      enrichError = e instanceof ApiError ? e.detail : "Enrich failed";
+      enrichError = e instanceof ApiError ? e.detail : $_("catalog.enrich_failed");
     } finally {
       enriching = false;
     }

@@ -39,7 +39,7 @@
       }
       job = await importTracklist(slug, tab, payload);
       if (job.status === "failed") {
-        error = job.error ?? "import failed";
+        error = job.error ?? $_("tracklist.import_failed");
       } else if (job.status === "succeeded") {
         accepted = new Set(job.parsed.map((_p, i) => i));
       }
@@ -47,7 +47,7 @@
       if (e instanceof ApiError && e.status === 403) {
         error = $_("tracklist.import_disabled");
       } else {
-        error = e instanceof Error ? e.message : "error";
+        error = e instanceof Error ? e.message : $_("common.error");
       }
     } finally {
       busy = false;
@@ -88,7 +88,7 @@
       if (e instanceof ApiError && e.status === 409) {
         error = $_("tracklist.import_already_accepted");
       } else {
-        error = e instanceof Error ? e.message : "error";
+        error = e instanceof Error ? e.message : $_("common.error");
       }
     }
   }
@@ -103,7 +103,7 @@
 <section class="modal" role="dialog" aria-label={$_("tracklist.import")}>
   <header>
     <h3>{$_("tracklist.import")}</h3>
-    <button on:click={() => dispatch("close")} aria-label="close">✕</button>
+    <button on:click={() => dispatch("close")} aria-label={$_("components.close_lower")}>✕</button>
   </header>
   <nav class="tabs">
     <button class:active={tab === "paste"} on:click={() => (tab = "paste")}>
@@ -123,7 +123,7 @@
       ></textarea>
     {:else if tab === "url_1001tl"}
       <p class="warning">{$_("tracklist.import_1001tl_warning")}</p>
-      <input type="url" bind:value={url} placeholder="https://www.1001tracklists.com/..." />
+      <input type="url" bind:value={url} placeholder={"https://www.1001tracklists.com/..."} />
     {:else}
       <p class="warning">{$_("tracklist.import_ocr_warning")}</p>
       <input type="file" accept="image/*" on:change={onFileChange} />

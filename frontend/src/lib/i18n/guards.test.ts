@@ -5,7 +5,6 @@ import { IntlMessageFormat } from "intl-messageformat";
 import { describe, expect, it } from "vitest";
 import en from "./locales/en.json";
 import nl from "./locales/nl.json";
-import baseline from "./hardcoded-baseline.json";
 import { scanMarkup } from "./markup-scan.ts";
 
 const SRC = fileURLToPath(new URL("../../", import.meta.url));
@@ -22,6 +21,20 @@ const DYNAMIC_KEY_PREFIXES = [
   "sources.quality.",
   "url_rip.status.",
 ];
+
+type Ast = ReturnType<IntlMessageFormat["getAst"]>;
+
+/** Variable names a message uses, plural/select branches included. */
+function argNames(ast: Ast, out = new Set<string>()): Set<string> {
+  for (const el of ast as Array<{ value?: unknown; options?: Record<string, { value: Ast }>; children?: Ast }>) {
+    if (el.options) for (const opt of Object.values(el.options)) argNames(opt.value, out);
+    if (el.children) argNames(el.children, out);
+    if (typeof el.value === "string" && "type" in el && (el as { type: number }).type !== 0) {
+      out.add(el.value);
+    }
+  }
+  return out;
+}
 
 type Tree = { [k: string]: string | Tree };
 
@@ -81,22 +94,58 @@ describe("translation keys", () => {
   });
 });
 
-describe("hardcoded markup", () => {
-  const files = walk(SRC, [".svelte"]);
-  const hits = new Map<string, string[]>();
-  for (const f of files) {
-    const found = scanMarkup(readFileSync(f, "utf8"));
-    if (found.length) hits.set(rel(f), found.map((h) => `${h.line}: ${h.text}`));
-  }
-  const allowed = new Set<string>(baseline.files);
+/** nl values that may equal the English one, because Dutch uses the same
+ *  word (or it's a brand/technical token). Keep this short. */
+const IDENTICAL_BY_DESIGN = new Set<string>([
+]);
 
-  it("no hardcoded text outside the baseline", () => {
-    const offenders = [...hits].filter(([f]) => !allowed.has(f));
-    expect(Object.fromEntries(offenders)).toEqual({});
+describe("Dutch translation", () => {
+  it("nl has exactly en's key set", () => {
+    const missing = Object.keys(EN).filter((k) => !(k in NL));
+    const extra = Object.keys(NL).filter((k) => !(k in EN));
+    expect({ missing, extra }).toEqual({ missing: [], extra: [] });
   });
 
-  it("the baseline only lists files that still need work", () => {
-    const done = [...allowed].filter((f) => !hits.has(f));
-    expect(done, "remove these from hardcoded-baseline.json").toEqual([]);
+  it("every nl value is non-empty and translated", () => {
+    const untranslated = Object.keys(EN).filter(
+      (k) => k in NL && (!NL[k].trim() || (NL[k] === EN[k] && !IDENTICAL_BY_DESIGN.has(k))),
+    );
+    expect(untranslated).toEqual([]);
+  });
+
+  it("nl keeps every placeholder of en", () => {
+    const names = (msg: string, loc: string) =>
+      [...argNames(new IntlMessageFormat(msg, loc).getAst())].sort().join(",");
+    const diff = Object.keys(EN).filter((k) => k in NL && names(EN[k], "en") !== names(NL[k], "nl"));
+    expect(diff).toEqual([]);
+  });
+
+  it("plural messages render for 0, 1 and 5 in en and nl", () => {
+    const plural = Object.keys(EN).filter((k) => /,\s*plural\s*,/.test(EN[k]));
+    expect(plural.length).toBeGreaterThan(0);
+    for (const k of plural) {
+      for (const [loc, msgs] of [["en", EN], ["nl", NL]] as const) {
+        const fmt = new IntlMessageFormat(msgs[k], loc);
+        const vars = [...argNames(fmt.getAst())];
+        for (const n of [0, 1, 5]) {
+          const values = Object.fromEntries(vars.map((v) => [v, n]));
+          const out = String(fmt.format(values));
+          expect(out, `${loc} ${k} (${n})`).not.toMatch(/[{}]/);
+          // "other" branches show the count (an "=0" branch may word it).
+          if (n === 5 && msgs[k].includes("#")) expect(out, `${loc} ${k}`).toContain("5");
+        }
+      }
+    }
+  });
+});
+
+describe("hardcoded markup", () => {
+  it("no .svelte file writes user-visible text outside $_()", () => {
+    const hits: Record<string, string[]> = {};
+    for (const f of walk(SRC, [".svelte"])) {
+      const found = scanMarkup(readFileSync(f, "utf8"));
+      if (found.length) hits[rel(f)] = found.map((h) => `${h.line}: ${h.text}`);
+    }
+    expect(hits).toEqual({});
   });
 });

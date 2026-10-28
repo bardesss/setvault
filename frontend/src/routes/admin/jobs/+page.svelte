@@ -19,15 +19,15 @@
     return iso ? fmtLocalDateTime(iso, $locale) : "—";
   }
 
-  function duration(j: JobRow): string {
+  function duration(j: JobRow, t: typeof $_): string {
     if (!j.started_at || !j.finished_at) return "—";
     const ms = Date.parse(j.finished_at) - Date.parse(j.started_at);
     if (!Number.isFinite(ms) || ms < 0) return "—";
     const s = ms / 1000;
-    if (s < 60) return `${s.toFixed(1)} s`;
+    if (s < 60) return t("admin.jobs.duration_s", { values: { s: s.toFixed(1) } });
     const m = Math.floor(s / 60);
-    if (m < 60) return `${m} min ${Math.round(s % 60)} s`;
-    return `${Math.floor(m / 60)} h ${m % 60} min`;
+    if (m < 60) return t("admin.jobs.duration_m", { values: { m, s: Math.round(s % 60) } });
+    return t("admin.jobs.duration_h", { values: { h: Math.floor(m / 60), m: m % 60 } });
   }
 
   function statusLabel(status: string): string {
@@ -74,7 +74,7 @@
         </td>
         <td class="mono">{when(j.started_at)}</td>
         <td class="mono">{when(j.finished_at)}</td>
-        <td class="mono">{duration(j)}</td>
+        <td class="mono">{duration(j, $_)}</td>
       </tr>
       {#if open[j.id]}
         <tr class="job-detail" id={`job-detail-${j.id}`}>

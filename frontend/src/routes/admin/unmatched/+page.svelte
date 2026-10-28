@@ -5,6 +5,7 @@
   import EmptyState from "#lib/components/EmptyState.svelte";
   import { _, locale } from "svelte-i18n";
   import { fmtLocalDateTime } from "#lib/format.ts";
+  import { codeParts } from "../codeParts.ts";
 
   interface UnmatchedFile {
     id: string;
@@ -36,7 +37,7 @@
       const r = await api<{ items: UnmatchedFile[] }>("/api/admin/unmatched");
       items = r.items;
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "load failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.common.load_failed");
     } finally {
       loading = false;
     }
@@ -57,7 +58,7 @@
       items = items.filter((i) => i.id !== ufId);
       linkPicker = null;
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "resolve failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.unmatched.resolve_failed");
     } finally {
       busy[ufId] = false;
       busy = busy;
@@ -85,12 +86,9 @@
 
 <section class="unmatched">
   <header>
-    <h2>Unmatched inbox</h2>
+    <h2>{$_("admin.unmatched.title")}</h2>
     <p class="muted">
-      Files the watcher picked up but couldn't auto-match — no chromaprint
-      hit, no filename pattern. Resolve each by linking to an existing set,
-      creating a draft (admin renames the source file; the watcher catches
-      the rename), or discarding (move to <code>.discarded/</code>).
+      {#each codeParts($_, "admin.unmatched.intro", { path: ".discarded/" }) as part}{#if part.code}<code>{part.text}</code>{:else}{part.text}{/if}{/each}
     </p>
   </header>
 
@@ -99,9 +97,9 @@
   {#if loading}
     <p class="loading">{$_("common.loading")}</p>
   {:else if items.length === 0}
-    <EmptyState message="Inbox is empty." />
+    <EmptyState message={$_("admin.unmatched.empty")} />
   {:else}
-    <AdminTable columns={["File", "Detected", "Error", "Actions"]}>
+    <AdminTable columns={[$_("admin.unmatched.col_file"), $_("admin.unmatched.col_detected"), $_("admin.unmatched.col_error"), $_("admin.common.col_actions")]}>
       {#each items as uf (uf.id)}
         <tr>
           <td class="mono ellipsis" title={uf.file_path}>{uf.file_path}</td>
@@ -109,13 +107,13 @@
           <td class="error-cell">{uf.error_text ?? ""}</td>
           <td class="cell-actions">
             <button type="button" class="btn btn-sm" disabled={busy[uf.id]} on:click={() => openLinkPicker(uf)}>
-              Link…
+              {$_("admin.unmatched.link")}
             </button>
             <button type="button" class="btn btn-sm" disabled={busy[uf.id]} on:click={() => resolve(uf, "create_draft")}>
-              Draft
+              {$_("admin.unmatched.draft")}
             </button>
             <button type="button" class="btn btn-sm btn-danger" disabled={busy[uf.id]} on:click={() => resolve(uf, "discard")}>
-              Discard
+              {$_("admin.common.discard")}
             </button>
           </td>
         </tr>
@@ -124,11 +122,11 @@
   {/if}
 
   {#if linkPicker}
-    <aside class="picker" role="dialog" aria-label="Pick set to link">
-      <h3>Link to existing set</h3>
+    <aside class="picker" role="dialog" aria-label={$_("admin.unmatched.picker_label")}>
+      <h3>{$_("admin.unmatched.picker_title")}</h3>
       <input
         type="text"
-        placeholder="Search slug or title…"
+        placeholder={$_("admin.unmatched.picker_search")}
         bind:value={linkPicker.slug}
       />
       <ul class="candidate-list">
@@ -143,10 +141,10 @@
           </li>
         {/each}
         {#if filteredCandidates.length === 0}
-          <li class="empty">No matches.</li>
+          <li class="empty">{$_("admin.unmatched.no_matches")}</li>
         {/if}
       </ul>
-      <button type="button" class="btn btn-sm" on:click={() => { linkPicker = null; }}>Cancel</button>
+      <button type="button" class="btn btn-sm" on:click={() => { linkPicker = null; }}>{$_("common.cancel")}</button>
     </aside>
   {/if}
 </section>

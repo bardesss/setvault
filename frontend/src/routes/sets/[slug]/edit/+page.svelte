@@ -224,7 +224,7 @@
 <svelte:head><title>{$_("set_edit.page_title", { values: { title: set.title } })} - SetVault</title></svelte:head>
 
 <article class="set-edit">
-  <nav class="breadcrumb" aria-label="Breadcrumb">
+  <nav class="breadcrumb" aria-label={$_("set.breadcrumb")}>
     <a href={`/sets/${slug}`}>{set.title}</a>
     <span class="sep">›</span>
     <span class="current">{$_("set_edit.heading")}</span>
@@ -260,7 +260,7 @@
             on:change={(ev) => (roles = { ...roles, [item.id]: ev.currentTarget.value })}
           >
             {#each roleOptions(originalRoles[item.id] ?? "main") as r (r)}
-              <option value={r}>{r}</option>
+              <option value={r}>{["main", "b2b"].includes(r) ? $_(`set.artist_role.${r}`) : r}</option>
             {/each}
           </select>
         </svelte:fragment>

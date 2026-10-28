@@ -113,12 +113,12 @@
   }
 </script>
 
-<svelte:head><title>Search — SetVault</title></svelte:head>
+<svelte:head><title>{$_("search.title")} — SetVault</title></svelte:head>
 
 <FilterBar
   bind:query
   on:query={onQueryEvent}
-  sortOptions={[{ value: "relevance", label: "Relevance" }]}
+  sortOptions={[{ value: "relevance", label: $_("search.sort_relevance") }]}
   sort="relevance"
   view="list"
 />
@@ -207,16 +207,16 @@
 
   {#if mode === "library"}
     {#if !initialized}
-      <p class="hint">Loading…</p>
+      <p class="hint">{$_("common.loading")}</p>
     {:else if !query}
-      <p class="hint">Type to search artists, sets, parties…</p>
+      <p class="hint">{$_("search.prompt")}</p>
     {:else if loading}
-      <p class="hint">Searching…</p>
+      <p class="hint">{$_("search.searching")}</p>
     {:else if !results || (results.sets.length === 0 && results.artists.length === 0)}
-      <p class="hint">No matches for "{query}".</p>
+      <p class="hint">{$_("search.no_matches", { values: { query } })}</p>
     {:else}
       {#if results.sets.length}
-        <h2 class="group">Sets</h2>
+        <h2 class="group">{$_("search.group_sets")}</h2>
         <ul class="result-list">
           {#each results.sets as s (s.slug)}
             <li><a href={`/sets/${s.slug}`}>{s.title}</a></li>
@@ -224,7 +224,7 @@
         </ul>
       {/if}
       {#if results.artists.length}
-        <h2 class="group">Artists</h2>
+        <h2 class="group">{$_("search.group_artists")}</h2>
         <ul class="result-list">
           {#each results.artists as a (a.slug)}
             <li><a href={`/artists/${a.slug}`}>{a.name}</a></li>
