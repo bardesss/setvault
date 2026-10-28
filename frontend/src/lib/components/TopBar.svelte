@@ -33,7 +33,7 @@
       <circle cx="7" cy="7" r="5" />
       <line x1="11" y1="11" x2="14" y2="14" />
     </svg>
-    <span>{$_("topbar.search_placeholder")}</span>
+    <span class="search-label">{$_("topbar.search_placeholder")}</span>
     <span class="kbd">⌘ K</span>
   </button>
 
@@ -100,7 +100,17 @@
     white-space: nowrap;
   }
   .add-set:hover { background: var(--accent); color: var(--text-on-accent); }
+  /* Without min-width: 0 the trigger can't shrink below its label's width. */
+  .topbar .search-trigger { min-width: 0; }
+  .search-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 760px) {
+    .topbar .search-trigger .kbd { display: none; }
+  }
   @media (max-width: 600px) {
+    .topbar { padding: 0 var(--sp-3); gap: var(--sp-2); }
+    .topbar .topbar-right { gap: var(--sp-1); }
+    .topbar .search-trigger { flex: 0 0 auto; margin-left: auto; padding: 0; width: 32px; height: 32px; justify-content: center; }
+    .search-label { display: none; }
     .add-set { padding: 0; width: 32px; justify-content: center; }
     .add-set-label { display: none; }
   }

@@ -1197,6 +1197,7 @@
 .tracks-section { border-right: 1px solid var(--border-subtle); min-width: 0; }
 .tracks-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   padding: var(--sp-4) var(--sp-8) var(--sp-3);
   gap: var(--sp-4);
@@ -1219,7 +1220,7 @@
   font-size: var(--ts-md);
   font-family: var(--font-mono);
 }
-.tracks-header .right { margin-left: auto; display: flex; gap: var(--sp-2); }
+.tracks-header .right { margin-left: auto; display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 
 /* dense track row */
 .track-row {
@@ -1284,7 +1285,9 @@
 }
 
 /* --- generic tab strip (TabStrip.svelte) ------------------ */
-.tab-strip { display: flex; gap: var(--sp-1); }
+/* Tabs scroll sideways on narrow screens rather than widening the page. */
+.tab-strip { display: flex; gap: var(--sp-1); overflow-x: auto; scrollbar-width: none; }
+.tab-strip .tab { flex-shrink: 0; white-space: nowrap; }
 .tab-strip .tab {
   padding: var(--sp-3) var(--sp-3);
   background: transparent;
@@ -1453,8 +1456,9 @@
 }
 .admin-table tbody tr:last-child td { border-bottom: 0; }
 .admin-table tbody tr:hover { background: var(--bg-elevated); }
-.admin-table .mono { font-family: var(--font-mono); font-size: var(--ts-sm); }
-.admin-table .cell-actions { display: flex; gap: var(--sp-1); }
+/* Paths and IDs are one unbroken word; let them wrap instead of widening the table. */
+.admin-table .mono { font-family: var(--font-mono); font-size: var(--ts-sm); overflow-wrap: anywhere; }
+.admin-table .cell-actions { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
 .admin-table tr.is-disabled td { opacity: 0.5; }
 
 /* --- form card -------------------------------------------- */
