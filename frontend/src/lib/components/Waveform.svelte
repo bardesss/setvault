@@ -15,6 +15,9 @@
   let ws: WaveSurfer | null = null;
   let ready = false;
   let markers: Array<{ id: string; t: number; title: string }> = [];
+  // A comment past the end (e.g. the set was swapped for a shorter copy) has no
+  // spot on the waveform; placed at t/duration it would stretch the page sideways.
+  $: shownMarkers = markers.filter((m) => m.t >= 0 && m.t <= duration);
 
   // Only the set that is actually loaded shows the engine's position; a page
   // for another set shows its own start and length.
@@ -113,9 +116,9 @@
       style="left: {(loopStart / duration) * 100}%; width: {((loopEnd - loopStart) / duration) * 100}%"
       aria-label={$_("player.loop_region")}></div>
   {/if}
-  {#if duration > 0 && markers.length > 0}
+  {#if duration > 0 && shownMarkers.length > 0}
     <div class="markers" aria-hidden="true">
-      {#each markers as m (m.id)}
+      {#each shownMarkers as m (m.id)}
         <button type="button" class="marker" title={m.title}
           style="left: {(m.t / duration) * 100}%" on:click={() => void seekInSet(slug, m.t)}></button>
       {/each}
