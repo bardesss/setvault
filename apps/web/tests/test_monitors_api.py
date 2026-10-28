@@ -1,5 +1,6 @@
 import os
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from setvault_core.db import init_engine, session_factory
@@ -537,6 +538,8 @@ async def test_discovery_rip_rate_limited(authed_admin_client, monkeypatch):
     from setvault_web.api import monitors as monitors_api
 
     monkeypatch.setattr(rip_limits, "RIP_HOURLY_LIMIT", 1)
+    # One hourly bucket for both rips, even if the test crosses the hour.
+    monkeypatch.setattr("setvault_web.rate_limit.time", SimpleNamespace(time=lambda: 1_000_000.0))
     monkeypatch.setattr(monitors_api, "submit_rip", _fake_submit)
     monkeypatch.setattr(rip_enqueue, "_queue", lambda url=None: _UpQueue())
 
