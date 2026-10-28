@@ -44,8 +44,6 @@
     "saving": "Saving…",
     "password_updated": "password updated",
     "failed": "failed",
-    "notifications": "Notification preferences",
-    "loading": "Loading…",
     "notification_kinds": {
       "account_security": "Account security",
       "mention": "Mentions",
@@ -61,7 +59,6 @@
   "nav": {
     "home": "Home",
     "library": "Library",
-    "upload": "Upload",
     "search": "Search",
     "settings": "Settings",
     "admin": "Admin",
@@ -176,7 +173,6 @@
     }
   },
   "feeds": {
-    "heading": "RSS feeds",
     "description": "Subscribe in any podcast app.",
     "favorites": "Favorites",
     "recent": "Recent",

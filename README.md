@@ -341,9 +341,14 @@ upload the cookies again, or use **Remove** to stop sending them.
 
 ## 🌐 Translations
 
-Translation-ready via [Crowdin](https://crowdin.com/project/setvault) — contributions welcome.
-English source pushes up automatically and Crowdin opens PRs back with translated locales.
-Keep `{placeholders}` intact and badges/hints short.
+Translations live in [`frontend/src/lib/i18n/locales/`](frontend/src/lib/i18n/locales/), one
+JSON file per language, with `en.json` as the source. To help, open a PR that edits your
+language's file (or adds a new one and registers it in `frontend/src/lib/i18n/index.ts`).
+
+- Keys missing from a locale fall back to English, so partial translations are fine.
+- Don't add keys that aren't in `en.json`, and keep every `{placeholder}` and ICU
+  `plural`/`select` block intact. `npm run test:unit` checks both.
+- Keep badges and hints short; they sit in tight spots.
 
 ---
 
@@ -436,5 +441,5 @@ GPL-3.0.
 
 ## 🙏 Credits
 
-**wavesurfer.js** · **yt-dlp** · **tusd** · **MusicBrainz / Discogs / AcoustID** · **Crowdin** — and every CI red that got us here.
+**wavesurfer.js** · **yt-dlp** · **tusd** · **MusicBrainz / Discogs / AcoustID** — and every CI red that got us here.
 </content>
