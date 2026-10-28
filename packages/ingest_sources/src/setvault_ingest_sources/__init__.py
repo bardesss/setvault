@@ -1,5 +1,10 @@
+from importlib.metadata import PackageNotFoundError, version
+
 from setvault_ingest_sources.base import Candidate, IngestSource, SourceError
 
-__version__ = "0.1.0"
+try:
+    __version__ = version("setvault-ingest-sources")
+except PackageNotFoundError:
+    __version__ = "0.0.0+unknown"
 
 __all__ = ["Candidate", "IngestSource", "SourceError", "__version__"]

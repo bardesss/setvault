@@ -113,6 +113,42 @@ async def test_put_state_updates_existing(authed_admin_client, seeded_live_set):
     assert body["completed"] is True
 
 
+async def test_put_state_records_listening_history(authed_admin_client, seeded_live_set):
+    from setvault_core.models.engagement import ListeningHistory
+
+    slug = seeded_live_set["slug"]
+    for pos in (10.0, 75.0):
+        await authed_admin_client.put(
+            f"/api/sets/{slug}/state",
+            json={"position_seconds": pos, "completed": False},
+        )
+    async with session_factory()() as s:
+        rows = (await s.execute(select(ListeningHistory))).scalars().all()
+    # Saves close together extend one listen rather than appending rows.
+    assert len(rows) == 1
+    assert rows[0].last_position_seconds == 75.0
+    assert rows[0].ended_at is not None
+
+
+async def test_listening_history_starts_new_row_after_gap(seeded_live_set):
+    from setvault_core.models.engagement import ListeningHistory
+    from setvault_core.services.listening import SESSION_GAP, record_listen
+
+    async with session_factory()() as s:
+        live = (
+            await s.execute(select(LiveSet).where(LiveSet.slug == seeded_live_set["slug"]))
+        ).scalar_one()
+        user = (await s.execute(select(User))).scalars().first()
+        t0 = datetime.now(UTC) - timedelta(hours=2)
+        await record_listen(s, user.id, live.id, 30.0, now=t0)
+        await record_listen(s, user.id, live.id, 40.0, now=t0 + SESSION_GAP + timedelta(minutes=1))
+        await s.commit()
+        rows = (
+            await s.execute(select(ListeningHistory).order_by(ListeningHistory.started_at))
+        ).scalars().all()
+    assert [r.last_position_seconds for r in rows] == [30.0, 40.0]
+
+
 # ---- Library list: filters, sort, paging, facets ----------------------------
 
 

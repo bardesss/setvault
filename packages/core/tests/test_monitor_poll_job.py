@@ -175,3 +175,47 @@ async def test_auto_ingest_enqueues_after_poll_commit(session, monkeypatch):
     (call,) = seen
     assert call["job_timeout"] == RIP_JOB_TIMEOUT
     assert call["in_tx"] is False  # committed before enqueueing
+
+
+async def test_failed_auto_ingest_enqueue_goes_back_to_review(session, monkeypatch):
+    """Redis down after the poll commits: the discovery returns to review (so it
+    can be ripped again) and the owner's notification counts it as such."""
+    from setvault_core.models.engagement_3c import InAppNotification
+    from setvault_core.models.monitors import MonitorDiscovery
+    from setvault_core.models.url_rip import RipJob
+    from setvault_core.services import rip_enqueue, url_rip
+    from sqlalchemy import select
+
+    u = await _make_user(session)
+    m = Monitor(kind="entity", source_kind="soundcloud", external_id="chan2",
+                owner_user_id=u.id, enabled=True, per_poll_cap=5)
+    session.add(m)
+    await session.flush()
+
+    async def fake_search_source(s, *, kind, query, limit=20):
+        return [_cand("b")]
+
+    async def fake_submit(s, *, user_id, url, **_kw):
+        j = RipJob(submitted_by=user_id, source_url=url, status="queued")
+        s.add(j)
+        await s.flush()
+        return j
+
+    class _Down:
+        def enqueue(self, *_a, **_kw):
+            raise ConnectionError("redis down")
+
+    monkeypatch.setattr(job, "search_source", fake_search_source)
+    monkeypatch.setattr(url_rip, "submit_rip", fake_submit)
+    monkeypatch.setattr(rip_enqueue, "_queue", lambda url=None: _Down())
+
+    summary = await job.poll_monitor(session, monitor_id=m.id)
+    assert summary["auto_ingested"] == 0 and summary["pending_review"] == 1
+    d = (await session.execute(
+        select(MonitorDiscovery).where(MonitorDiscovery.monitor_id == m.id)
+    )).scalar_one()
+    assert d.status == "pending_review" and d.url_rip_id is None
+    n = (await session.execute(
+        select(InAppNotification).where(InAppNotification.user_id == u.id)
+    )).scalar_one()
+    assert n.payload["auto_ingested"] == 0 and n.payload["pending_review"] == 1
