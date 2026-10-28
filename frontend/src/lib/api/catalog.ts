@@ -47,6 +47,8 @@ export const createArtist = (name: string) =>
 /** A venue made from a picker: name only; kind is required by the API, so "other". */
 export const createVenue = (name: string) =>
   api<Venue>("/api/catalog/venues", { method: "POST", body: JSON.stringify({ name, kind: "other" }) });
+export const createSeries = (name: string) =>
+  api<Series>("/api/catalog/series", { method: "POST", body: JSON.stringify({ name }) });
 export const createParty = (body: { name: string; date?: string | null; venue_id?: string | null }) =>
   api<Party>("/api/catalog/parties", { method: "POST", body: JSON.stringify(body) });
 

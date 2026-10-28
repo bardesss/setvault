@@ -22,7 +22,7 @@ per-user RSS feeds, an embeddable player, and an installable PWA.
 | **Catalog** | LiveSets · Artists · Venues · Series · Parties · Tags · naming templates · Postgres FTS · recycle bin · bulk editor · browse pages · Home activity + storage · entity monitors ("Monitor this") |
 | **Tracklists** | Per-set editor · reorder + time-shift · live add · paste-parse · 1001tracklists scrape · OCR |
 | **Enrichment** | Pluggable providers — MusicBrainz · Discogs · AcoustID — with per-row + bulk resolve |
-| **Player** | wavesurfer.js · 0.5×–2× pitch-preserved speed · A↔B loop · mediaSession · persisted per-user state |
+| **Player** | wavesurfer.js · 0.5×–2× pitch-preserved speed · A↔B loop · mediaSession · persisted per-user state · listening history · playlists · play queue synced across devices |
 | **Engagement** | Comments w/ @mentions + waveform markers · bookmarks · private notes · in-app + email notifications |
 | **Distribution** | Per-user RSS feeds · HMAC-signed short-TTL enclosures · public `/embed/[slug]` player |
 | **PWA** | Installable · offline set-detail · audio cache with admin cap + eviction · phone-width everywhere |

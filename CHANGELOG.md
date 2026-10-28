@@ -4,6 +4,14 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.1](https://github.com/bardesss/setvault/compare/v0.25.0...v0.25.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* close the leftover gaps from the full review ([0783934](https://github.com/bardesss/setvault/commit/07839349788beb7ef0ffda2969f4aa16ff4544e2))
+* close the leftover gaps from the full review ([7f27538](https://github.com/bardesss/setvault/commit/7f27538b4a4ce078664faab6a49aa02cbd06f374))
+
 ## [0.25.0](https://github.com/bardesss/setvault/compare/v0.24.0...v0.25.0) (2026-10-28)
 
 

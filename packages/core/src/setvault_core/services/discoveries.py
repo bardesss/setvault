@@ -63,9 +63,9 @@ async def _ingest_candidate(
 
 async def _notify_owner(
     session: AsyncSession, *, user_id: uuid.UUID, monitor: Monitor, summary: dict,
-) -> None:
+) -> InAppNotification:
     label = monitor.query_text or monitor.external_id or "monitor"
-    session.add(InAppNotification(
+    notification = InAppNotification(
         user_id=user_id, kind="discovery",
         subject_type="monitor", subject_id=monitor.id,
         payload={
@@ -74,8 +74,38 @@ async def _notify_owner(
             "pending_review": summary["pending_review"],
         },
         created_at=datetime.now(UTC),
-    ))
+    )
+    session.add(notification)
     await session.flush()
+    return notification
+
+
+async def revert_failed_auto_ingest(
+    session: AsyncSession, *, failed_job_ids: list[uuid.UUID],
+    notification: InAppNotification | None,
+) -> int:
+    """After a failed enqueue: put those auto-ingested discoveries back up for
+    review and correct the owner's notification counts. Returns the number moved."""
+    if not failed_job_ids:
+        return 0
+    rows = (
+        await session.execute(
+            select(MonitorDiscovery).where(
+                MonitorDiscovery.url_rip_id.in_(failed_job_ids),
+                MonitorDiscovery.status == "auto_ingested",
+            )
+        )
+    ).scalars().all()
+    for d in rows:
+        d.status = "pending_review"
+        d.url_rip_id = None
+    if rows and notification is not None:
+        payload = dict(notification.payload)
+        payload["auto_ingested"] = max(0, payload.get("auto_ingested", 0) - len(rows))
+        payload["pending_review"] = payload.get("pending_review", 0) + len(rows)
+        notification.payload = payload
+    await session.flush()
+    return len(rows)
 
 
 def _same_set(a: Candidate, b: Candidate) -> bool:
@@ -170,10 +200,13 @@ async def process_candidates(
         ))
     await session.flush()
 
+    notification = None
     if summary["auto_ingested"] or summary["pending_review"]:
-        await _notify_owner(
+        notification = await _notify_owner(
             session, user_id=monitor.owner_user_id, monitor=monitor, summary=summary
         )
-    # Handed to poll_monitor, which commits and then enqueues them.
+    # Handed to poll_monitor, which commits and then enqueues them (and fixes
+    # up the notification if an enqueue fails).
     summary["rip_jobs"] = new_jobs
+    summary["notification"] = notification
     return summary
