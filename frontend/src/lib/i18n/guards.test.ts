@@ -97,6 +97,35 @@ describe("translation keys", () => {
 /** nl values that may equal the English one, because Dutch uses the same
  *  word (or it's a brand/technical token). Keep this short. */
 const IDENTICAL_BY_DESIGN = new Set<string>([
+  // Same word in Dutch UI
+  "settings.tabs.offline", "library.filters", "library.tag",
+  "nav.home", "nav.downloads", "home.recent_meta",
+  "feeds.recent", "feeds.ok", "admin.providers.state_on",
+  "admin.quality.tier_ok", "admin.storage.health.ok", "admin.providers.test_result",
+  "admin.tasks.col_interval", "admin.system.build", "catalog.website",
+  "catalog.bio", "topbar.account", "pwa.cache.heading",
+  "admin.layout.release_notes", "admin.webhooks.headers", "admin.jobs.col_status",
+  "admin.webhooks.col_status", "admin.users.col_status", "admin.health.col_status",
+  "admin.tasks.col_status", "discoveries.col_status",
+  // Glossary terms kept in Dutch (set, track, tracklist, tag, monitor, provider, webhook, upload)
+  "home.summary_sets", "playlists.items", "browse.sets_count",
+  "search.group_sets", "admin.wanted.col_set", "admin.drafts.col_set",
+  "admin.storage.col_sets", "admin.system.sets", "catalog.sets",
+  "browse.track_chip", "browse.track_chip_artist", "embed.track_fallback",
+  "tracklist.heading", "set.tags_label", "set_edit.tags",
+  "monitors.admin_title", "monitors.monitor", "admin.providers.kind",
+  "admin.layout.tab_providers", "admin.health.providers", "admin.layout.tab_webhooks",
+  "url_rip.tab_upload",
+  // Audio and DJ jargon
+  "admin.quality.tier_lossless", "sources.quality.lossless", "set.artist_role.b2b",
+  "set_edit.type.b2b",
+  // Technical tokens and protocol names
+  "tracklist.tab_url", "admin.webhooks.col_url", "url_rip.tab_label",
+  "admin.email.sec_starttls", "admin.email.sec_ssl", "admin.recycle.col_slug",
+  "admin.catalog.col_slug",
+  // Unit abbreviations that read the same
+  "admin.jobs.duration_s", "admin.jobs.duration_m", "admin.tasks.interval_s",
+  "admin.tasks.interval_m", "admin.tasks.interval_d", "cards.duration_m",
 ]);
 
 describe("Dutch translation", () => {

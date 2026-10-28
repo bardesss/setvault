@@ -44,11 +44,22 @@ test.describe("signed out", () => {
   });
 });
 
-test("falls back to English when a language file fails to load", async ({ page }) => {
-  await page.route(/\/locales\/nl\.json|\/nl-[\w-]+\.js$/, (route) => route.abort());
-  await page.addInitScript(() => localStorage.setItem("setvault.locale", "nl"));
-  await page.goto("/login");
-  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+test.describe("broken language file", () => {
+  // page.route can't see requests the service worker makes.
+  test.use({ serviceWorkers: "block" });
+
+  test("falls back to English when a language file fails to load", async ({ page }) => {
+    let blocked = false;
+    // Dev server: /src/lib/i18n/locales/nl.json?import; build: a hashed nl-*.js chunk.
+    await page.route(/\/locales\/nl\.json|\/nl-[\w-]+\.js(\?|$)/, (route) => {
+      blocked = true;
+      return route.abort();
+    });
+    await page.addInitScript(() => localStorage.setItem("setvault.locale", "nl"));
+    await page.goto("/login");
+    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+    expect(blocked).toBe(true);
+  });
 });
 
 test("a stale cached language falls back to the browser language", async ({ page }) => {
