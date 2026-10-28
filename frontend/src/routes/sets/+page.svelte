@@ -274,7 +274,7 @@
   }
   .layout {
     display: grid;
-    grid-template-columns: 240px 1fr;
+    grid-template-columns: 240px minmax(0, 1fr);
     gap: var(--sp-4);
   }
   @media (max-width: 760px) {
@@ -282,7 +282,7 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
     gap: var(--sp-3);
   }
   .list { display: grid; }

@@ -88,7 +88,8 @@
 <style>
   .app-shell {
     display: grid;
-    grid-template-columns: 220px 1fr;
+    /* minmax(0, …): a wide child must scroll inside its column, never widen the page. */
+    grid-template-columns: 220px minmax(0, 1fr);
     grid-template-rows: auto 1fr;
     grid-template-areas:
       "topbar topbar"
@@ -103,7 +104,7 @@
   .main { grid-area: main; min-width: 0; }
   @media (max-width: 760px) {
     .app-shell {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
       grid-template-areas:
         "topbar"
         "main";

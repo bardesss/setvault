@@ -32,7 +32,7 @@ test("waveform comment markers render after a positioned comment is posted", asy
   const post = await page.request.post(
     `/api/sets/${seed.set.slug}/comments`,
     {
-      data: { body: "test marker", position_seconds: 30 },
+      data: { body: "test marker", position_seconds: 1 }, // within the 1 s seeded set
       headers: { "X-CSRF-Token": csrf },
     },
   );
