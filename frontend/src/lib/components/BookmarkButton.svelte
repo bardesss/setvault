@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
   import { createBookmark, deleteBookmark, listForSet, type Bookmark } from "#lib/api/bookmarks.ts";
-  import { player, seekTo } from "#lib/stores/audio.ts";
+  import { player, seekInSet } from "#lib/stores/audio.ts";
   import { shouldIgnoreShortcut } from "#lib/keyboard.ts";
   import { fmtDuration } from "#lib/format.ts";
 
@@ -46,8 +46,12 @@
     }
   }
 
+  // The playhead is only meaningful when this page's set is the loaded one.
+  $: onThisSet = $player.set?.slug === slug;
+
   async function bookmarkPlayhead() {
-    const t = Math.floor($player.position ?? 0);
+    if (!onThisSet) return;
+    const t = Math.floor($player.position);
     const b = await createBookmark(slug, t, null);
     touched = true;
     bookmarks = [...bookmarks, b];
@@ -84,7 +88,7 @@
   {#each bookmarks.filter((b) => b.position_seconds !== null) as b (b.id)}
     {@const pos = b.position_seconds ?? 0}
     <li>
-      <button class="seek" on:click={() => seekTo(pos)}>{fmtDuration(pos)}</button>
+      <button class="seek" on:click={() => void seekInSet(slug, pos)}>{fmtDuration(pos)}</button>
       <button class="remove" aria-label={$_("bookmarks.remove")} on:click={() => removeTimestamped(b.id)}>✕</button>
     </li>
   {/each}

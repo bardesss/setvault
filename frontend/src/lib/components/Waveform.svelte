@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import WaveSurfer from "wavesurfer.js";
   import { listComments } from "#lib/api/comments.ts";
-  import { player, seekTo } from "#lib/stores/audio.ts";
+  import { player, seekInSet } from "#lib/stores/audio.ts";
   import { toPeaks } from "#lib/waveform-peaks.ts";
 
   export let slug: string;
@@ -15,10 +15,13 @@
   let ready = false;
   let markers: Array<{ id: string; t: number; title: string }> = [];
 
-  $: duration = $player.duration;
-  $: position = $player.position;
-  $: loopStart = $player.loopStart;
-  $: loopEnd = $player.loopEnd;
+  // Only the set that is actually loaded shows the engine's position; a page
+  // for another set shows its own start and length.
+  $: isCurrent = $player.set?.slug === slug;
+  $: duration = isCurrent ? $player.duration : (fallbackDuration ?? 0);
+  $: position = isCurrent ? $player.position : 0;
+  $: loopStart = isCurrent ? $player.loopStart : null;
+  $: loopEnd = isCurrent ? $player.loopEnd : null;
 
   // Drive the (otherwise idle) waveform's cursor/progress from the engine's
   // position — wavesurfer here is a picture, not the player.
@@ -96,7 +99,7 @@
     if (!tagCanvas()) queueMicrotask(tagCanvas);
     ws.on("ready", () => { ready = true; tagCanvas(); });
     // click-to-seek: wavesurfer 'interaction' gives the clicked time
-    ws.on("interaction", (t: number) => seekTo(t));
+    ws.on("interaction", (t: number) => void seekInSet(slug, t));
   }
 
   onDestroy(() => { destroyed = true; ws?.destroy(); ws = null; });
@@ -113,7 +116,7 @@
     <div class="markers" aria-hidden="true">
       {#each markers as m (m.id)}
         <button type="button" class="marker" title={m.title}
-          style="left: {(m.t / duration) * 100}%" on:click={() => seekTo(m.t)}></button>
+          style="left: {(m.t / duration) * 100}%" on:click={() => void seekInSet(slug, m.t)}></button>
       {/each}
     </div>
   {/if}

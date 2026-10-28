@@ -102,6 +102,12 @@
       </svg>
       {$_("nav.favorites")}
     </a>
+    <a class="rail-link" class:active={active("/playlists")} href="/playlists">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
+        <path d="M2 4h12M2 8h12M2 12h7" />
+      </svg>
+      {$_("nav.playlists")}
+    </a>
     {#if user.role === "admin"}
       <a class="rail-link" class:active={active("/discoveries")} href="/discoveries">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">

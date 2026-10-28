@@ -1,7 +1,7 @@
 import { writable, get } from "svelte/store";
 import { browser } from "$app/env";
 import type { SetDetail } from "#lib/api/sets.ts";
-import { getSetState, putSetState } from "#lib/api/sets.ts";
+import { getSet, getSetState, putSetState } from "#lib/api/sets.ts";
 import { listTracklist, type TracklistEntry } from "#lib/api/tracklist.ts";
 
 export interface PlayerState {
@@ -22,6 +22,9 @@ const initial: PlayerState = {
 
 export const player = writable<PlayerState>(initial);
 export const fullscreenOpen = writable<boolean>(false);
+
+export interface PlayQueue { slugs: string[]; index: number }
+export const queue = writable<PlayQueue>({ slugs: [], index: 0 });
 
 // ---- pure helpers (unit-tested) -------------------------------------------
 export function clampRate(r: number): number {
@@ -56,6 +59,8 @@ let initialized = false;
 let restoring = false;
 let played = false;
 let loadToken = 0;
+let queueToken = 0;
+let queueListener: ((q: PlayQueue) => void) | null = null;
 
 function patch(p: Partial<PlayerState>): void {
   player.update((s) => ({ ...s, ...p }));
@@ -123,6 +128,8 @@ export function init(): void {
     patch({ playing: false });
     stopSaving();
     void saveState();
+    const q = get(queue);
+    if (pendingIndex === null && q.index < q.slugs.length - 1) void advanceTo(q.index + 1);
   });
   if (typeof window !== "undefined") window.addEventListener("pagehide", onPageHide);
 }
@@ -149,12 +156,14 @@ function setMediaSession(set: SetDetail): void {
 }
 
 /** Idempotent: same set already loaded → no-op; different → switch + resume. */
-export async function load(set: SetDetail): Promise<void> {
+export async function load(set: SetDetail, opts?: { restartCompleted?: boolean }): Promise<void> {
   if (!browser) return;
   if (!initialized) init();
   const cur = get(player);
   if (cur.set?.slug === set.slug) return;
-  if (cur.set) await saveState(); // flush outgoing (only if it played)
+  // Flush the outgoing set (only if it played). saveState snapshots the player
+  // synchronously, so the source can switch at once without waiting for the PUT.
+  if (cur.set) void saveState();
   if (!el) return;
   const token = ++loadToken;
   restoring = true;
@@ -172,7 +181,9 @@ export async function load(set: SetDetail): Promise<void> {
     try {
       const remote = await getSetState(set.slug);
       if (token !== loadToken || !el) return;
-      if (remote.position_seconds > 0) {
+      if (opts?.restartCompleted && remote.completed) {
+        // A finished set reached through the queue plays from the top.
+      } else if (remote.position_seconds > 0) {
         el.currentTime = remote.position_seconds;
         patch({ position: remote.position_seconds });
       }
@@ -225,9 +236,130 @@ export function setLoopEnd(): void {
 }
 export function clearLoop(): void { patch({ loopStart: null, loopEnd: null }); }
 
+// ---- play queue -------------------------------------------------------------
+export function onQueueChange(fn: (q: PlayQueue) => void): void { queueListener = fn; }
+
+function notifyQueue(): void { queueListener?.(get(queue)); }
+
+/** True when a set page may load its set into the idle player on mount. */
+export function shouldAutoload(): boolean {
+  return get(queue).slugs.length === 0 && !get(player).playing;
+}
+
+/** Queue index an in-flight advance is heading for, so quick presses stack. */
+let pendingIndex: number | null = null;
+
+/** Load and play the first existing queue entry from `from`, stepping by `step`
+ *  (a 404 set is skipped). Reuses the one audio element; the queue index is
+ *  committed once `load` has switched the source. A rejected play() leaves the
+ *  queue in place and paused. Returns whether an entry was committed. */
+async function advanceTo(from: number, step: 1 | -1 = 1, fromStart = false): Promise<boolean> {
+  const token = ++queueToken;
+  pendingIndex = from;
+  const { slugs } = get(queue);
+  try {
+    for (let i = from; i >= 0 && i < slugs.length; i += step) {
+      pendingIndex = i;
+      let set: SetDetail;
+      try {
+        set = await getSet(slugs[i]);
+      } catch (e) {
+        if (token !== queueToken) return false;
+        if ((e as { status?: number }).status === 404) continue; // recycled / unpublished
+        return false;
+      }
+      if (token !== queueToken) return false;
+      const alreadyLoaded = get(player).set?.slug === set.slug;
+      await load(set, { restartCompleted: true });
+      if (token !== queueToken) return false;
+      let restart = fromStart;
+      if (alreadyLoaded && !restart) {
+        // load() was a no-op: a finished set still has to start from the top.
+        try { restart = (await getSetState(set.slug)).completed; } catch { /* keep position */ }
+        if (token !== queueToken) return false;
+      }
+      if (restart) { seekTo(0); patch({ position: 0 }); }
+      const moved = get(queue).index !== i;
+      queue.update((q) => ({ ...q, index: i }));
+      if (moved) notifyQueue();
+      await play();
+      return true;
+    }
+    return false;
+  } finally {
+    if (token === queueToken) pendingIndex = null;
+  }
+}
+
+export async function playQueue(slugs: string[], startIndex = 0): Promise<void> {
+  if (!browser || slugs.length === 0) return;
+  if (!initialized) init();
+  const index = Math.max(0, Math.min(slugs.length - 1, Math.trunc(startIndex) || 0));
+  queue.set({ slugs: slugs.slice(), index });
+  notifyQueue();
+  await advanceTo(index);
+}
+
+/** Drop the queue without notifying and abandon any in-flight advance (logout). */
+export function resetQueue(): void {
+  queueToken++;
+  pendingIndex = null;
+  queue.set({ slugs: [], index: 0 });
+}
+
+/** Stop and empty the player entirely (logout): no source, no set, no tracklist,
+ *  and any in-flight load or advance is abandoned. The queue is reset separately. */
+export function reset(): void {
+  // No final save: the session is already gone by the time logout reaches here.
+  el?.pause();
+  if (el) {
+    el.removeAttribute("src");
+    el.load();
+  }
+  stopSaving();
+  restoring = false;
+  played = false;
+  loadToken++;
+  queueToken++;
+  pendingIndex = null;
+  tracklist = [];
+  player.set({ ...initial });
+  // Don't leave the previous user's set on the lock screen / notification.
+  try { if ("mediaSession" in navigator) navigator.mediaSession.metadata = null; } catch { /* unsupported */ }
+}
+
+/** Play one set on its own: the queue is cleared. `startAt` (seconds) replaces
+ *  the resume position and is applied after the load, before playback starts. */
+export async function playSingle(set: SetDetail, startAt?: number): Promise<void> {
+  queueToken++;
+  pendingIndex = null;
+  queue.set({ slugs: [], index: 0 });
+  notifyQueue();
+  await load(set);
+  if (startAt !== undefined) seekTo(startAt);
+  await play();
+}
+
+/** Seek within `slug`; if another set is current, start `slug` singly at `seconds`. */
+export async function seekInSet(slug: string, seconds: number): Promise<void> {
+  if (get(player).set?.slug === slug) { seekTo(seconds); return; }
+  try {
+    await playSingle(await getSet(slug), seconds);
+  } catch { /* set unavailable */ }
+}
+
 export function next(): void {
   const t = pickNext(tracklist, get(player).position);
-  if (t !== null) seekTo(t);
+  if (t !== null) { seekTo(t); return; }
+  const q = get(queue);
+  const base = pendingIndex ?? q.index;
+  if (base < q.slugs.length - 1) void advanceTo(base + 1);
 }
-export function prev(): void { seekTo(pickPrev(tracklist, get(player).position)); }
-
+export function prev(): void {
+  const position = get(player).position;
+  const t = pickPrev(tracklist, position);
+  const q = get(queue);
+  const base = pendingIndex ?? q.index;
+  if (t === 0 && position <= 3 && base > 0) void advanceTo(base - 1, -1, true);
+  else seekTo(t);
+}

@@ -39,3 +39,33 @@ export async function loginAs(
   // Playwright stores Set-Cookie automatically; nothing else needed.
   return seed;
 }
+
+/**
+ * Creates a throwaway member through the invite flow (as the seed admin) and
+ * leaves the page logged in as that member. Never mutates the admin's data.
+ */
+export async function createMember(
+  page: Page,
+  request: APIRequestContext,
+): Promise<{ email: string; password: string }> {
+  await loginAs(page, request);
+  const cookies = await page.context().cookies();
+  const csrf = cookies.find((c) => c.name === "csrf_token")?.value ?? "";
+
+  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+  const email = `member-${suffix}@example.test`;
+  const password = "initial-password-55";
+  const invite = await page.request.post("/api/invites", {
+    data: { email, role: "user" },
+    headers: { "X-CSRF-Token": csrf },
+  });
+  if (!invite.ok()) throw new Error(`invite failed (${invite.status()})`);
+  const token = ((await invite.json()) as { invite_link: string }).invite_link.split("/").pop();
+
+  // Redeeming logs the page in as the new user (replaces the admin session).
+  const redeem = await page.request.post(`/api/invites/${token}/redeem`, {
+    data: { username: `m${suffix}`, display_name: "E2E Member", password },
+  });
+  if (!redeem.ok()) throw new Error(`redeem failed (${redeem.status()})`);
+  return { email, password };
+}

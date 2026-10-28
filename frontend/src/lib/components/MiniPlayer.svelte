@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { _ } from "svelte-i18n";
   import { player, fullscreenOpen, toggle, formatTime } from "#lib/stores/audio.ts";
+  import { resumeOffer, acceptOffer, dismissOffer } from "#lib/stores/queue-sync.ts";
 
   $: st = $player;
   $: pct = st.duration > 0 ? Math.min(100, (st.position / st.duration) * 100) : 0;
@@ -9,7 +11,16 @@
   function open() { fullscreenOpen.set(true); }
 </script>
 
-{#if st.set}
+{#if $resumeOffer && !st.playing}
+  <div class="m-bottom-sheet" role="region" aria-label={$_("queue.resume_label")}>
+    <div class="m-sheet-row">
+      <button type="button" class="m-sheet-meta" data-test="queue-continue" on:click={acceptOffer}>
+        <div class="m-sheet-title">{$_("queue.continue", { values: { title: $resumeOffer.title } })}</div>
+      </button>
+      <button type="button" class="btn" data-test="queue-dismiss" on:click={dismissOffer}>{$_("queue.dismiss")}</button>
+    </div>
+  </div>
+{:else if st.set}
   <div class="m-bottom-sheet" role="region" aria-label="now playing">
     <div class="m-sheet-progress"><div class="fill" style="width: {pct}%"></div></div>
     <div class="m-sheet-row">

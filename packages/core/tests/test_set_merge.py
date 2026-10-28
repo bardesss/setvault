@@ -31,6 +31,7 @@ from setvault_core.models.engagement_3c import (
 )
 from setvault_core.models.enrichment import ResolveJob
 from setvault_core.models.identity import User
+from setvault_core.models.playlists import Playlist, PlaylistItem, PlayQueue
 from setvault_core.models.tracklist import TracklistEntry, TracklistImportJob
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
@@ -185,7 +186,11 @@ async def test_merge_moves_every_relation(lib):
         s.add_all([art_shared, art_new, tag, wf])
         await s.flush()
         now = datetime.now(UTC)
+        pl = Playlist(owner_user_id=u1, name="p")
+        s.add(pl)
+        await s.flush()
         s.add_all([
+            PlaylistItem(playlist_id=pl.id, live_set_id=newer, position=0),
             LiveSetArtist(live_set_id=older, artist_id=art_shared.id, position=0),
             LiveSetArtist(live_set_id=newer, artist_id=art_shared.id, position=0),
             LiveSetArtist(live_set_id=newer, artist_id=art_new.id, position=1, role="b2b"),
@@ -264,7 +269,7 @@ async def test_merge_moves_every_relation(lib):
                 "set_upgrade_events.live_set_id"} <= checked
         # A new table referencing live_sets changes this count: teach
         # set_merge._merge_rows about it, seed it above, then update this.
-        assert len(checked) == 14, sorted(checked)
+        assert len(checked) == 15, sorted(checked)
 
         # Metadata: added to the survivor; the loser keeps its own.
         artists = (await s.execute(
@@ -648,6 +653,69 @@ async def test_summary_skips_admins_who_turned_maintenance_off(lib):
             InAppNotification.kind == "maintenance"))).scalars().all()
     assert on.id in users and off.id not in users
 
+
+# --- playlists and play queue -----------------------------------------------
+
+async def _playlist_with(owner_id, name: str, *items: tuple[uuid.UUID, int]):
+    from setvault_core.models.playlists import Playlist, PlaylistItem
+    async with session_factory()() as s:
+        pl = Playlist(owner_user_id=owner_id, name=name)
+        s.add(pl)
+        await s.flush()
+        s.add_all(PlaylistItem(playlist_id=pl.id, live_set_id=sid, position=pos)
+                  for sid, pos in items)
+        await s.commit()
+        return pl.id
+
+
+async def _playlist_rows(pid: uuid.UUID) -> list[tuple[uuid.UUID, int]]:
+    from setvault_core.models.playlists import PlaylistItem
+    async with session_factory()() as s:
+        return [(r.live_set_id, r.position) for r in (await s.execute(
+            select(PlaylistItem).where(PlaylistItem.playlist_id == pid)
+            .order_by(PlaylistItem.position))).scalars()]
+
+
+async def test_merge_repoints_playlist_items_keeps_earlier_position(lib):
+    a = _items(30)
+    older = await lib.add(a, tier="ok")
+    newer = await lib.add(a[TRIM:], tier="ok")
+    other = await lib.add(_items(31), tier="ok")
+    mid = await lib.add(_items(32), tier="ok")
+    # newer (the loser) sits at 0, older (the survivor) at 2.
+    pid = await _playlist_with(lib.owner.id, "p", (newer, 0), (other, 1), (older, 2), (mid, 3))
+
+    assert (await _cleanup())["merged"] == 1
+
+    assert await _playlist_rows(pid) == [(older, 0), (other, 1), (mid, 2)]
+
+
+async def test_merge_repoints_playlist_item_when_survivor_absent(lib):
+    a = _items(33)
+    older = await lib.add(a, tier="ok")
+    newer = await lib.add(a[TRIM:], tier="ok")
+    other = await lib.add(_items(34), tier="ok")
+    pid = await _playlist_with(lib.owner.id, "p", (other, 0), (newer, 1))
+
+    assert (await _cleanup())["merged"] == 1
+
+    assert await _playlist_rows(pid) == [(other, 0), (older, 1)]
+
+
+async def test_merge_repoints_play_queue(lib):
+    a = _items(35)
+    older = await lib.add(a, tier="ok")
+    newer = await lib.add(a[TRIM:], tier="ok")
+    x = await lib.add(_items(36), tier="ok")
+    async with session_factory()() as s:
+        s.add(PlayQueue(user_id=lib.owner.id, set_ids=[newer, x, older], current_index=0))
+        await s.commit()
+
+    assert (await _cleanup())["merged"] == 1
+
+    async with session_factory()() as s:
+        q = await s.get(PlayQueue, lib.owner.id)
+    assert q.set_ids == [older, x] and q.current_index == 0
 
 # --- real audio (fpcalc; run via the Linux runner) --------------------------
 

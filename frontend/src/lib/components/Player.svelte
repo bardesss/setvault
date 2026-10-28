@@ -2,11 +2,12 @@
   import { onMount } from "svelte";
   import Waveform from "#lib/components/Waveform.svelte";
   import type { SetDetail } from "#lib/api/sets.ts";
-  import { player, load, toggle, seekBy, setRate, clearLoop, formatTime, fullscreenOpen } from "#lib/stores/audio.ts";
+  import { player, load, toggle, playSingle, shouldAutoload, seekBy, setRate, clearLoop, formatTime, fullscreenOpen } from "#lib/stores/audio.ts";
 
   export let set: SetDetail;
 
-  onMount(() => { void load(set); });
+  // Opening a set page never takes over a queue or a track that is playing.
+  onMount(() => { if (shouldAutoload()) void load(set); });
 
   $: st = $player;
   $: isCurrent = st.set?.slug === set.slug;
@@ -34,8 +35,8 @@
     </div>
 
     <div class="transport-controls">
-      <button type="button" class="btn btn-icon" on:click={() => seekBy(-10)} aria-label="Back 10 seconds">−10</button>
-      <button type="button" class="play-large" on:click={toggle}
+      <button type="button" class="btn btn-icon" on:click={() => seekBy(-10)} disabled={!isCurrent} aria-label="Back 10 seconds">−10</button>
+      <button type="button" class="play-large" on:click={() => (isCurrent ? toggle() : void playSingle(set))}
         data-test="play-state" data-state={isCurrent && st.playing ? "playing" : "paused"}
         aria-label={isCurrent && st.playing ? "pause" : "play"}>
         {#if isCurrent && st.playing}
@@ -44,13 +45,13 @@
           <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M4 3l9 5-9 5z"/></svg>
         {/if}
       </button>
-      <button type="button" class="btn btn-icon" on:click={() => seekBy(10)} aria-label="Forward 10 seconds">+10</button>
+      <button type="button" class="btn btn-icon" on:click={() => seekBy(10)} disabled={!isCurrent} aria-label="Forward 10 seconds">+10</button>
     </div>
 
     <div class="transport-aux">
       <div class="speed-toggle" data-test="speed-control" role="group" aria-label="playback speed">
         {#each RATES as r}
-          <button type="button" class:on={Math.abs(st.playbackRate - r) < 0.001} on:click={() => setRate(r)}>{r}×</button>
+          <button type="button" class:on={Math.abs(st.playbackRate - r) < 0.001} disabled={!isCurrent} on:click={() => setRate(r)}>{r}×</button>
         {/each}
       </div>
     </div>

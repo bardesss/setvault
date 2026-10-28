@@ -49,6 +49,7 @@ from setvault_core.models.tracklist import TracklistEntry, TracklistImportJob
 from setvault_core.models.upgrades import SetUpgradeEvent
 from setvault_core.models.url_rip import RipJob
 from setvault_core.models.watch_folder import UnmatchedFile
+from setvault_core.services import play_queue, playlists
 from setvault_core.services.audio_match import (
     MatchResult,
     compare,
@@ -469,6 +470,8 @@ async def _merge_rows(
     moved["favorites"] = res.rowcount or 0
     await session.execute(delete(Favorite).where(Favorite.live_set_id == l_id)
                           .execution_options(synchronize_session=False))
+    await playlists.repoint_for_merge(session, loser_id=l_id, survivor_id=s_id)
+    await play_queue.repoint_for_merge(session, loser_id=l_id, survivor_id=s_id)
 
     moved["play_state"] = await _merge_user_state(session, s_id, l_id, off, upper)
     moved["notes"] = await _merge_notes(session, s_id, l_id)

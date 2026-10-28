@@ -2,9 +2,11 @@
   import { onMount, onDestroy } from "svelte";
   import * as audio from "#lib/stores/audio.ts";
   import { shouldIgnoreShortcut } from "#lib/keyboard.ts";
+  import { startQueueSync } from "#lib/stores/queue-sync.ts";
 
   onMount(() => {
     audio.init();
+    startQueueSync();
     window.addEventListener("keydown", onKey);
   });
   onDestroy(() => {

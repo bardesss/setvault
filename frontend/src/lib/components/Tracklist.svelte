@@ -3,7 +3,7 @@
   import { _ } from "svelte-i18n";
   import { bulkResolve } from "#lib/api/enrichment.ts";
   import { createEntry, listTracklist, type TracklistEntry } from "#lib/api/tracklist.ts";
-  import { player, seekTo } from "#lib/stores/audio.ts";
+  import { player, seekInSet } from "#lib/stores/audio.ts";
   import { shouldIgnoreShortcut } from "#lib/keyboard.ts";
   import { tracklist, setEntries, upsertEntry, removeEntry } from "#lib/stores/tracklist.ts";
   import ResolveCandidatesPopover from "./ResolveCandidatesPopover.svelte";
@@ -30,8 +30,12 @@
     }
   });
 
+  // At-playhead actions only make sense when this page's set is the loaded one.
+  $: onThisSet = $player.set?.slug === slug;
+
   async function addAtPlayhead() {
-    const seconds = Math.floor($player.position ?? 0);
+    if (!onThisSet) return;
+    const seconds = Math.floor($player.position);
     const tentative: TracklistEntry = {
       id: `pending-${Date.now()}`,
       position: $tracklist.entries.length,
@@ -59,14 +63,11 @@
     }
   }
 
-  function indexAtPlayhead(): number {
-    const entries = $tracklist.entries;
+  function indexAt(entries: TracklistEntry[], pos: number | null): number {
+    if (pos === null) return -1;
     return entries.findIndex((e, i) => {
       const next = entries[i + 1];
-      return (
-        e.start_seconds <= $player.position &&
-        (!next || next.start_seconds > $player.position)
-      );
+      return e.start_seconds <= pos && (!next || next.start_seconds > pos);
     });
   }
 
@@ -94,7 +95,7 @@
     }
   }
 
-  $: currentIdx = indexAtPlayhead();
+  $: currentIdx = indexAt($tracklist.entries, onThisSet ? $player.position : null);
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -103,7 +104,7 @@
   <div class="tracks-header">
     <h3>{$_("tracklist.heading")} <b>· {$tracklist.entries.length} entries</b></h3>
     <div class="right">
-      <button class="btn btn-sm" on:click={addAtPlayhead} title={$_("tracklist.add_at_playhead")}>+ <span class="kbd">M</span></button>
+      <button class="btn btn-sm" on:click={addAtPlayhead} disabled={!onThisSet} title={$_("tracklist.add_at_playhead")}>+ <span class="kbd">M</span></button>
       <button class="btn btn-sm" on:click={() => (importModalOpen = true)}>{$_("tracklist.import")}</button>
       <button class="btn btn-sm" on:click={() => (shiftOpen = true)}>{$_("tracklist.time_shift")}</button>
       <button class="btn btn-sm" on:click={runBulkResolve} disabled={bulkBusy}>{$_("tracklist.bulk_resolve")}</button>
@@ -118,7 +119,7 @@
     <div>
       {#each $tracklist.entries as entry, idx (entry.id)}
         <div class="track-row" class:now={idx === currentIdx}>
-          <button class="ts seek-cell" on:click={() => seekTo(entry.start_seconds)}>{fmtDuration(entry.start_seconds)}</button>
+          <button class="ts seek-cell" on:click={() => void seekInSet(slug, entry.start_seconds)}>{fmtDuration(entry.start_seconds)}</button>
           <span class="pos">{String(idx + 1).padStart(2, "0")}.</span>
           <div class="track-main">
             <div class="tn">{entry.raw_label}</div>

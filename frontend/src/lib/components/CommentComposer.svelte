@@ -11,6 +11,8 @@
   let body = "";
   let attachTimestamp = false;
   let busy = false;
+  $: onThisSet = $player.set?.slug === slug;
+  $: if (!onThisSet) attachTimestamp = false;
   const dispatch = createEventDispatcher();
 
   async function send() {
@@ -19,7 +21,7 @@
       const c = await postComment(slug, {
         body,
         parent_id,
-        position_seconds: attachTimestamp ? Math.floor($player.position ?? 0) : null,
+        position_seconds: attachTimestamp && onThisSet ? Math.floor($player.position) : null,
       });
       dispatch("posted", c);
       body = "";
@@ -35,7 +37,7 @@
     rows="3"
   ></textarea>
   <label class="ts">
-    <input type="checkbox" bind:checked={attachTimestamp} />
+    <input type="checkbox" bind:checked={attachTimestamp} disabled={!onThisSet} />
     {$_("comments.attach_timestamp")}
   </label>
   <button type="submit" class="primary" disabled={busy || !body.trim()}>{$_("comments.send")}</button>

@@ -5,6 +5,7 @@
   import SidePanel from "#lib/components/SidePanel.svelte";
   import SetQuality from "#lib/components/SetQuality.svelte";
   import FavoriteButton from "#lib/components/FavoriteButton.svelte";
+  import AddToPlaylist from "#lib/components/AddToPlaylist.svelte";
   import EmbedToggleAdmin from "#lib/components/EmbedToggleAdmin.svelte";
   import { session } from "#lib/stores/session.ts";
   import type { PageData } from "./$types";
@@ -46,6 +47,7 @@
       <div class="set-title-actions">
         {#key set.slug}
           <FavoriteButton slug={set.slug} initial={set.is_favorite} />
+          {#if $session}<AddToPlaylist slug={set.slug} />{/if}
         {/key}
         {#if $session}
           <a class="btn" href={`/sets/${set.slug}/edit`}>{$_("set_edit.edit")}</a>
