@@ -41,7 +41,7 @@
       const r = await api<{ items: HeldDuplicate[] }>("/api/admin/duplicates");
       items = r.items;
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "load failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.common.load_failed");
     } finally {
       loading = false;
     }
@@ -56,7 +56,9 @@
       });
       items = items.filter((i) => i.slug !== slug);
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : `${action} failed`;
+      error = e instanceof ApiError
+        ? e.detail
+        : $_(action === "keep" ? "admin.duplicates.keep_failed" : "admin.common.discard_failed");
     } finally {
       busy[slug] = false;
       busy = busy;
@@ -69,25 +71,10 @@
 
 <section class="duplicates">
   <header>
-    <h2>Duplicates</h2>
-    <p class="muted">
-      New arrivals whose audio fingerprint matches a set you already have are
-      held here as drafts instead of being published. Keep one to publish it
-      anyway, or discard it to the recycle bin.
-    </p>
-    <p class="muted">
-      The quality backfill's duplicate cleanup also lists published sets here
-      that are the same audio as an older set but weren't merged automatically
-      (for example: upgrades are off, the copies belong to different owners, or
-      there isn't enough information to compare them). They stay published:
-      Keep removes them from this list, Discard merges their comments,
-      bookmarks and history into the original and moves them to the recycle
-      bin.
-    </p>
-    <p class="muted" data-testid="dup-discard-note">
-      Discard always keeps the original's audio, even when the listed copy has
-      better quality. Each row shows both copies' quality so you can compare.
-    </p>
+    <h2>{$_("admin.duplicates.title")}</h2>
+    <p class="muted">{$_("admin.duplicates.intro")}</p>
+    <p class="muted">{$_("admin.duplicates.intro_backfill")}</p>
+    <p class="muted" data-testid="dup-discard-note">{$_("admin.duplicates.discard_note")}</p>
   </header>
 
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
@@ -95,17 +82,17 @@
   {#if loading}
     <p class="loading">{$_("common.loading")}</p>
   {:else if items.length === 0}
-    <EmptyState message="No duplicates waiting for review." />
+    <EmptyState message={$_("admin.duplicates.empty")} />
   {:else}
     <AdminTable
-      columns={["Arrival", "Source", "Length", "Arrived", "Duplicate of", "Actions"]}
+      columns={[$_("admin.duplicates.col_arrival"), $_("admin.common.col_source"), $_("admin.common.col_length"), $_("admin.common.col_arrived"), $_("admin.duplicates.col_duplicate_of"), $_("admin.common.col_actions")]}
     >
       {#each items as item (item.id)}
         <tr>
           <td>
             {item.title}
             {#if item.reason === "matched by backfill"}
-              <span class="muted note" data-testid="dup-reason">Published · matched by backfill</span>
+              <span class="muted note" data-testid="dup-reason">{$_("admin.duplicates.matched_by_backfill")}</span>
             {/if}
             {#if item.quality_label}
               <span class="muted note" data-testid="dup-quality">{item.quality_label}</span>
@@ -122,7 +109,7 @@
                 <span class="muted note" data-testid="dup-original-quality">{item.original.quality_label}</span>
               {/if}
             {:else}
-              <span class="muted">(original removed)</span>
+              <span class="muted">{$_("admin.duplicates.original_removed")}</span>
             {/if}
           </td>
           <td class="cell-actions">
@@ -131,13 +118,13 @@
               class="btn btn-sm"
               disabled={busy[item.slug]}
               on:click={() => resolve(item.slug, "keep")}
-            >{item.status === "published" ? "Keep" : "Keep & publish"}</button>
+            >{item.status === "published" ? $_("admin.duplicates.keep") : $_("admin.duplicates.keep_publish")}</button>
             <button
               type="button"
               class="btn btn-sm btn-danger"
               disabled={busy[item.slug]}
               on:click={() => resolve(item.slug, "discard")}
-            >Discard</button>
+            >{$_("admin.common.discard")}</button>
           </td>
         </tr>
       {/each}

@@ -13,7 +13,7 @@
   export let data: PageData;
 
   $: set = data.set;
-  $: artistNames = set.artists.map((a) => a.name).join(", ") || "Unknown artist";
+  $: artistNames = set.artists.map((a) => a.name).join(", ") || $_("set.unknown_artist");
   $: isAdmin = $session?.role === "admin";
 </script>
 
@@ -22,8 +22,8 @@
 <article class="set-detail">
   <!-- HERO -->
   <section class="set-hero">
-    <nav class="breadcrumb" aria-label="Breadcrumb">
-      <a href="/sets">Library</a>
+    <nav class="breadcrumb" aria-label={$_("set.breadcrumb")}>
+      <a href="/sets">{$_("set.library")}</a>
       <span class="sep">›</span>
       <span class="current">{set.title}</span>
     </nav>
@@ -61,7 +61,7 @@
     <SetQuality {set} />
 
     {#if set.tags.length > 0}
-      <div class="set-tags" aria-label="tags">
+      <div class="set-tags" aria-label={$_("set.tags_label")}>
         {#each set.tags as tag (tag)}
           <span class="tag-pill">{tag}</span>
         {/each}
@@ -75,7 +75,7 @@
   {#if set.description}
     <section class="set-hero" style="border-bottom:none">
       <div class="side-section">
-        <h4>About</h4>
+        <h4>{$_("set.about")}</h4>
         <p class="description">{set.description}</p>
       </div>
     </section>

@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
+from setvault_core.locales import SUPPORTED_LOCALES
 from setvault_core.models.api_token import ApiToken
 from setvault_core.models.catalog import LiveSet
 from setvault_core.models.engagement import ActivityEvent, UserSetState
@@ -75,6 +76,23 @@ class HomeSummaryOut(BaseModel):
 class ChangePasswordIn(BaseModel):
     current_password: str
     new_password: str = Field(min_length=MIN_PASSWORD_LENGTH)
+
+
+class MePatchIn(BaseModel):
+    # null clears the choice back to "follow the browser".
+    locale: str | None
+
+
+@router.patch("", status_code=204)
+async def patch_me(
+    body: MePatchIn,
+    user: Annotated[User, Depends(current_user)],
+    session: Annotated[AsyncSession, Depends(db_session)],
+):
+    if body.locale is not None and body.locale not in SUPPORTED_LOCALES:
+        raise HTTPException(status_code=422, detail="unsupported locale")
+    user.locale = body.locale
+    await session.commit()
 
 
 @router.post("/change-password", status_code=204)

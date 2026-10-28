@@ -2,6 +2,7 @@
   import { _, locale } from "svelte-i18n";
   import { patchSet, type SetDetail, type SetUpgradeHistoryItem } from "#lib/api/sets.ts";
   import { ApiError } from "#lib/api/client.ts";
+  import { fmtDate } from "#lib/format.ts";
 
   export let set: SetDetail;
 
@@ -17,17 +18,7 @@
       : "set.upgrades.history_merged_line";
   }
 
-  function fmt(iso: string): string {
-    try {
-      return new Date(iso).toLocaleDateString($locale || "en", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
-    } catch {
-      return iso;
-    }
-  }
+  const fmt = (iso: string) => fmtDate(iso, $locale);
 
   async function toggle(ev: Event) {
     const target = ev.currentTarget as HTMLInputElement;

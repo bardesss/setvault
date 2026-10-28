@@ -1,37 +1,39 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { _ } from "svelte-i18n";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { toStore } from "svelte/store";
   import { api, ApiError } from "#lib/api/client.ts";
   import { session } from "#lib/stores/session.ts";
+  import { codeParts } from "./codeParts.ts";
 
   $: if ($session && $session.role !== "admin") {
     void goto("/");
   }
 
-  const tabs = [
-    { href: "/admin/users", label: "Users" },
-    { href: "/admin/connectors", label: "Connectors" },
-    { href: "/admin/email", label: "Email" },
-    { href: "/admin/providers", label: "Providers" },
-    { href: "/admin/sources", label: "Sources" },
-    { href: "/admin/monitors", label: "Monitors" },
-    { href: "/admin/storage", label: "Storage" },
-    { href: "/admin/watch-folders", label: "Watch folders" },
-    { href: "/admin/unmatched", label: "Unmatched" },
-    { href: "/admin/drafts", label: "Drafts" },
-    { href: "/admin/duplicates", label: "Duplicates" },
-    { href: "/admin/quality", label: "Quality" },
-    { href: "/admin/wanted", label: "Wanted" },
-    { href: "/admin/catalog", label: "Catalog" },
-    { href: "/admin/recycle", label: "Recycle" },
-    { href: "/admin/jobs", label: "Jobs" },
-    { href: "/admin/tasks", label: "Tasks" },
-    { href: "/admin/webhooks", label: "Webhooks" },
-    { href: "/admin/backups", label: "Backups" },
-    { href: "/admin/health", label: "Health" },
-    { href: "/admin/system", label: "System" },
+  $: tabs = [
+    { href: "/admin/users", label: $_("admin.layout.tab_users") },
+    { href: "/admin/connectors", label: $_("admin.layout.tab_connectors") },
+    { href: "/admin/email", label: $_("admin.layout.tab_email") },
+    { href: "/admin/providers", label: $_("admin.layout.tab_providers") },
+    { href: "/admin/sources", label: $_("admin.layout.tab_sources") },
+    { href: "/admin/monitors", label: $_("admin.layout.tab_monitors") },
+    { href: "/admin/storage", label: $_("admin.layout.tab_storage") },
+    { href: "/admin/watch-folders", label: $_("admin.layout.tab_watch_folders") },
+    { href: "/admin/unmatched", label: $_("admin.layout.tab_unmatched") },
+    { href: "/admin/drafts", label: $_("admin.layout.tab_drafts") },
+    { href: "/admin/duplicates", label: $_("admin.layout.tab_duplicates") },
+    { href: "/admin/quality", label: $_("admin.layout.tab_quality") },
+    { href: "/admin/wanted", label: $_("admin.layout.tab_wanted") },
+    { href: "/admin/catalog", label: $_("admin.layout.tab_catalog") },
+    { href: "/admin/recycle", label: $_("admin.layout.tab_recycle") },
+    { href: "/admin/jobs", label: $_("admin.layout.tab_jobs") },
+    { href: "/admin/tasks", label: $_("admin.layout.tab_tasks") },
+    { href: "/admin/webhooks", label: $_("admin.layout.tab_webhooks") },
+    { href: "/admin/backups", label: $_("admin.layout.tab_backups") },
+    { href: "/admin/health", label: $_("admin.layout.tab_health") },
+    { href: "/admin/system", label: $_("admin.layout.tab_system") },
   ];
 
   // Legacy `$:` statements don't track rune state like `page`; a store does.
@@ -83,25 +85,24 @@
   onMount(loadVersion);
 </script>
 
-<svelte:head><title>Admin - SetVault</title></svelte:head>
+<svelte:head><title>{$_("admin.layout.title")} - SetVault</title></svelte:head>
 
 <section class="admin">
   {#if bannerVersion}
     {@const v = bannerVersion}
     <aside class="admin-banner" role="status">
-      <strong>Update available.</strong>
-      You're running <code>{v.current}</code>; latest is
-      <code>{v.latest_known}</code>.
+      <strong>{$_("admin.layout.update_available")}</strong>
+      {#each codeParts($_, "admin.layout.running_version", { current: v.current, latest: v.latest_known ?? "" }) as part}{#if part.code}<code>{part.text}</code>{:else}{part.text}{/if}{/each}
       {#if v.latest_release_url}
-        <a href={v.latest_release_url} target="_blank" rel="noopener">Release notes →</a>
+        <a href={v.latest_release_url} target="_blank" rel="noopener">{$_("admin.layout.release_notes")}</a>
       {/if}
-      <button type="button" class="btn btn-sm snooze" on:click={dismiss}>Snooze 24h</button>
+      <button type="button" class="btn btn-sm snooze" on:click={dismiss}>{$_("admin.layout.snooze")}</button>
     </aside>
   {/if}
 
   <header class="admin-header">
-    <h1>Admin</h1>
-    <nav class="tabs" aria-label="Admin sections">
+    <h1>{$_("admin.layout.title")}</h1>
+    <nav class="tabs" aria-label={$_("admin.layout.sections")}>
       {#each tabs as t (t.href)}
         <a
           href={t.href}

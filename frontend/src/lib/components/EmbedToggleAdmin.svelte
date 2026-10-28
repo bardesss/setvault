@@ -23,7 +23,7 @@
       );
       allowed = r.embed_allowed;
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "failed";
+      error = e instanceof ApiError ? e.detail : $_("common.failed");
       // Revert checkbox to actual server state
       target.checked = allowed;
     } finally {

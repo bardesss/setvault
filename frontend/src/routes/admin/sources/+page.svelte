@@ -36,7 +36,7 @@
       const updated = await setSourceEnabled(s.kind, !s.enabled);
       apply(updated);
     } catch (e) {
-      errorMsg = e instanceof Error ? e.message : "failed";
+      errorMsg = e instanceof Error ? e.message : $_("admin.common.failed");
     } finally {
       busy[s.kind] = false;
       busy = busy;
@@ -56,7 +56,7 @@
       );
       apply(updated);
     } catch (e) {
-      errorMsg = e instanceof Error ? e.message : "failed";
+      errorMsg = e instanceof Error ? e.message : $_("admin.common.failed");
     } finally {
       busy[s.kind] = false;
       busy = busy;

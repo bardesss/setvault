@@ -11,6 +11,7 @@
   import { postStoredCap } from "#lib/stores/offline.ts";
   import { session } from "#lib/stores/session.ts";
   import { setupI18n } from "#lib/i18n/index.ts";
+  import { followAccountLocale } from "#lib/i18n/locale.ts";
   import NavRail from "#lib/components/NavRail.svelte";
   import TopBar from "#lib/components/TopBar.svelte";
   import MiniPlayer from "#lib/components/MiniPlayer.svelte";
@@ -18,7 +19,11 @@
   import AudioHost from "#lib/components/AudioHost.svelte";
   import Toaster from "#lib/components/Toaster.svelte";
 
-  setupI18n();
+  // Nothing renders until the start-up language is loaded, so the first
+  // paint is already in the right language. setupI18n never rejects: a
+  // language file that fails to load falls back to English.
+  let i18nReady = false;
+  void setupI18n().then(() => (i18nReady = true));
 
   onMount(() => {
     if (!browser || !("serviceWorker" in navigator)) return;
@@ -48,23 +53,37 @@
   const pageUrl = toStore(() => page.url);
 
   $: user = data.user;
+
+  // Once signed in, the language saved on the account wins over this
+  // device's cached choice. Keyed on user + saved value so a page load that
+  // returns the same account state doesn't undo a pick still being saved.
+  let accountLocaleKey: string | null = null;
+  $: if (i18nReady && user) {
+    const key = `${user.id}:${user.locale ?? ""}`;
+    if (key !== accountLocaleKey) {
+      accountLocaleKey = key;
+      void followAccountLocale(user.locale);
+    }
+  }
   $: showShell = !!user && !$pageUrl.pathname.startsWith("/login")
                   && !$pageUrl.pathname.startsWith("/invite/")
                   && !$pageUrl.pathname.startsWith("/reset/")
                   && !$pageUrl.pathname.startsWith("/embed/");
 </script>
 
-<AudioHost />
-<Toaster />
-<div class="app-shell" class:no-shell={!showShell}>
-  {#if showShell && user}
-    <TopBar {user} />
-    <NavRail {user} />
-  {/if}
-  <main class="main"><slot /></main>
-</div>
-{#if showShell}<MiniPlayer />{/if}
-{#if showShell}<FullScreenPlayer />{/if}
+{#if i18nReady}
+  <AudioHost />
+  <Toaster />
+  <div class="app-shell" class:no-shell={!showShell}>
+    {#if showShell && user}
+      <TopBar {user} />
+      <NavRail {user} />
+    {/if}
+    <main class="main"><slot /></main>
+  </div>
+  {#if showShell}<MiniPlayer />{/if}
+  {#if showShell}<FullScreenPlayer />{/if}
+{/if}
 
 <style>
   .app-shell {

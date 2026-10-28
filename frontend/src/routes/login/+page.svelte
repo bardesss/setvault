@@ -33,7 +33,7 @@
     </div>
 
     <h1>{$_("auth.login.heading")}</h1>
-    <p class="auth-caption">// access your vault</p>
+    <p class="auth-caption">// {$_("auth.login.caption")}</p>
 
     <label>
       <span>{$_("auth.login.email")}</span>

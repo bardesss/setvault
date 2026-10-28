@@ -34,7 +34,7 @@
       items = r.items;
       unfingerprinted = r.unfingerprinted_below_cutoff ?? 0;
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "Could not load wanted sets.";
+      error = e instanceof ApiError ? e.detail : $_("admin.wanted.load_failed");
     } finally {
       loading = false;
     }
@@ -49,11 +49,11 @@
         `/api/admin/wanted/${encodeURIComponent(slug)}/search`,
         { method: "POST" },
       );
-      status[slug] = r.status === "queued" ? "Queued" : "Already queued";
+      status[slug] = r.status === "queued" ? $_("admin.wanted.queued") : $_("admin.wanted.already_queued");
     } catch (e) {
       // A refusal is about this set: say so on its row.
-      if (e instanceof ApiError && e.status === 409) status[slug] = searchRefusal(e.detail);
-      else error = e instanceof ApiError ? e.detail : "Search failed.";
+      if (e instanceof ApiError && e.status === 409) status[slug] = searchRefusal(e.detail, $_);
+      else error = e instanceof ApiError ? e.detail : $_("admin.wanted.search_failed");
     } finally {
       busy[slug] = false;
       busy = busy;
@@ -66,8 +66,8 @@
 
 <section class="wanted">
   <header>
-    <h2>Wanted</h2>
-    <p class="muted">Sets below the quality cutoff, least recently searched first. Search now looks for a better copy right away.</p>
+    <h2>{$_("admin.wanted.title")}</h2>
+    <p class="muted">{$_("admin.wanted.intro")}</p>
   </header>
 
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
@@ -88,26 +88,26 @@
   {:else}
     <AdminTable
       columns={[
-        "Set",
-        "Quality",
-        "Last searched",
-        "Last result",
-        "Actions",
+        $_("admin.wanted.col_set"),
+        $_("admin.wanted.col_quality"),
+        $_("admin.wanted.col_last_searched"),
+        $_("admin.wanted.col_last_result"),
+        $_("admin.common.col_actions"),
       ]}
     >
       {#each items as item (item.id)}
         <tr>
           <td><a href={`/sets/${encodeURIComponent(item.slug)}`}>{item.title}</a></td>
           <td>{item.quality_label}</td>
-          <td class="mono">{item.last_upgrade_search_at ? fmtLocalDateTime(item.last_upgrade_search_at, $locale) : "Never"}</td>
-          <td>{wantedResult(item.last_event, item.last_upgrade_search_at)}</td>
+          <td class="mono">{item.last_upgrade_search_at ? fmtLocalDateTime(item.last_upgrade_search_at, $locale) : $_("admin.wanted.never")}</td>
+          <td>{wantedResult(item.last_event, item.last_upgrade_search_at, $_)}</td>
           <td class="cell-actions">
             <button
               type="button"
               class="btn btn-sm"
               disabled={busy[item.slug]}
               on:click={() => searchNow(item.slug)}
-            >Search now</button>
+            >{$_("admin.wanted.search_now")}</button>
             {#if status[item.slug]}<span class="muted" role="status" data-testid="wanted-status">{status[item.slug]}</span>{/if}
           </td>
         </tr>

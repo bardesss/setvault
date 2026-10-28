@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { locale } from "svelte-i18n";
+  import { _, locale } from "svelte-i18n";
   import { fmtLocalDateTime } from "#lib/wanted.ts";
   import { formatTime } from "#lib/stores/audio.ts";
   import { api, ApiError } from "#lib/api/client.ts";
@@ -36,7 +36,7 @@
     try {
       items = (await api<{ items: Draft[] }>("/api/admin/drafts")).items;
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "load failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.common.load_failed");
     } finally {
       loading = false;
     }
@@ -50,19 +50,21 @@
       await api(`/api/admin/drafts/${encodeURIComponent(slug)}/${action}`, { method: "POST" });
       items = items.filter((i) => i.slug !== slug);
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : `${action} failed`;
+      error = e instanceof ApiError
+        ? e.detail
+        : $_(action === "publish" ? "admin.drafts.publish_failed" : "admin.common.discard_failed");
     } finally {
       busy[slug] = false;
       busy = busy;
     }
   }
 
-  function state(d: Draft): string {
-    if (d.processing) return `Processing (${d.rip_status})`;
-    if (d.duplicate_of) return "Held as a duplicate";
-    if (d.ready) return "Ready to publish";
-    if (d.rip_status === "failed") return "Rip failed";
-    return "Not finished: no playable stream";
+  function state(d: Draft, t: typeof $_): string {
+    if (d.processing) return t("admin.drafts.state_processing", { values: { status: String(d.rip_status) } });
+    if (d.duplicate_of) return t("admin.drafts.state_duplicate");
+    if (d.ready) return t("admin.drafts.state_ready");
+    if (d.rip_status === "failed") return t("admin.drafts.state_rip_failed");
+    return t("admin.drafts.state_unfinished");
   }
 
   onMount(load);
@@ -70,30 +72,25 @@
 
 <section class="drafts">
   <header>
-    <h2>Drafts</h2>
-    <p class="muted">
-      Sets that never reached Library: still being processed, held as a
-      duplicate, or left unfinished by a failed rip or processing step.
-      Publish one that has a playable stream, or discard it to the recycle
-      bin (purged after 14 days).
-    </p>
+    <h2>{$_("admin.drafts.title")}</h2>
+    <p class="muted">{$_("admin.drafts.intro")}</p>
   </header>
 
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
 
   {#if loading}
-    <p class="loading">Loading…</p>
+    <p class="loading">{$_("common.loading")}</p>
   {:else if items.length === 0}
-    <EmptyState message="No drafts. Everything you have is in Library." />
+    <EmptyState message={$_("admin.drafts.empty")} />
   {:else}
-    <AdminTable columns={["Set", "Source", "Length", "Arrived", "State", "Actions"]}>
+    <AdminTable columns={[$_("admin.drafts.col_set"), $_("admin.common.col_source"), $_("admin.common.col_length"), $_("admin.common.col_arrived"), $_("admin.drafts.col_state"), $_("admin.common.col_actions")]}>
       {#each items as item (item.id)}
         <tr data-testid="draft-row">
           <td>
             <a href={`/sets/${encodeURIComponent(item.slug)}`}>{item.title}</a>
             {#if item.duplicate_of}
               <span class="muted note">
-                Duplicate of
+                {$_("admin.drafts.duplicate_of")}
                 <a href={`/sets/${encodeURIComponent(item.duplicate_of.slug)}`}>{item.duplicate_of.title}</a>
               </span>
             {/if}
@@ -102,7 +99,7 @@
           <td class="mono">{item.duration_seconds == null ? "" : formatTime(item.duration_seconds)}</td>
           <td class="mono">{fmtLocalDateTime(item.created_at, $locale)}</td>
           <td>
-            <span data-testid="draft-state">{state(item)}</span>
+            <span data-testid="draft-state">{state(item, $_)}</span>
             {#if item.error}<span class="muted note" data-testid="draft-error">{item.error}</span>{/if}
           </td>
           <td class="cell-actions">
@@ -110,15 +107,15 @@
               type="button"
               class="btn btn-sm"
               disabled={busy[item.slug] || !item.ready || item.processing}
-              title={item.ready ? undefined : "No playable stream yet"}
+              title={item.ready ? undefined : $_("admin.drafts.no_stream_yet")}
               on:click={() => act(item.slug, "publish")}
-            >Publish</button>
+            >{$_("admin.drafts.publish")}</button>
             <button
               type="button"
               class="btn btn-sm btn-danger"
               disabled={busy[item.slug] || item.processing}
               on:click={() => (confirming = item)}
-            >Discard</button>
+            >{$_("admin.common.discard")}</button>
           </td>
         </tr>
       {/each}
@@ -128,9 +125,9 @@
 
 <ConfirmDialog
   open={confirming !== null}
-  title="Discard draft?"
-  message={confirming ? `“${confirming.title}” moves to the recycle bin and is purged after 14 days.` : ""}
-  confirmLabel="Discard"
+  title={$_("admin.drafts.discard_title")}
+  message={confirming ? $_("admin.drafts.discard_message", { values: { title: confirming.title } }) : ""}
+  confirmLabel={$_("admin.common.discard")}
   danger
   on:confirm={() => { const d = confirming; confirming = null; if (d) void act(d.slug, "discard"); }}
   on:cancel={() => (confirming = null)}

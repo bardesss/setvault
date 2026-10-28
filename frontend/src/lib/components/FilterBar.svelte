@@ -4,10 +4,11 @@
 
   export let query: string = "";
   export let sort: string = "recent";
-  export let sortOptions: { value: string; label: string }[] = [
-    { value: "recent", label: "Recently added" },
-    { value: "title", label: "Title A→Z" },
-    { value: "duration", label: "Duration" },
+  export let sortOptions: { value: string; label: string }[] | null = null;
+  $: options = sortOptions ?? [
+    { value: "recent", label: $_("library.sort_recent") },
+    { value: "title", label: $_("library.sort_title") },
+    { value: "duration", label: $_("components.sort_duration") },
   ];
   export let view: "list" | "grid" = "list";
 
@@ -39,12 +40,12 @@
     placeholder={$_("library.filter_placeholder")}
     aria-label={$_("library.filter_label")}
   />
-  <select bind:value={sort} on:change={onSort} aria-label="Sort by">
-    {#each sortOptions as opt (opt.value)}
+  <select bind:value={sort} on:change={onSort} aria-label={$_("browse.sort_label")}>
+    {#each options as opt (opt.value)}
       <option value={opt.value}>{opt.label}</option>
     {/each}
   </select>
-  <div class="view-toggle" role="group" aria-label="View toggle">
+  <div class="view-toggle" role="group" aria-label={$_("components.view_toggle")}>
     <button
       type="button"
       class:active={view === "list"}

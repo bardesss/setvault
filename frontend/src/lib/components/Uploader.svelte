@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { _ } from "svelte-i18n";
   import { uploadFile, type UploadProgress } from "#lib/api/uploads.ts";
 
   let file: File | null = null;
@@ -58,12 +59,12 @@
     on:dragover={onDragOver}
   >
     <input type="file" accept="audio/*" on:change={onSelect} />
-    <span>{file ? file.name : "Drop audio or choose file"}</span>
+    <span>{file ? file.name : $_("upload.drop_or_choose")}</span>
   </label>
 
   {#if file && !uploadUrl}
     <button type="button" on:click={start} disabled={busy}>
-      {busy ? "Uploading..." : "Start upload"}
+      {busy ? $_("upload.uploading") : $_("upload.start")}
     </button>
   {/if}
 
@@ -73,7 +74,7 @@
   {/if}
 
   {#if uploadUrl}
-    <div class="ok">Uploaded: {uploadUrl}</div>
+    <div class="ok">{$_("upload.uploaded", { values: { url: uploadUrl } })}</div>
   {/if}
 
   {#if error}

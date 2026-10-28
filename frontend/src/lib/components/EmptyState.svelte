@@ -1,5 +1,6 @@
 <script lang="ts">
-  export let message = "Nothing here yet.";
+  import { _ } from "svelte-i18n";
+  export let message: string | null = null;
 </script>
 
-<p class="empty-state" role="status"><slot>{message}</slot></p>
+<p class="empty-state" role="status"><slot>{message ?? $_("components.empty_default")}</slot></p>

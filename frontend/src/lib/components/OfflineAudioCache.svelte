@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { _ } from "svelte-i18n";
+  import { _, locale } from "svelte-i18n";
   import { fmtBytes } from "#lib/format.ts";
   import {
     clearAudioCache,
@@ -39,10 +39,10 @@
   <h2>{$_("pwa.cache.heading")}</h2>
   <p class="muted">{$_("pwa.cache.description")}</p>
   <p class="usage" data-test="offline-usage">
-    {fmtBytes($offline.usedBytes)} / {fmtBytes($offline.capBytes)}
+    {fmtBytes($offline.usedBytes, $locale)} / {fmtBytes($offline.capBytes, $locale)}
     {#if $offline.quotaBytes}
       <span class="quota">
-        ({$_("pwa.cache.quota")}: {fmtBytes($offline.quotaBytes)})
+        ({$_("pwa.cache.quota")}: {fmtBytes($offline.quotaBytes, $locale)})
       </span>
     {/if}
   </p>

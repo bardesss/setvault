@@ -50,7 +50,7 @@
 <aside class="drawer" role="dialog" aria-label={$_("tracklist.edit_entry")}>
   <header>
     <h3>{$_("tracklist.edit_entry")}</h3>
-    <button on:click={() => dispatch("close")} aria-label="close">✕</button>
+    <button on:click={() => dispatch("close")} aria-label={$_("components.close_lower")}>✕</button>
   </header>
   <label>
     {$_("tracklist.field_label")}

@@ -47,7 +47,7 @@
       });
       editing = false;
     } catch (e) {
-      saveError = e instanceof ApiError ? e.detail : "Save failed";
+      saveError = e instanceof ApiError ? e.detail : $_("catalog.save_failed");
     } finally { busy = false; }
   }
 </script>

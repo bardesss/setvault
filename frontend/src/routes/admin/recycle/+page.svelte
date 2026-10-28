@@ -28,7 +28,7 @@
       const r = await api<{ items: RecycledSet[] }>("/api/admin/recycle");
       items = r.items;
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "load failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.common.load_failed");
     } finally {
       loading = false;
     }
@@ -43,7 +43,7 @@
       });
       items = items.filter((i) => i.slug !== slug);
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "restore failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.recycle.restore_failed");
     } finally {
       busy[slug] = false;
       busy = busy;
@@ -51,7 +51,7 @@
   }
 
   async function purgeNow(slug: string) {
-    if (!confirm(`Hard-delete "${slug}" permanently? This cannot be undone.`)) {
+    if (!confirm($_("admin.recycle.purge_confirm", { values: { slug } }))) {
       return;
     }
     busy[slug] = true;
@@ -62,7 +62,7 @@
       });
       items = items.filter((i) => i.slug !== slug);
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "purge failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.recycle.purge_failed");
     } finally {
       busy[slug] = false;
       busy = busy;
@@ -74,11 +74,8 @@
 
 <section class="recycle">
   <header>
-    <h2>Recycle bin</h2>
-    <p class="muted">
-      Soft-deleted sets are kept here until their grace window expires, then
-      the scheduled purge job removes them. Restore them or purge them now.
-    </p>
+    <h2>{$_("admin.recycle.title")}</h2>
+    <p class="muted">{$_("admin.recycle.intro")}</p>
   </header>
 
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
@@ -86,10 +83,10 @@
   {#if loading}
     <p class="loading">{$_("common.loading")}</p>
   {:else if items.length === 0}
-    <EmptyState message="Nothing in the recycle bin." />
+    <EmptyState message={$_("admin.recycle.empty")} />
   {:else}
     <AdminTable
-      columns={["Slug", "Title", "Deleted", "Auto-purge after", "Actions"]}
+      columns={[$_("admin.recycle.col_slug"), $_("admin.recycle.col_title"), $_("admin.recycle.col_deleted"), $_("admin.recycle.col_purge_after"), $_("admin.common.col_actions")]}
     >
       {#each items as item (item.id)}
         <tr>
@@ -103,13 +100,13 @@
               class="btn btn-sm"
               disabled={busy[item.slug]}
               on:click={() => restore(item.slug)}
-            >Restore</button>
+            >{$_("admin.recycle.restore")}</button>
             <button
               type="button"
               class="btn btn-sm btn-danger"
               disabled={busy[item.slug]}
               on:click={() => purgeNow(item.slug)}
-            >Purge now</button>
+            >{$_("admin.recycle.purge_now")}</button>
           </td>
         </tr>
       {/each}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { _ } from "svelte-i18n";
   import { api, ApiError } from "#lib/api/client.ts";
 
   export let selectedIds: string[];
@@ -24,7 +25,7 @@
       roots = r.items;
       if (!moveTarget && roots[0]) moveTarget = roots[0].id;
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "could not load media roots";
+      error = e instanceof ApiError ? e.detail : $_("bulk.load_roots_failed");
     }
   }
 
@@ -43,14 +44,14 @@
       mode = "idle";
       onSubmitted(action);
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "submission failed";
+      error = e instanceof ApiError ? e.detail : $_("bulk.submit_failed");
     } finally {
       busy = false;
     }
   }
 
   function confirmSoftDelete() {
-    if (!confirm(`Move ${selectedIds.length} set(s) to the recycle bin?`)) {
+    if (!confirm($_("bulk.confirm_delete", { values: { count: selectedIds.length } }))) {
       return;
     }
     void submit("soft_delete");
@@ -65,7 +66,7 @@
     const add = retagAdd.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
     const remove = retagRemove.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
     if (add.length === 0 && remove.length === 0) {
-      error = "add or remove tags first";
+      error = $_("bulk.retag_empty");
       return;
     }
     void submit("retag", { add, remove });
@@ -73,47 +74,47 @@
 
   function submitMove() {
     if (!moveTarget) {
-      error = "pick a target root";
+      error = $_("bulk.pick_root");
       return;
     }
     void submit("move_root", { target_media_root_id: moveTarget });
   }
 </script>
 
-<aside class="toolbar" role="region" aria-label="bulk actions">
+<aside class="toolbar" role="region" aria-label={$_("bulk.label")}>
   <div class="count">
-    <strong>{selectedIds.length}</strong> selected
+    <strong>{selectedIds.length}</strong> {$_("bulk.selected")}
   </div>
 
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 
   {#if mode === "idle"}
-    <button type="button" disabled={busy} on:click={confirmSoftDelete}>Delete</button>
-    <button type="button" disabled={busy} on:click={() => { mode = "retag"; }}>Retag…</button>
-    <button type="button" disabled={busy} on:click={openMove}>Move root…</button>
-    <button type="button" class="ghost" on:click={onCleared}>Clear selection</button>
+    <button type="button" disabled={busy} on:click={confirmSoftDelete}>{$_("bulk.delete")}</button>
+    <button type="button" disabled={busy} on:click={() => { mode = "retag"; }}>{$_("bulk.retag")}</button>
+    <button type="button" disabled={busy} on:click={openMove}>{$_("bulk.move_root")}</button>
+    <button type="button" class="ghost" on:click={onCleared}>{$_("bulk.clear_selection")}</button>
   {:else if mode === "retag"}
     <label class="inline">
-      Add
-      <input type="text" placeholder="comma or space separated" bind:value={retagAdd} />
+      {$_("bulk.add")}
+      <input type="text" placeholder={$_("bulk.tags_placeholder")} bind:value={retagAdd} />
     </label>
     <label class="inline">
-      Remove
-      <input type="text" placeholder="comma or space separated" bind:value={retagRemove} />
+      {$_("bulk.remove")}
+      <input type="text" placeholder={$_("bulk.tags_placeholder")} bind:value={retagRemove} />
     </label>
-    <button type="button" disabled={busy} on:click={submitRetag}>Apply retag</button>
-    <button type="button" class="ghost" on:click={() => { mode = "idle"; }}>Cancel</button>
+    <button type="button" disabled={busy} on:click={submitRetag}>{$_("bulk.apply_retag")}</button>
+    <button type="button" class="ghost" on:click={() => { mode = "idle"; }}>{$_("common.cancel")}</button>
   {:else if mode === "move"}
     <label class="inline">
-      Target root
+      {$_("bulk.target_root")}
       <select bind:value={moveTarget}>
         {#each roots as r (r.id)}
           <option value={r.id}>{r.name}</option>
         {/each}
       </select>
     </label>
-    <button type="button" disabled={busy} on:click={submitMove}>Apply move</button>
-    <button type="button" class="ghost" on:click={() => { mode = "idle"; }}>Cancel</button>
+    <button type="button" disabled={busy} on:click={submitMove}>{$_("bulk.apply_move")}</button>
+    <button type="button" class="ghost" on:click={() => { mode = "idle"; }}>{$_("common.cancel")}</button>
   {/if}
 </aside>
 

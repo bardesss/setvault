@@ -31,11 +31,14 @@ class UserOut(BaseModel):
     username: str
     display_name: str
     role: str
+    # The saved UI language; None means "follow the browser". Returned as
+    # stored: the frontend ignores a value it doesn't support.
+    locale: str | None = None
 
     @classmethod
     def from_model(cls, u: User) -> UserOut:
         return cls(id=str(u.id), email=u.email, username=u.username,
-                   display_name=u.display_name, role=u.role)
+                   display_name=u.display_name, role=u.role, locale=u.locale)
 
 
 class LoginOut(BaseModel):

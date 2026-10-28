@@ -11,10 +11,10 @@
   ];
 </script>
 
-<svelte:head><title>New set - SetVault</title></svelte:head>
+<svelte:head><title>{$_("sets_new.title")} - SetVault</title></svelte:head>
 
 <section>
-  <h1>New set</h1>
+  <h1>{$_("sets_new.title")}</h1>
 
   <TabStrip {tabs} bind:active />
 

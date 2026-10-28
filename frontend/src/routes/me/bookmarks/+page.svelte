@@ -51,8 +51,8 @@
   bind:query
   bind:sort
   sortOptions={[
-    { value: "recent", label: "Recently bookmarked" },
-    { value: "title", label: "Set title A→Z" },
+    { value: "recent", label: $_("me.bookmarks_sort_recent") },
+    { value: "title", label: $_("me.bookmarks_sort_title") },
   ]}
   view="list"
 />
@@ -61,11 +61,11 @@
   <h1 class="bookmarks-heading">{$_("bookmarks.my_title")}</h1>
 
   {#if !loaded}
-    <p class="hint">Loading…</p>
+    <p class="hint">{$_("common.loading")}</p>
   {:else if items.length === 0}
     <p class="hint">{$_("bookmarks.empty")}</p>
   {:else if filtered.length === 0}
-    <p class="hint">No bookmarks match.</p>
+    <p class="hint">{$_("me.bookmarks_no_match")}</p>
   {:else}
     {#each Object.entries(bySet) as [slug, list] (slug)}
       <article>

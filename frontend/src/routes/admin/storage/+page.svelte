@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { _ } from "svelte-i18n";
+  import { _, locale } from "svelte-i18n";
   import type { PageData } from "./$types";
   import AdminTable from "#lib/components/AdminTable.svelte";
   import ConfirmDialog from "#lib/components/ConfirmDialog.svelte";
@@ -123,7 +123,7 @@
         <td>{r.name}</td>
         <td class="mono">{r.host_path}</td>
         <td>{r.default_for_ingest ? $_("common.yes") : $_("common.no")}</td>
-        <td>{r.max_bytes === null ? $_("admin.storage.unlimited") : fmtBytes(r.max_bytes)}</td>
+        <td>{r.max_bytes === null ? $_("admin.storage.unlimited") : fmtBytes(r.max_bytes, $locale)}</td>
         <td>{r.set_count}</td>
         <td>
           <span

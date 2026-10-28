@@ -17,10 +17,11 @@
   let saving = false;
   let testResult: string | null = null;
 
-  const SCHEMAS: Record<ProviderKind, { key: string; label: string }[]> = {
-    musicbrainz: [{ key: "user_agent", label: "User-Agent (per MB ToS)" }],
-    discogs: [{ key: "token", label: "Personal access token" }],
-    acoustid: [{ key: "api_key", label: "Application API key" }],
+  let SCHEMAS: Record<ProviderKind, { key: string; label: string }[]>;
+  $: SCHEMAS = {
+    musicbrainz: [{ key: "user_agent", label: $_("admin.providers.user_agent") }],
+    discogs: [{ key: "token", label: $_("admin.providers.discogs_token") }],
+    acoustid: [{ key: "api_key", label: $_("admin.providers.acoustid_key") }],
   };
   $: configSchema = SCHEMAS[kind];
 
@@ -36,7 +37,7 @@
 
   async function runTest(k: ProviderKind) {
     const r = await testProvider(k);
-    testResult = r.ok ? "ok" : (r.error ?? "failed");
+    testResult = r.ok ? $_("admin.providers.test_ok") : (r.error ?? $_("admin.providers.test_failed"));
   }
 </script>
 
@@ -56,7 +57,7 @@
     {#each providers as p (p.id)}
       <tr>
         <td>{p.provider_kind}</td>
-        <td>{p.enabled ? "OK" : "off"}</td>
+        <td>{p.enabled ? $_("admin.providers.state_on") : $_("admin.providers.state_off")}</td>
         <td>{p.priority}</td>
         <td class="cell-actions">
           <button class="btn btn-sm" on:click={() => runTest(p.provider_kind)}>
@@ -71,9 +72,9 @@
     <label class="admin-field">
       <span>{$_("admin.providers.kind")}</span>
       <select bind:value={kind}>
-        <option value="musicbrainz">MusicBrainz</option>
-        <option value="discogs">Discogs</option>
-        <option value="acoustid">AcoustID</option>
+        <option value="musicbrainz">{"MusicBrainz"}</option>
+        <option value="discogs">{"Discogs"}</option>
+        <option value="acoustid">{"AcoustID"}</option>
       </select>
     </label>
     {#each configSchema as f (f.key)}
@@ -88,7 +89,7 @@
       </button>
     </svelte:fragment>
   </AdminForm>
-  {#if testResult}<p class="admin-msg">Test: {testResult}</p>{/if}
+  {#if testResult}<p class="admin-msg">{$_("admin.providers.test_result", { values: { result: testResult } })}</p>{/if}
 </section>
 
 <style>

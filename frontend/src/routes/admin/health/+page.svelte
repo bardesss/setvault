@@ -53,7 +53,7 @@
     try {
       data = await api<HealthPayload>("/api/admin/health");
     } catch (e) {
-      error = e instanceof ApiError ? e.detail : "load failed";
+      error = e instanceof ApiError ? e.detail : $_("admin.common.load_failed");
     } finally {
       loading = false;
     }
@@ -74,53 +74,53 @@
 </script>
 
 <section class="health">
-  <header><h2>Health</h2></header>
+  <header><h2>{$_("admin.health.title")}</h2></header>
 
   {#if error}<p class="admin-msg is-error" role="alert">{error}</p>{/if}
 
   {#if loading}
     <p class="loading">{$_("common.loading")}</p>
   {:else if data}
-    <StatusBlock title="Version">
-      <div class="stat-line"><span class="k">Running</span><span class="v mono">{data.version.current}</span></div>
+    <StatusBlock title={$_("admin.health.version")}>
+      <div class="stat-line"><span class="k">{$_("admin.health.running")}</span><span class="v mono">{data.version.current}</span></div>
       <div class="stat-line">
-        <span class="k">Latest known</span>
+        <span class="k">{$_("admin.health.latest_known")}</span>
         <span class="v mono">
           {data.version.latest_known ?? "—"}
           {#if data.version.is_outdated && data.version.latest_release_url}
-            — <a href={data.version.latest_release_url} target="_blank" rel="noopener">release notes →</a>
+            — <a href={data.version.latest_release_url} target="_blank" rel="noopener">{$_("admin.health.release_notes")}</a>
           {/if}
         </span>
       </div>
-      <div class="stat-line"><span class="k">Last checked</span><span class="v mono">{fmtLocalDateTime(data.version.latest_checked_at, $locale) || "—"}</span></div>
-      <div class="stat-line"><span class="k">Audit retention</span><span class="v mono">{data.audit_retention_days} days</span></div>
+      <div class="stat-line"><span class="k">{$_("admin.health.last_checked")}</span><span class="v mono">{fmtLocalDateTime(data.version.latest_checked_at, $locale) || "—"}</span></div>
+      <div class="stat-line"><span class="k">{$_("admin.health.audit_retention")}</span><span class="v mono">{$_("admin.health.retention_days", { values: { count: data.audit_retention_days } })}</span></div>
     </StatusBlock>
 
     <div class="table-section">
-      <h3>Storage roots</h3>
+      <h3>{$_("admin.health.storage_roots")}</h3>
       <AdminTable
-        columns={["Name", "Path", "Status", "Free", "Used", "Capacity"]}
+        columns={[$_("admin.health.col_name"), $_("admin.health.col_path"), $_("admin.health.col_status"), $_("admin.health.col_free"), $_("admin.health.col_used"), $_("admin.health.col_capacity")]}
       >
         {#each data.storage_roots as r (r.id)}
           <tr>
             <td>{r.name}{r.default_for_ingest ? " ★" : ""}</td>
             <td class="mono">{r.host_path}</td>
             <td class={statusClass(r.last_health_status)}>{r.last_health_status}</td>
-            <td class="mono">{fmtBytes(r.free_bytes)}</td>
-            <td class="mono">{fmtBytes(r.used_bytes)} {fmtPct(r.used_bytes, r.total_bytes)}</td>
-            <td class="mono">{fmtBytes(r.total_bytes)}</td>
+            <td class="mono">{fmtBytes(r.free_bytes, $locale)}</td>
+            <td class="mono">{fmtBytes(r.used_bytes, $locale)} {fmtPct(r.used_bytes, r.total_bytes)}</td>
+            <td class="mono">{fmtBytes(r.total_bytes, $locale)}</td>
           </tr>
         {/each}
       </AdminTable>
     </div>
 
     <div class="table-section">
-      <h3>Connectors</h3>
+      <h3>{$_("admin.connectors.title")}</h3>
       {#if data.connectors.length === 0}
-        <EmptyState message="No connectors configured." />
+        <EmptyState message={$_("admin.connectors.empty")} />
       {:else}
         <AdminTable
-          columns={["Name", "Kind", "Enabled", "Last used", "Status"]}
+          columns={[$_("admin.health.col_name"), $_("admin.health.col_kind"), $_("admin.health.col_enabled"), $_("admin.health.col_last_used"), $_("admin.health.col_status")]}
         >
           {#each data.connectors as c (c.id)}
             <tr>
@@ -136,11 +136,11 @@
     </div>
 
     <div class="table-section">
-      <h3>Providers</h3>
+      <h3>{$_("admin.health.providers")}</h3>
       {#if data.providers.length === 0}
-        <EmptyState message="No providers configured." />
+        <EmptyState message={$_("admin.health.providers_empty")} />
       {:else}
-        <AdminTable columns={["Kind", "Name", "Enabled", "Priority"]}>
+        <AdminTable columns={[$_("admin.health.col_kind"), $_("admin.health.col_name"), $_("admin.health.col_enabled"), $_("admin.health.col_priority")]}>
           {#each data.providers as p (p.kind)}
             <tr>
               <td class="mono">{p.kind}</td>
@@ -154,11 +154,11 @@
     </div>
 
     <StatusBlock
-      title="API tokens"
+      title={$_("admin.health.api_tokens")}
       rows={[
-        { label: "Total", value: String(data.tokens.total) },
-        { label: "Active", value: String(data.tokens.active) },
-        { label: "Revoked", value: String(data.tokens.revoked) },
+        { label: $_("admin.health.tokens_total"), value: String(data.tokens.total) },
+        { label: $_("admin.health.tokens_active"), value: String(data.tokens.active) },
+        { label: $_("admin.health.tokens_revoked"), value: String(data.tokens.revoked) },
       ]}
     />
   {/if}

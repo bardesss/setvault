@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { _ } from "svelte-i18n";
   import { onMount, onDestroy } from "svelte";
   import Waveform from "#lib/components/Waveform.svelte";
   import { listTracklist, type TracklistEntry } from "#lib/api/tracklist.ts";
@@ -27,11 +28,11 @@
 </script>
 
 {#if $fullscreenOpen && st.set}
-  <div class="fullscreen-player" role="dialog" aria-modal="true" aria-label="Now playing">
+  <div class="fullscreen-player" role="dialog" aria-modal="true" aria-label={$_("player.now_playing")}>
     <header class="fs-header">
-      <button type="button" class="btn btn-icon" on:click={close} aria-label="Close">▾</button>
+      <button type="button" class="btn btn-icon" on:click={close} aria-label={$_("common.close")}>▾</button>
       <div style="min-width:0">
-        <div class="fs-kicker">now playing</div>
+        <div class="fs-kicker">{$_("player.now_playing_lower")}</div>
         <div class="fs-title">{st.set.title} — {artists}</div>
       </div>
     </header>
@@ -43,23 +44,23 @@
         <b>{formatTime(st.position)}</b><span class="div"> / </span>{formatTime(st.duration)}
       </div>
       <div class="fs-transport">
-        <button type="button" class="btn btn-icon" on:click={prev} aria-label="Previous track">⏮</button>
-        <button type="button" class="btn btn-icon" on:click={() => seekBy(-10)} aria-label="Back 10s">−10</button>
+        <button type="button" class="btn btn-icon" on:click={prev} aria-label={$_("player.previous_track")}>⏮</button>
+        <button type="button" class="btn btn-icon" on:click={() => seekBy(-10)} aria-label={$_("player.back_10s")}>−10</button>
         <button type="button" class="play-large" on:click={toggle}
           data-test="fs-play-state" data-state={st.playing ? "playing" : "paused"}
-          aria-label={st.playing ? "pause" : "play"}>
+          aria-label={st.playing ? $_("player.pause") : $_("player.play")}>
           {#if st.playing}
             <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><rect x="4" y="3" width="3" height="10"/><rect x="9" y="3" width="3" height="10"/></svg>
           {:else}
             <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M4 3l9 5-9 5z"/></svg>
           {/if}
         </button>
-        <button type="button" class="btn btn-icon" on:click={() => seekBy(10)} aria-label="Forward 10s">+10</button>
-        <button type="button" class="btn btn-icon" on:click={next} aria-label="Next track">⏭</button>
+        <button type="button" class="btn btn-icon" on:click={() => seekBy(10)} aria-label={$_("player.forward_10s")}>+10</button>
+        <button type="button" class="btn btn-icon" on:click={next} aria-label={$_("player.next_track")}>⏭</button>
       </div>
 
       {#if entries.length}
-        <div class="fs-tracklist" aria-label="Jump to track">
+        <div class="fs-tracklist" aria-label={$_("player.jump_to_track")}>
           {#each entries as e, i (e.id)}
             <button type="button" class:now={i === currentIdx} on:click={() => seekTo(e.start_seconds)}>
               <span class="ts">{formatTime(e.start_seconds)}</span>

@@ -1,5 +1,6 @@
 import { writable, get } from "svelte/store";
 import { browser } from "$app/env";
+import { _ } from "svelte-i18n";
 import type { SetDetail } from "#lib/api/sets.ts";
 import { getSet, getSetState, putSetState } from "#lib/api/sets.ts";
 import { listTracklist, type TracklistEntry } from "#lib/api/tracklist.ts";
@@ -139,7 +140,7 @@ function setMediaSession(set: SetDetail): void {
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: set.title,
-      artist: set.artists.map((a) => a.name).join(", ") || "Unknown",
+      artist: set.artists.map((a) => a.name).join(", ") || get(_)("player.unknown_artist"),
       artwork: [
         { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
         { src: "/icons/icon-256.png", sizes: "256x256", type: "image/png" },

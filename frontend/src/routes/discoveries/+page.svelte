@@ -36,7 +36,7 @@
       await ripDiscovery(d.id);
       decided(d, "ingested");
     } catch (e) {
-      errorMsg = e instanceof Error ? e.message : "failed";
+      errorMsg = e instanceof Error ? e.message : $_("discoveries.failed");
     }
   }
   async function dismiss(d: Discovery) {
@@ -44,7 +44,7 @@
       await dismissDiscovery(d.id);
       decided(d, "dismissed");
     } catch (e) {
-      errorMsg = e instanceof Error ? e.message : "failed";
+      errorMsg = e instanceof Error ? e.message : $_("discoveries.failed");
     }
   }
 </script>
