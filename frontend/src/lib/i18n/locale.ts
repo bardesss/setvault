@@ -3,16 +3,13 @@ import { getLocaleFromNavigator, locale, waitLocale } from "svelte-i18n";
 
 /** UI languages, in picker order. The backend keeps the same list in
  *  `packages/core/src/setvault_core/locales.py`; a test checks they match. */
-export const SUPPORTED_LOCALES = ["en", "nl", "de", "es", "fr"] as const;
+export const SUPPORTED_LOCALES = ["en", "nl"] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 
 /** Each language in its own name, for the picker. */
 export const LOCALE_NAMES: Record<SupportedLocale, string> = {
   en: "English",
   nl: "Nederlands",
-  de: "Deutsch",
-  es: "Español",
-  fr: "Français",
 };
 
 const CACHE_KEY = "setvault.locale";

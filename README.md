@@ -341,9 +341,25 @@ upload the cookies again, or use **Remove** to stop sending them.
 
 ## 🌐 Translations
 
-Translation-ready via [Crowdin](https://crowdin.com/project/setvault) — contributions welcome.
-English source pushes up automatically and Crowdin opens PRs back with translated locales.
-Keep `{placeholders}` intact and badges/hints short.
+Translations into any language are welcome. They live in
+[`frontend/src/lib/i18n/locales/`](frontend/src/lib/i18n/locales/), one JSON file per
+language, with `en.json` as the source.
+
+To improve an existing language, edit its file and open a PR.
+
+To add a new language:
+
+1. Copy `en.json` to `<code>.json`, using the two-letter language code (`de.json`, `pt.json`, …),
+   and translate the values.
+2. Add the code to `SUPPORTED_LOCALES` in `frontend/src/lib/i18n/locale.ts` (with its name in
+   `LOCALE_NAMES`) and in `packages/core/src/setvault_core/locales.py`.
+3. Add a `register(...)` line for it in `frontend/src/lib/i18n/index.ts`.
+4. Open a PR.
+
+- Keys missing from a locale fall back to English, so partial translations are fine.
+- Don't add keys that aren't in `en.json`, and keep every `{placeholder}` and ICU
+  `plural`/`select` block intact. `npm run test:unit` checks both.
+- Keep badges and hints short; they sit in tight spots.
 
 ---
 
@@ -436,5 +452,5 @@ GPL-3.0.
 
 ## 🙏 Credits
 
-**wavesurfer.js** · **yt-dlp** · **tusd** · **MusicBrainz / Discogs / AcoustID** · **Crowdin** — and every CI red that got us here.
+**wavesurfer.js** · **yt-dlp** · **tusd** · **MusicBrainz / Discogs / AcoustID** — and every CI red that got us here.
 </content>

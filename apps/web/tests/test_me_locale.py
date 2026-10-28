@@ -12,7 +12,7 @@ async def test_patch_locale_sets_value(authed_admin_client):
 
 
 async def test_patch_locale_null_clears(authed_admin_client):
-    await authed_admin_client.patch("/api/me", json={"locale": "de"})
+    await authed_admin_client.patch("/api/me", json={"locale": "nl"})
     response = await authed_admin_client.patch("/api/me", json={"locale": None})
     assert response.status_code == 204
     me = await authed_admin_client.get("/api/auth/me")
@@ -20,7 +20,7 @@ async def test_patch_locale_null_clears(authed_admin_client):
 
 
 async def test_patch_locale_rejects_unsupported(authed_admin_client):
-    for bad in ("xx", "nl-NL", ""):
+    for bad in ("xx", "nl-NL", "", "de"):
         response = await authed_admin_client.patch("/api/me", json={"locale": bad})
         assert response.status_code == 422, bad
     me = await authed_admin_client.get("/api/auth/me")

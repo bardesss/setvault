@@ -168,6 +168,37 @@ describe("Dutch translation", () => {
   });
 });
 
+/** Contributor locales (everything but en and nl). They may be partial,
+ *  since missing keys fall back to English, but what they do hold must line up. */
+const LOCALES_DIR = fileURLToPath(new URL("./locales/", import.meta.url));
+const OTHER_LOCALES = readdirSync(LOCALES_DIR)
+  .filter((f) => f.endsWith(".json") && f !== "en.json" && f !== "nl.json")
+  .map((f) => {
+    const loc = f.slice(0, -".json".length);
+    return [loc, flatten(JSON.parse(readFileSync(join(LOCALES_DIR, f), "utf8")) as Tree)] as const;
+  });
+
+describe.each(OTHER_LOCALES)("%s translation", (loc, msgs) => {
+  it("has no keys that en.json lacks", () => {
+    expect(Object.keys(msgs).filter((k) => !(k in EN))).toEqual([]);
+  });
+
+  it("messages parse as ICU and keep en's placeholders", () => {
+    const bad: string[] = [];
+    for (const [k, msg] of Object.entries(msgs)) {
+      if (!(k in EN)) continue;
+      try {
+        const want = [...argNames(new IntlMessageFormat(EN[k], "en").getAst())].sort().join(",");
+        const got = [...argNames(new IntlMessageFormat(msg, loc).getAst())].sort().join(",");
+        if (got !== want) bad.push(`${k}: {${got}} != {${want}}`);
+      } catch (e) {
+        bad.push(`${k}: ${(e as Error).message}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});
+
 describe("hardcoded markup", () => {
   it("no .svelte file writes user-visible text outside $_()", () => {
     const hits: Record<string, string[]> = {};

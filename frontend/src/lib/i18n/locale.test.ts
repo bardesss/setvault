@@ -11,12 +11,13 @@ import {
 describe("normalizeLocale", () => {
   it("reduces a region tag to the supported primary language", () => {
     expect(normalizeLocale("nl-NL")).toBe("nl");
-    expect(normalizeLocale("de_AT")).toBe("de");
-    expect(normalizeLocale("FR")).toBe("fr");
+    expect(normalizeLocale("nl_BE")).toBe("nl");
+    expect(normalizeLocale("EN")).toBe("en");
   });
   it("rejects unsupported and empty values", () => {
     expect(normalizeLocale("XX")).toBeNull();
     expect(normalizeLocale("ja-JP")).toBeNull();
+    expect(normalizeLocale("de")).toBeNull();
     expect(normalizeLocale("")).toBeNull();
     expect(normalizeLocale(null)).toBeNull();
     expect(normalizeLocale(undefined)).toBeNull();
@@ -25,7 +26,7 @@ describe("normalizeLocale", () => {
 
 describe("pickStartLocale", () => {
   it("prefers the cached choice", () => {
-    expect(pickStartLocale({ cached: "de", navigator: "nl-NL" })).toBe("de");
+    expect(pickStartLocale({ cached: "nl", navigator: "en-US" })).toBe("nl");
   });
   it("ignores a stale cached value and uses the browser language", () => {
     expect(pickStartLocale({ cached: "xx", navigator: "nl-BE" })).toBe("nl");
@@ -63,7 +64,7 @@ describe("locale cache", () => {
     vi.stubGlobal("localStorage", {
       setItem: () => { throw new Error("quota"); },
     });
-    expect(() => writeCachedLocale("de")).not.toThrow();
+    expect(() => writeCachedLocale("nl")).not.toThrow();
   });
 });
 
