@@ -909,7 +909,14 @@
   background: var(--bg-elevated);
   border-radius: var(--r-sm);
 }
-.set-row .set-title { font-weight: 700; color: var(--text-strong); }
+/* Row titles share the .set-title class with the set page heading: undo its display size. */
+.set-row .set-title {
+  font-size: var(--ts-md);
+  line-height: var(--lh-snug);
+  letter-spacing: normal;
+  font-weight: 700;
+  color: var(--text-strong);
+}
 .set-row .set-artist { font-size: var(--ts-sm); color: var(--text-muted); }
 .set-row .set-venue,
 .set-row .set-duration {
