@@ -47,7 +47,7 @@
   on:click={() => dispatch("close")}
   role="presentation"
 ></div>
-<aside class="drawer" role="dialog" aria-label={$_("tracklist.edit_entry")}>
+<div class="drawer" role="dialog" aria-label={$_("tracklist.edit_entry")}>
   <header>
     <h3>{$_("tracklist.edit_entry")}</h3>
     <button on:click={() => dispatch("close")} aria-label={$_("components.close_lower")}>✕</button>
@@ -68,7 +68,7 @@
     <button class="danger" on:click={remove}>{$_("tracklist.delete")}</button>
     <button class="primary" on:click={save} disabled={saving}>{$_("tracklist.save")}</button>
   </footer>
-</aside>
+</div>
 
 <style>
   .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: var(--z-overlay); }

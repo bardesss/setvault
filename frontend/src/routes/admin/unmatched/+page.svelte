@@ -122,7 +122,7 @@
   {/if}
 
   {#if linkPicker}
-    <aside class="picker" role="dialog" aria-label={$_("admin.unmatched.picker_label")}>
+    <div class="picker" role="dialog" aria-label={$_("admin.unmatched.picker_label")}>
       <h3>{$_("admin.unmatched.picker_title")}</h3>
       <input
         type="text"
@@ -145,7 +145,7 @@
         {/if}
       </ul>
       <button type="button" class="btn btn-sm" on:click={() => { linkPicker = null; }}>{$_("common.cancel")}</button>
-    </aside>
+    </div>
   {/if}
 </section>
 

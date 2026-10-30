@@ -36,9 +36,9 @@ test.describe("tracklist editor", () => {
     const before = await rows.count();
 
     await page.getByRole("button", { name: "Import" }).click();
-    await expect(page.locator("section.modal")).toBeVisible();
+    await expect(page.locator("div.modal")).toBeVisible();
     await page
-      .locator("section.modal textarea")
+      .locator("div.modal textarea")
       .fill("0:30 Paste One - Track\n5:00 Paste Two - Track");
     await page.getByRole("button", { name: "Parse" }).click();
     await page.getByRole("button", { name: /accept .* selected/i }).click();
@@ -56,13 +56,13 @@ test.describe("tracklist editor", () => {
 
     // Guarantee at least one entry past the shift threshold.
     await page.getByRole("button", { name: "Import" }).click();
-    await expect(page.locator("section.modal")).toBeVisible();
-    await page.locator("section.modal textarea").fill("9:00 Shift Target - Track");
+    await expect(page.locator("div.modal")).toBeVisible();
+    await page.locator("div.modal textarea").fill("9:00 Shift Target - Track");
     await page.getByRole("button", { name: "Parse" }).click();
     await page.getByRole("button", { name: /accept .* selected/i }).click();
 
     await page.getByRole("button", { name: "Time shift" }).click();
-    const dialog = page.locator("section.dialog");
+    const dialog = page.locator("div.dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog.locator("p.preview")).toContainText(/shift \d+ entr/i);
     await page.getByRole("button", { name: "Apply" }).click();

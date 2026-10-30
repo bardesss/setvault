@@ -13,15 +13,15 @@ test.describe("enrichment", () => {
     // the edit drawer (after an async create) — wait for it, then dismiss it.
     await page.locator(".tracks-section h3").click();
     await page.keyboard.press("m");
-    const drawer = page.locator("aside.drawer");
+    const drawer = page.locator("div.drawer");
     await expect(drawer).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(drawer).toBeHidden();
 
     await page.locator(".tracks-section .track-row .btn-ghost").filter({ hasText: /resolve/i }).first().click();
-    await expect(page.locator("section.popover")).toBeVisible();
+    await expect(page.locator("div.popover")).toBeVisible();
     await expect(
-      page.locator("section.popover .modes button.active"),
+      page.locator("div.popover .modes button.active"),
     ).toContainText(/metadata/i);
   });
 });

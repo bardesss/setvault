@@ -100,7 +100,7 @@
   on:click={() => dispatch("close")}
   role="presentation"
 ></div>
-<section class="modal" role="dialog" aria-label={$_("tracklist.import")}>
+<div class="modal" role="dialog" aria-label={$_("tracklist.import")}>
   <header>
     <h3>{$_("tracklist.import")}</h3>
     <button on:click={() => dispatch("close")} aria-label={$_("components.close_lower")}>✕</button>
@@ -154,7 +154,7 @@
       </button>
     </footer>
   {/if}
-</section>
+</div>
 
 <style>
   .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: var(--z-overlay); }
