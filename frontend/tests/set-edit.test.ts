@@ -92,6 +92,50 @@ test.describe("set metadata editor", () => {
     expect(saved.venue).toBeNull();
   });
 
+  test("won't save while a picker holds text that was never picked", async ({ page }) => {
+    await openEditor(page);
+    const artists = page.getByRole("group", { name: "Artists" });
+    await artists.getByRole("combobox", { name: "Add an artist…" }).fill("Typed Not Picked");
+
+    await page.getByRole("button", { name: "Save" }).click();
+
+    await expect(page.getByRole("alert")).toContainText('"Typed Not Picked" isn\'t added yet');
+    await expect(page).toHaveURL(new RegExp(`/sets/${SLUG}/edit$`));
+  });
+
+  test("a new party fills the set's empty date and venue", async ({ page }) => {
+    const partyName = `E2E Party ${Date.now()}`;
+    const venueName = `E2E Venue ${Date.now()}`;
+    await openEditor(page);
+
+    const venue = page.getByRole("group", { name: "Venue" });
+    await venue.getByRole("button", { name: "Clear" }).click();
+
+    const party = page.getByRole("group", { name: "Party" });
+    await party.getByRole("combobox", { name: "Search parties…" }).fill(partyName);
+    await party.getByRole("option", { name: `Create "${partyName}"` }).click();
+
+    const dialog = page.getByRole("dialog", { name: "New party" });
+    await dialog.getByLabel("Date").fill("2015-01-14");
+    // The venue doesn't exist yet: the modal's picker can create it.
+    await dialog.getByRole("combobox", { name: "Search venues…" }).fill(venueName);
+    await dialog.getByRole("option", { name: `Create "${venueName}"` }).click();
+    await expect(dialog.getByText(venueName, { exact: true })).toBeVisible();
+    await dialog.getByRole("button", { name: "Create party" }).click();
+    await expect(dialog).toBeHidden();
+
+    await expect(page.getByRole("group", { name: "Date" }).locator("input[type=date]")).toHaveValue(
+      "2015-01-14",
+    );
+    await expect(venue.getByText(venueName, { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page).toHaveURL(new RegExp(`/sets/${SLUG}$`));
+    const saved = await (await page.request.get(`/api/sets/${SLUG}`)).json();
+    expect(saved.date).toBe("2015-01-14");
+    expect(saved.venue?.name).toBe(venueName);
+  });
+
   test("asks before leaving with unsaved changes", async ({ page }) => {
     await openEditor(page);
     await page.getByLabel("Title", { exact: true }).fill("Not saved");

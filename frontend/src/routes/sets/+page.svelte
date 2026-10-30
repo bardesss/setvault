@@ -317,10 +317,13 @@
     transition: outline-color 100ms;
   }
   .card-wrap.selected { outline-color: var(--accent); }
+  /* The card is text only, so make room for the toggle instead of covering the title. */
+  .card-wrap :global(.set-card) { padding-left: calc(var(--sp-2) + 28px + var(--sp-3)); }
   .select-toggle {
     position: absolute;
-    top: var(--sp-2);
+    top: 50%;
     left: var(--sp-2);
+    transform: translateY(-50%);
     z-index: 5;
     width: 28px;
     height: 28px;
