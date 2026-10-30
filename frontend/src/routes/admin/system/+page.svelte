@@ -63,6 +63,20 @@
       settingsBusy = false;
     }
   }
+
+  async function save1001tl() {
+    if (!settings) return;
+    settingsBusy = true;
+    settingsError = null;
+    try {
+      settings = await updateSettings({ allow_1001tl_scrape: settings.allow_1001tl_scrape });
+    } catch (e) {
+      settingsError = e instanceof Error ? e.message : $_("admin.common.failed");
+      if (settings) settings.allow_1001tl_scrape = !settings.allow_1001tl_scrape;
+    } finally {
+      settingsBusy = false;
+    }
+  }
 </script>
 
 <h2>{$_("admin.system.title")}</h2>
@@ -124,6 +138,28 @@
       {$_("settings.single_user_auto_login")}
     </label>
     <p class="hint">{$_("settings.single_user_auto_login_warning")}</p>
+  </StatusBlock>
+{/if}
+
+{#if settings}
+  <StatusBlock title={$_("settings.imports_title")}>
+    <label class="settings-row">
+      <input
+        type="checkbox"
+        checked={settings.allow_1001tl_scrape || settings.allow_1001tl_scrape_env}
+        disabled={settingsBusy || settings.allow_1001tl_scrape_env}
+        on:change={(e) => {
+          if (settings) settings.allow_1001tl_scrape = e.currentTarget.checked;
+          void save1001tl();
+        }}
+      />
+      {$_("settings.allow_1001tl_scrape")}
+    </label>
+    <p class="hint">
+      {settings.allow_1001tl_scrape_env
+        ? $_("settings.allow_1001tl_scrape_env")
+        : $_("settings.allow_1001tl_scrape_hint")}
+    </p>
   </StatusBlock>
 {/if}
 
