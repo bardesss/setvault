@@ -4,6 +4,13 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.2](https://github.com/bardesss/setvault/compare/v0.27.1...v0.27.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* **a11y:** put role="dialog" on divs, not section/aside ([e5a039a](https://github.com/bardesss/setvault/commit/e5a039a3c9570463c71e7c832360a32f3f375cdc))
+
 ## [0.27.1](https://github.com/bardesss/setvault/compare/v0.27.0...v0.27.1) (2026-10-30)
 
 
