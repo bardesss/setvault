@@ -115,7 +115,7 @@ async def _queued_rip(session, user):
 def _fake_download(src):
     import shutil
 
-    async def _download(job, tmp_dir):
+    async def _download(job, tmp_dir, **_kw):
         dst = tmp_dir / f"{job.id}.flac"
         shutil.copy(src, dst)
         return dst
@@ -219,6 +219,70 @@ async def test_download_requests_single_video_with_size_cap(tmp_path):
     opts = ydl.call_args.args[0]
     assert opts["noplaylist"] is True
     assert opts["max_filesize"] == MAX_DOWNLOAD_BYTES
+
+
+@pytest.mark.asyncio
+async def test_download_reports_byte_progress(tmp_path):
+    import uuid
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    from setvault_core.jobs.url_rip_job import _download
+
+    out = tmp_path / "x.opus"
+    out.write_bytes(b"x")
+    seen: list[tuple[int, int | None]] = []
+
+    def _fake_ydl(opts):
+        def _extract(*_a, **_kw):
+            hook = opts["progress_hooks"][0]
+            hook({"downloaded_bytes": 10, "total_bytes": 100})
+            hook({"downloaded_bytes": 40, "total_bytes_estimate": 120.5})
+            hook({"downloaded_bytes": 50})  # streamed: size unknown
+            return {"filepath": str(out)}
+        ctx = MagicMock()
+        ctx.__enter__.return_value.extract_info.side_effect = _extract
+        return ctx
+
+    job = SimpleNamespace(id=uuid.uuid4(), source_url="https://www.youtube.com/watch?v=a")
+    with patch("yt_dlp.YoutubeDL", side_effect=_fake_ydl):
+        await _download(job, tmp_path, on_progress=lambda d, t: seen.append((d, t)))
+
+    assert seen == [(10, 100), (40, 120), (50, None)]
+
+
+@pytest.mark.asyncio
+async def test_rip_progress_moves_during_the_download(session, monkeypatch, tmp_path):
+    """The bar fills the download slice from yt-dlp's byte counts instead of
+    sitting at the start value until the download ends."""
+    import asyncio
+
+    from setvault_core.jobs import url_rip_job
+
+    user = await _make_user(session)
+    await session.commit()
+    job = RipJob(
+        submitted_by=user.id, source_url="https://x", status="downloading", progress_pct=15,
+        created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+    )
+    session.add(job)
+    await session.commit()
+
+    monkeypatch.setattr(url_rip_job, "_DOWNLOAD_PROGRESS_INTERVAL", 0.01)
+    mid: list[tuple[int, str | None]] = []
+
+    async def _download(job, tmp_dir, *, on_progress):
+        on_progress(50 * 1024 * 1024, 100 * 1024 * 1024)
+        await asyncio.sleep(0.1)
+        mid.append((job.progress_pct, job.message))
+        return tmp_dir / "x.flac"
+
+    monkeypatch.setattr(url_rip_job, "_download", _download)
+    await url_rip_job._download_with_progress(session, job, tmp_path)
+
+    assert mid == [(22, "downloading audio (50 / 100 MB)")]
+    await session.refresh(job)
+    assert job.progress_pct == 22
 
 
 def test_download_prefers_lossless_but_falls_back_to_bestaudio():
@@ -350,7 +414,7 @@ async def test_rip_skips_a_disabled_default_root(session, monkeypatch, tmp_path)
     job_id = await _queued_rip(session, user)
     downloaded = False
 
-    async def _download(job, tmp_dir):
+    async def _download(job, tmp_dir, **_kw):
         nonlocal downloaded
         downloaded = True
 

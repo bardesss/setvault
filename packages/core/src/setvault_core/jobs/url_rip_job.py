@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -58,6 +59,13 @@ _AUDIO_FORMAT = (
 # Download + the full pipeline run inside one RQ job; RQ's 180s default kills
 # any real-length set. Every enqueue of run_rip_job must pass this.
 RIP_JOB_TIMEOUT = "1h"
+
+# The download fills this slice of the job's progress bar; the stages after
+# it (probe, normalize, transcode, waveform) keep their fixed steps.
+_DOWNLOAD_PCT_START = 15
+_DOWNLOAD_PCT_END = 30
+# Seconds between progress writes while yt-dlp runs.
+_DOWNLOAD_PROGRESS_INTERVAL = 2.0
 
 # Refuse downloads bigger than this (yt-dlp skips them). A six-hour lossless
 # set is ~3 GB; anything larger is almost certainly not a single set.
@@ -113,12 +121,18 @@ async def _set_status(
     await session.commit()
 
 
-async def _download(job: RipJob, tmp_dir: Path) -> Path:
+async def _download(
+    job: RipJob, tmp_dir: Path,
+    *, on_progress: Callable[[int, int | None], None] | None = None,
+) -> Path:
     """Run yt-dlp to fetch bestaudio. Returns the path to the downloaded file.
 
     Re-runs the SSRF allowlist gate before shelling out to yt-dlp; the row's
     source_url could in principle have been edited between submit_rip()
     and worker pickup.
+
+    ``on_progress(downloaded_bytes, total_bytes)`` is called from yt-dlp's
+    thread; total is None when the source doesn't say (streamed downloads).
     """
     import yt_dlp
 
@@ -142,10 +156,14 @@ async def _download(job: RipJob, tmp_dir: Path) -> Path:
         # max_filesize only applies when the size is known up front; streamed
         # and fragmented (HLS/DASH) downloads must be stopped on what's
         # actually been written.
-        if (progress.get("downloaded_bytes") or 0) > MAX_DOWNLOAD_BYTES:
+        done = progress.get("downloaded_bytes") or 0
+        if done > MAX_DOWNLOAD_BYTES:
             raise RuntimeError(
                 f"download exceeded the {MAX_DOWNLOAD_BYTES // 1024**3} GiB limit",
             )
+        if on_progress is not None:
+            total = progress.get("total_bytes") or progress.get("total_bytes_estimate")
+            on_progress(done, int(total) if total else None)
 
     ydl_opts = {
         "format": _AUDIO_FORMAT,
@@ -180,6 +198,62 @@ async def _download(job: RipJob, tmp_dir: Path) -> Path:
             )
         filepath = str(candidates[0])
     return Path(filepath)
+
+
+def _download_message(done: int, total: int | None) -> str:
+    mb = 1024 * 1024
+    if total:
+        return f"downloading audio ({done / mb:.0f} / {total / mb:.0f} MB)"
+    return f"downloading audio ({done / mb:.0f} MB)"
+
+
+async def _download_with_progress(
+    session: AsyncSession, job: RipJob, tmp_dir: Path,
+) -> Path:
+    """_download, writing its byte progress to the row every few seconds so
+    the bar moves through the download instead of sitting at its start.
+
+    yt-dlp reports from its own thread, so the hook only records the latest
+    counts; this coroutine owns the session writes.
+    """
+    latest: dict[str, int | None] = {}
+    stop = asyncio.Event()
+
+    def _record(done: int, total: int | None) -> None:
+        latest["done"], latest["total"] = done, total
+
+    async def _ticker() -> None:
+        written: tuple[int | None, int | None] | None = None
+        while not stop.is_set():
+            try:
+                await asyncio.wait_for(stop.wait(), _DOWNLOAD_PROGRESS_INTERVAL)
+            except TimeoutError:
+                pass
+            done, total = latest.get("done"), latest.get("total")
+            if done is None or (done, total) == written or stop.is_set():
+                continue
+            written = (done, total)
+            pct = job.progress_pct
+            if total:
+                span = _DOWNLOAD_PCT_END - _DOWNLOAD_PCT_START
+                pct = max(pct, _DOWNLOAD_PCT_START + int(span * min(done / total, 1.0)))
+            try:
+                await _set_status(session, job, "downloading", progress_pct=pct,
+                                  message=_download_message(done, total))
+            except Exception:
+                # Cosmetic: stop reporting, but leave the job loaded for the
+                # rest of the pipeline (rollback expires it).
+                logger.warning("rip job %s: progress update failed", job.id, exc_info=True)
+                await session.rollback()
+                await session.refresh(job)
+                return
+
+    ticker = asyncio.create_task(_ticker())
+    try:
+        return await _download(job, tmp_dir, on_progress=_record)
+    finally:
+        stop.set()
+        await ticker
 
 
 async def _create_draft_live_set(
@@ -311,9 +385,9 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
                           message="re-probing URL")
         # Probe already ran in submit_rip; nothing to repeat.
 
-        await _set_status(session, job, "downloading", progress_pct=15,
+        await _set_status(session, job, "downloading", progress_pct=_DOWNLOAD_PCT_START,
                           message="downloading audio")
-        downloaded = await _download(job, tmp_dir)
+        downloaded = await _download_with_progress(session, job, tmp_dir)
 
         # Move the file into the originals/ subtree under the default root.
         # shutil.move (not Path.replace) because the OS temp dir and the media

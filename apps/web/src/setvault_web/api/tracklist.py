@@ -25,6 +25,7 @@ from setvault_core.schemas.tracklist import (
     TracklistImportOut,
 )
 from setvault_core.services.audit import log as audit_log
+from setvault_core.services.system_config import get_config
 from setvault_core.services.tracklist import (
     InvalidPosition,
     create_entry,
@@ -269,7 +270,7 @@ async def import_tracklist(
         job.finished_at = datetime.now(UTC)
     elif body.kind == "url_1001tl":
         # ToS-grey source: gated behind an admin opt-in flag, then rate limited.
-        if not Settings().allow_1001tl_scrape:
+        if not (Settings().allow_1001tl_scrape or (await get_config(session)).allow_1001tl_scrape):
             raise HTTPException(
                 status_code=403, detail="1001tracklists scraping disabled by admin"
             )

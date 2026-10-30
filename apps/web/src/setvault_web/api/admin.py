@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from setvault_web import __version__
+from setvault_web.config import Settings
 from setvault_web.deps import current_user, db_session, require_admin
 from setvault_web.schemas.settings import SettingsIn, SettingsOut
 
@@ -110,6 +111,8 @@ def _settings_out(config) -> SettingsOut:
         backup_time=config.backup_time,
         backup_keep=config.backup_keep,
         backup_dir=config.backup_dir,
+        allow_1001tl_scrape=config.allow_1001tl_scrape,
+        allow_1001tl_scrape_env=Settings().allow_1001tl_scrape,
     )
 
 
@@ -185,6 +188,8 @@ async def update_settings(
     # Null is a real value (use SETVAULT_BACKUP_PATH), as for the loudness target.
     if "backup_dir" in body.model_fields_set:
         config.backup_dir = body.backup_dir
+    if body.allow_1001tl_scrape is not None:
+        config.allow_1001tl_scrape = body.allow_1001tl_scrape
     await session.flush()
     await session.commit()
     return _settings_out(config)

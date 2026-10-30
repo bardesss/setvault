@@ -42,6 +42,7 @@ test("downloads page lists my rip jobs with status", async ({ page, request }) =
 
   await expect(page.getByText("My Download Title")).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText("Downloading")).toBeVisible();
+  await expect(page.getByText("42%", { exact: true })).toBeVisible();
 });
 
 test("a failed download shows a Retry button that re-submits the URL", async ({ page, request }) => {

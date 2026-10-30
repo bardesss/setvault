@@ -10,6 +10,8 @@
   export let value: LookupRow[] = [];
   export let allowCreate = false;
   export let placeholder = "";
+  /** Typed text not yet picked or created; bind it to catch it before a save drops it. */
+  export let query = "";
 
   const dispatch = createEventDispatcher<{
     create: { name: string };
@@ -19,7 +21,6 @@
   const DEBOUNCE_MS = 200;
   const uid = `ep-${Math.random().toString(36).slice(2, 9)}`;
 
-  let query = "";
   let results: LookupRow[] = [];
   let open = false;
   let active = -1;

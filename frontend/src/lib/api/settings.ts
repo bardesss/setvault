@@ -17,6 +17,9 @@ export interface AdminSettings {
   backup_keep: number;
   /** null means the server default (SETVAULT_BACKUP_PATH). */
   backup_dir: string | null;
+  allow_1001tl_scrape: boolean;
+  /** SETVAULT_ALLOW_1001TL_SCRAPE=1 on the server: on regardless of the toggle. */
+  allow_1001tl_scrape_env: boolean;
 }
 
 /** Queue the library-wide loudness re-gain job (admin only). */

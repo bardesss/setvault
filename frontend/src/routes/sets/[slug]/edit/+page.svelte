@@ -9,7 +9,7 @@
   import { formatDetail } from "#lib/api/errors.ts";
   import { ApiError } from "#lib/api/client.ts";
   import { patchSet } from "#lib/api/sets.ts";
-  import { createArtist, createParty, createVenue, getParty } from "#lib/api/catalog.ts";
+  import { createArtist, createParty, createVenue, getParty, type Party } from "#lib/api/catalog.ts";
   import type { LookupRow } from "#lib/api/lookup.ts";
   import {
     SET_TYPES,
@@ -48,6 +48,13 @@
   let description = original.description ?? "";
   let tags: LookupRow[] = original.tags.map(tagRow);
   let series: { name: string; slug: string } | null = set.party?.series ?? null;
+
+  // Text typed into a picker but not picked or created; saving would drop it.
+  let artistQuery = "";
+  let partyQuery = "";
+  let venueQuery = "";
+  let tagQuery = "";
+  let newPartyVenueQuery = "";
 
   let saving = false;
   let saved = false;
@@ -96,6 +103,13 @@
   // --- party, venue, series -----------------------------------------
   let partySeq = 0;
 
+  // A party carries its own venue and date: fill the set's when still empty.
+  function adoptParty(p: Party) {
+    series = p.series;
+    if (p.venue && venue.length === 0) venue = [asRow(p.venue)];
+    if (p.date && !date) date = p.date.slice(0, 10);
+  }
+
   async function onPartyChange(picked: LookupRow | undefined) {
     const mine = ++partySeq;
     if (!picked) {
@@ -105,8 +119,7 @@
     try {
       const p = await getParty(picked.slug);
       if (mine !== partySeq) return;
-      series = p.series;
-      if (p.venue && venue.length === 0) venue = [asRow(p.venue)];
+      adoptParty(p);
     } catch {
       if (mine === partySeq) series = null;
     }
@@ -118,12 +131,17 @@
 
   function onCreateParty(ev: CustomEvent<{ name: string }>) {
     newParty = { name: ev.detail.name, date, venue: [...venue] };
+    newPartyVenueQuery = "";
     partyModalOpen = true;
   }
 
   async function confirmCreateParty() {
     const name = newParty.name.trim();
     if (!name) return;
+    if (newPartyVenueQuery.trim()) {
+      toast.error($_("set_edit.unpicked", { values: { name: newPartyVenueQuery.trim() } }));
+      return;
+    }
     creatingParty = true;
     try {
       const p = await createParty({
@@ -133,8 +151,7 @@
       });
       partySeq++;
       party = [asRow(p)];
-      series = p.series;
-      if (p.venue && venue.length === 0) venue = [asRow(p.venue)];
+      adoptParty(p);
       partyModalOpen = false;
     } catch (e) {
       createFailed(name, e);
@@ -147,6 +164,15 @@
     const { name } = ev.detail;
     try {
       venue = [asRow(await createVenue(name))];
+    } catch (e) {
+      createFailed(name, e);
+    }
+  }
+
+  async function onCreatePartyVenue(ev: CustomEvent<{ name: string }>) {
+    const { name } = ev.detail;
+    try {
+      newParty.venue = [asRow(await createVenue(name))];
     } catch (e) {
       createFailed(name, e);
     }
@@ -178,6 +204,11 @@
   async function save() {
     if (!title.trim()) {
       await showError($_("set_edit.title_required"));
+      return;
+    }
+    const unpicked = [artistQuery, partyQuery, venueQuery, tagQuery].find((q) => q.trim());
+    if (unpicked) {
+      await showError($_("set_edit.unpicked", { values: { name: unpicked.trim() } }));
       return;
     }
     formError = null;
@@ -249,6 +280,7 @@
         allowCreate
         placeholder={$_("set_edit.artists_placeholder")}
         bind:value={artists}
+        bind:query={artistQuery}
         on:change={onArtistsChange}
         on:create={onCreateArtist}
       >
@@ -276,6 +308,7 @@
             allowCreate
             placeholder={$_("set_edit.party_placeholder")}
             bind:value={party}
+            bind:query={partyQuery}
             on:change={(ev) => onPartyChange(ev.detail[0])}
             on:create={onCreateParty}
           />
@@ -306,6 +339,7 @@
             allowCreate
             placeholder={$_("set_edit.venue_placeholder")}
             bind:value={venue}
+            bind:query={venueQuery}
             on:create={onCreateVenue}
           />
           {#if venue.length > 0}
@@ -353,6 +387,7 @@
         allowCreate
         placeholder={$_("set_edit.tags_placeholder")}
         bind:value={tags}
+        bind:query={tagQuery}
         on:change={onTagsChange}
         on:create={onCreateTag}
       />
@@ -381,8 +416,11 @@
       <span class="label" id="se-new-party-venue">{$_("set_edit.venue")}</span>
       <EntityPicker
         kind="venue"
+        allowCreate
         placeholder={$_("set_edit.venue_placeholder")}
         bind:value={newParty.venue}
+        bind:query={newPartyVenueQuery}
+        on:create={onCreatePartyVenue}
       />
     </div>
   </form>

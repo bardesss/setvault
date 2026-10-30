@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    false,
     func,
     text,
     true,
@@ -85,6 +86,11 @@ class SystemConfig(Base):
     )
     backup_keep: Mapped[int] = mapped_column(
         Integer, nullable=False, default=14, server_default=text("14"),
+    )
+    # Tracklist import from 1001tracklists (ToS-grey scraping): off until an
+    # admin opts in. SETVAULT_ALLOW_1001TL_SCRAPE=1 forces it on regardless.
+    allow_1001tl_scrape: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false(),
     )
     # null = use the SETVAULT_BACKUP_PATH env default
     backup_dir: Mapped[str | None] = mapped_column(String(1024), nullable=True)

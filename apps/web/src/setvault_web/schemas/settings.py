@@ -26,6 +26,10 @@ class SettingsOut(BaseModel):
     backup_keep: int
     # None = SETVAULT_BACKUP_PATH.
     backup_dir: str | None
+    allow_1001tl_scrape: bool
+    # SETVAULT_ALLOW_1001TL_SCRAPE=1 forces the import on; the toggle can't
+    # turn it off then.
+    allow_1001tl_scrape_env: bool
 
 
 class SettingsIn(BaseModel):
@@ -52,6 +56,7 @@ class SettingsIn(BaseModel):
     # An explicit null falls back to SETVAULT_BACKUP_PATH; leaving the field
     # out keeps the stored dir. The PUT creates it and checks it's writable.
     backup_dir: str | None = None
+    allow_1001tl_scrape: bool | None = None
 
     @field_validator("backup_dir")
     @classmethod
