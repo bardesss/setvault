@@ -216,14 +216,35 @@
         <div class="empty">{$_("library.no_match")}</div>
       {:else if view === "list"}
         <div class="list">
-          {#each filteredSets as s (s.slug)}
-            <SetRow
-              slug={s.slug}
-              title={s.title}
-              artist={(s.artists ?? []).map((a) => a.name).join(", ")}
-              durationSeconds={s.duration_seconds ?? null}
-              date={s.date ?? null}
-            />
+          {#each filteredSets as s, i (s.slug)}
+            {#if isAdmin}
+              <div class="row-wrap" class:selected={selected.has(s.id)}>
+                <button
+                  type="button"
+                  class="select-toggle inline"
+                  aria-label={$_("library.toggle_selection")}
+                  aria-pressed={selected.has(s.id)}
+                  on:click|preventDefault={(e) => toggle(s.id, i, e.shiftKey)}
+                >
+                  <span class="checkbox" data-checked={selected.has(s.id)}></span>
+                </button>
+                <SetRow
+                  slug={s.slug}
+                  title={s.title}
+                  artist={(s.artists ?? []).map((a) => a.name).join(", ")}
+                  durationSeconds={s.duration_seconds ?? null}
+                  date={s.date ?? null}
+                />
+              </div>
+            {:else}
+              <SetRow
+                slug={s.slug}
+                title={s.title}
+                artist={(s.artists ?? []).map((a) => a.name).join(", ")}
+                durationSeconds={s.duration_seconds ?? null}
+                date={s.date ?? null}
+              />
+            {/if}
           {/each}
         </div>
       {:else}
@@ -276,6 +297,8 @@
     display: grid;
     grid-template-columns: 240px minmax(0, 1fr);
     gap: var(--sp-4);
+    /* Otherwise the filter sidebar stretches to the list's height. */
+    align-items: start;
   }
   @media (max-width: 760px) {
     .layout { grid-template-columns: 1fr; }
@@ -286,6 +309,17 @@
     gap: var(--sp-3);
   }
   .list { display: grid; }
+  .row-wrap {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--sp-2);
+    padding-left: var(--sp-2);
+  }
+  .row-wrap.selected { background: var(--accent-soft); }
+  /* The toggle takes the row's left edge, so the row needs less of its own. */
+  .row-wrap :global(.set-row) { padding-left: var(--sp-2); }
+  .select-toggle.inline { position: static; transform: none; }
   .pager {
     display: grid;
     justify-items: center;

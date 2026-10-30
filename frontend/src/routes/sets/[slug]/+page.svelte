@@ -31,7 +31,7 @@
     <div class="set-title-row">
       <div>
         <h1 class="set-title">
-          {set.title}<span class="by"> — {artistNames}</span>
+          {set.title} <span class="by">— {artistNames}</span>
         </h1>
         <div class="set-meta">
           {#if set.artists.length === 1}

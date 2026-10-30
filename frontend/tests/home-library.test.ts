@@ -16,7 +16,9 @@ test.describe("continue listening", () => {
         json: [{ slug: "seeded-set", title: "seeded set", position_seconds: 42, duration_seconds: 3600 }],
       }),
     );
-    await page.goto("/");
+    // The home page pulls in enough modules that the dev server needs ~5 s to
+    // render it; let them load before the assertion's clock starts.
+    await page.goto("/", { waitUntil: "networkidle" });
     await expect(page.getByRole("heading", { name: /continue/i })).toBeVisible();
   });
 });
@@ -67,7 +69,7 @@ test("home recently added uses created order", async ({ page, request }) => {
     .items as { slug: string }[];
   const ours = recent.map((s) => s.slug).filter((s) => s.startsWith("e2e-"));
   expect(ours).toEqual(["e2e-charlie", "e2e-bravo", "e2e-alpha"]);
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "networkidle" });
   await expect(page.locator("a.recent-card").first()).toBeVisible();
   const hrefs = await page
     .locator("a.recent-card")
@@ -84,7 +86,7 @@ test("home recently added uses created order", async ({ page, request }) => {
 
 test("home shows recent activity", async ({ page, request }) => {
   await loginAs(page, request);
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "networkidle" });
   const section = page.getByTestId("home-activity");
   await expect(section.getByRole("heading", { name: "Recent activity" })).toBeVisible();
   // The e2e seed records a publish event, so the list is populated.
