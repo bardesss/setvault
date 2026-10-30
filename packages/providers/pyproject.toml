@@ -1,6 +1,6 @@
 [project]
 name = "setvault-providers"
-version = "0.27.0"
+version = "0.27.1"
 description = "Metadata enrichment provider plugins for SetVault"
 requires-python = ">=3.12"
 dependencies = [
