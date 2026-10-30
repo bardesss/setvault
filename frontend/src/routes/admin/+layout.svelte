@@ -7,34 +7,15 @@
   import { api, ApiError } from "#lib/api/client.ts";
   import { session } from "#lib/stores/session.ts";
   import { codeParts } from "./codeParts.ts";
+  import { ADMIN_NAV, activeAdminItem, pageActive } from "#lib/admin-nav.ts";
 
   $: if ($session && $session.role !== "admin") {
     void goto("/");
   }
 
-  $: tabs = [
-    { href: "/admin/users", label: $_("admin.layout.tab_users") },
-    { href: "/admin/connectors", label: $_("admin.layout.tab_connectors") },
-    { href: "/admin/email", label: $_("admin.layout.tab_email") },
-    { href: "/admin/providers", label: $_("admin.layout.tab_providers") },
-    { href: "/admin/sources", label: $_("admin.layout.tab_sources") },
-    { href: "/admin/monitors", label: $_("admin.layout.tab_monitors") },
-    { href: "/admin/storage", label: $_("admin.layout.tab_storage") },
-    { href: "/admin/watch-folders", label: $_("admin.layout.tab_watch_folders") },
-    { href: "/admin/unmatched", label: $_("admin.layout.tab_unmatched") },
-    { href: "/admin/drafts", label: $_("admin.layout.tab_drafts") },
-    { href: "/admin/duplicates", label: $_("admin.layout.tab_duplicates") },
-    { href: "/admin/quality", label: $_("admin.layout.tab_quality") },
-    { href: "/admin/wanted", label: $_("admin.layout.tab_wanted") },
-    { href: "/admin/catalog", label: $_("admin.layout.tab_catalog") },
-    { href: "/admin/recycle", label: $_("admin.layout.tab_recycle") },
-    { href: "/admin/jobs", label: $_("admin.layout.tab_jobs") },
-    { href: "/admin/tasks", label: $_("admin.layout.tab_tasks") },
-    { href: "/admin/webhooks", label: $_("admin.layout.tab_webhooks") },
-    { href: "/admin/backups", label: $_("admin.layout.tab_backups") },
-    { href: "/admin/health", label: $_("admin.layout.tab_health") },
-    { href: "/admin/system", label: $_("admin.layout.tab_system") },
-  ];
+  // The rail lists the admin pages (grouped); here only the sub-tabs of a
+  // merged item, plus a picker on phones where the rail is a bottom bar.
+  $: currentItem = activeAdminItem(currentPath);
 
   // Legacy `$:` statements don't track rune state like `page`; a store does.
   const pageUrl = toStore(() => page.url);
@@ -102,16 +83,33 @@
 
   <header class="admin-header">
     <h1>{$_("admin.layout.title")}</h1>
-    <nav class="tabs" aria-label={$_("admin.layout.sections")}>
-      {#each tabs as t (t.href)}
-        <a
-          href={t.href}
-          class:active={currentPath === t.href || currentPath.startsWith(t.href + "/")}
-        >
-          {t.label}
-        </a>
+    <select
+      class="admin-picker"
+      aria-label={$_("admin.layout.sections")}
+      value={currentItem?.href ?? ""}
+      on:change={(e) => goto(e.currentTarget.value)}
+    >
+      {#each ADMIN_NAV as group (group.label)}
+        <optgroup label={$_(group.label)}>
+          {#each group.items as item (item.href)}
+            <option value={item.href}>{$_(item.label)}</option>
+          {/each}
+        </optgroup>
       {/each}
-    </nav>
+    </select>
+    {#if currentItem?.sub}
+      <nav class="tabs" aria-label={$_(currentItem.label)}>
+        {#each currentItem.sub as t (t.href)}
+          <a
+            href={t.href}
+            class:active={pageActive(t, currentPath)}
+            aria-current={pageActive(t, currentPath) ? "page" : undefined}
+          >
+            {$_(t.label)}
+          </a>
+        {/each}
+      </nav>
+    {/if}
   </header>
   <div class="content"><slot /></div>
 </section>
@@ -143,4 +141,17 @@
     border-bottom-color: var(--accent);
   }
   .content { display: grid; gap: var(--sp-3); }
+  .admin-picker {
+    display: none;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--bg-input);
+    border: 1px solid var(--border-default);
+    border-radius: var(--r-sm);
+    color: var(--text-default);
+    font: inherit;
+  }
+  /* Same breakpoint where NavRail turns into a bottom bar and hides its admin list. */
+  @media (max-width: 760px) {
+    .admin-picker { display: block; }
+  }
 </style>

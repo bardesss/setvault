@@ -467,7 +467,6 @@
       "deleted": "Back-up verwijderd",
       "full_export": "Volledige export",
       "full_export_hint": "Een .tar-archief met de Postgres-dump en alle mediabestanden. Geplande back-ups bevatten alleen de database, geen media of de geheime sleutel.",
-      "system_link": "Geplande back-ups en herstellen staan op het tabblad Back-ups.",
       "load_failed": "Back-ups laden mislukt"
     },
     "webhooks": {
@@ -616,6 +615,14 @@
     "layout": {
       "title": "Beheer",
       "sections": "Beheeronderdelen",
+      "group_library": "Bibliotheek",
+      "group_quality": "Kwaliteit",
+      "group_ingest": "Binnenkomst",
+      "group_integrations": "Integraties",
+      "group_system": "Systeem",
+      "item_inbox": "Inbox",
+      "item_notifications": "Meldingen",
+      "sub_settings": "Instellingen",
       "update_available": "Update beschikbaar.",
       "running_version": "Je draait {current}; de nieuwste is {latest}.",
       "release_notes": "Release notes →",
@@ -639,8 +646,7 @@
       "tab_tasks": "Geplande taken",
       "tab_webhooks": "Webhooks",
       "tab_backups": "Back-ups",
-      "tab_health": "Status",
-      "tab_system": "Systeem"
+      "tab_health": "Status"
     },
     "common": {
       "yes": "ja",
@@ -693,9 +699,6 @@
       "users": "Gebruikers",
       "sets": "Sets",
       "monitoring": "Bewaking",
-      "backup": "Back-up",
-      "backup_hint": "Downloadt een {tar}-archief met een Postgres-dump en alle bestanden onder elke ingestelde mediamap. Het streamen begint zodra {pg_dump} uitvoer gaat produceren.",
-      "download_backup": "Back-up downloaden",
       "environment": "Omgeving",
       "redacted_hint": "Geheimen die eindigen op {a}, {b}, {c}, {d}, {e} worden verborgen.",
       "col_name": "Naam",

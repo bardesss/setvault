@@ -102,7 +102,7 @@ const IDENTICAL_BY_DESIGN = new Set<string>([
   "nav.home", "nav.downloads", "home.recent_meta",
   "feeds.recent", "feeds.ok", "admin.providers.state_on",
   "admin.quality.tier_ok", "admin.storage.health.ok", "admin.providers.test_result",
-  "admin.tasks.col_interval", "admin.system.build", "catalog.website",
+  "admin.tasks.col_interval", "admin.system.build", "catalog.website", "admin.layout.item_inbox",
   "catalog.bio", "topbar.account", "pwa.cache.heading",
   "admin.layout.release_notes", "admin.webhooks.headers", "admin.jobs.col_status",
   "admin.webhooks.col_status", "admin.users.col_status", "admin.health.col_status",
