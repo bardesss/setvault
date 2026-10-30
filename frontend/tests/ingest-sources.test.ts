@@ -4,7 +4,7 @@ import { loginAs } from "./helpers/auth";
 // SW caches /api GETs and its fetches bypass page.route; block so stubs apply.
 test.use({ serviceWorkers: "block" });
 
-test("multi-source search lists candidates with chips, an unavailable notice, and ingest fires a rip", async ({
+test("multi-source search lists candidates with chips, an unavailable notice, and download tracks the rip until ready", async ({
   page,
   request,
 }) => {
@@ -46,33 +46,40 @@ test("multi-source search lists candidates with chips, an unavailable notice, an
   );
 
   // Stub the rip submit — return a canned RipJob matching submitUrl's shape.
+  const ripJob = {
+    id: "00000000-0000-0000-0000-000000000001",
+    live_set_id: null,
+    live_set_slug: null,
+    source_url: "https://www.youtube.com/watch?v=vid1",
+    source_external_id: "vid1",
+    source_platform: "youtube",
+    status: "queued",
+    progress_pct: 0,
+    message: null,
+    error_text: null,
+    probed_metadata: {},
+    ytdlp_version: "2026.3.17",
+    created_at: new Date().toISOString(),
+    started_at: null,
+    finished_at: null,
+  };
   let ripCalled = false;
   let ripBody: Record<string, unknown> | null = null;
   await page.route("**/api/sets/url-rip", (route) => {
     ripCalled = true;
     ripBody = route.request().postDataJSON();
-    return route.fulfill({
-      status: 201,
-      contentType: "application/json",
-      body: JSON.stringify({
-        id: "00000000-0000-0000-0000-000000000001",
-        live_set_id: null,
-        live_set_slug: null,
-        source_url: "https://www.youtube.com/watch?v=vid1",
-        source_external_id: "vid1",
-        source_platform: "youtube",
-        status: "queued",
-        progress_pct: 0,
-        message: null,
-        error_text: null,
-        probed_metadata: {},
-        ytdlp_version: "2026.3.17",
-        created_at: new Date().toISOString(),
-        started_at: null,
-        finished_at: null,
-      }),
-    });
+    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(ripJob) });
   });
+
+  // The page polls the rip list until the job finishes; the test moves it along.
+  let rip = { status: "queued", progress_pct: 0 };
+  await page.route("**/api/me/rip-jobs*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [{ ...ripJob, ...rip }] }),
+    }),
+  );
 
   await page.goto("/search");
   await page.waitForLoadState("networkidle");
@@ -108,9 +115,16 @@ test("multi-source search lists candidates with chips, an unavailable notice, an
   // The throttled source surfaces in its own note.
   await expect(page.getByText("Skipped for now (rate limit reached): Bandcamp")).toBeVisible();
 
-  // Ingest the first (YouTube) candidate and assert it flips to "In library".
-  await page.getByRole("button", { name: /^Ingest$/i }).first().click();
-  await expect(page.getByText(/In library/i)).toBeVisible({ timeout: 5_000 });
+  // Download the first (YouTube) candidate: it shows progress, not "In library",
+  // until the rip job reports ready.
+  await page.getByRole("button", { name: /^Download$/i }).first().click();
+  await expect(page.getByText("Queued…")).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText(/In library/i)).toHaveCount(0);
+  rip = { status: "downloading", progress_pct: 22 };
+  await expect(page.getByText("Downloading · 22%")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/In library/i)).toHaveCount(0);
+  rip = { status: "ready", progress_pct: 100 };
+  await expect(page.getByText(/In library/i)).toBeVisible({ timeout: 10_000 });
   expect(ripCalled).toBe(true);
   // The upgrade history records what found the copy.
   expect(ripBody).toEqual({ url: "https://www.youtube.com/watch?v=vid1", trigger: "source_search" });

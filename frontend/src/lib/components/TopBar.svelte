@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { page } from "$app/state";
   import { _ } from "svelte-i18n";
   import NotificationBell from "#lib/components/NotificationBell.svelte";
   import type { CurrentUser } from "#lib/api/auth.ts";
@@ -9,6 +10,11 @@
   $: initial = (user.display_name || user.email || "?").charAt(0).toUpperCase();
 
   function openSearch() {
+    // Already on the search page: jump to its input instead of a no-op goto.
+    if (page.url.pathname === "/search") {
+      document.getElementById("search-input")?.focus();
+      return;
+    }
     goto("/search");
   }
 
