@@ -33,7 +33,10 @@
     <span class="status">{$_(`url_rip.status.${job.status}`)}</span>
     {#if job.message}<span class="message">{job.message}</span>{/if}
   </div>
-  <progress max="100" value={job.progress_pct}></progress>
+  <div class="bar">
+    <progress max="100" value={job.progress_pct}></progress>
+    <span class="pct">{job.progress_pct}%</span>
+  </div>
   {#if job.status === "ready" && job.live_set_slug}
     <a href={`/sets/${job.live_set_slug}`}>{$_("url_rip.open_set")}</a>
   {/if}
@@ -65,7 +68,19 @@
     font-size: var(--ts-sm);
     color: var(--text-faint);
   }
-  progress { width: 100%; }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+  progress { flex: 1; min-width: 0; }
+  .pct {
+    font-family: var(--font-mono);
+    font-size: var(--ts-sm);
+    color: var(--text-faint);
+    min-width: 4ch;
+    text-align: right;
+  }
   .error { color: var(--accent-error); font-size: var(--ts-sm); }
   .actions {
     display: flex;
