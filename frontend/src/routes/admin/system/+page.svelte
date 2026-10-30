@@ -163,15 +163,6 @@
   </StatusBlock>
 {/if}
 
-<StatusBlock title={$_("admin.system.backup")}>
-  <p class="hint">
-    {#each codeParts($_, "admin.system.backup_hint", { tar: ".tar", pg_dump: "pg_dump" }) as part}{#if part.code}<code>{part.text}</code>{:else}{part.text}{/if}{/each}
-    {$_("admin.backups.system_link")}
-  </p>
-  <a class="btn btn-primary" href="/api/admin/backup" download>{$_("admin.system.download_backup")}</a>
-  <a class="btn" href="/admin/backups">{$_("admin.backups.title")}</a>
-</StatusBlock>
-
 <StatusBlock title={$_("admin.system.environment")}>
   <p class="hint">
     {#each codeParts($_, "admin.system.redacted_hint", { a: "_KEY", b: "_SECRET", c: "_TOKEN", d: "_PASSWORD", e: "_HOOK_SECRET" }) as part}{#if part.code}<code>{part.text}</code>{:else}{part.text}{/if}{/each}

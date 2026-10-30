@@ -8,6 +8,7 @@
   import { listDiscoveries } from "#lib/api/monitors.ts";
   import { pendingDiscoveries } from "#lib/stores/discoveries.ts";
   import type { CurrentUser } from "#lib/api/auth.ts";
+  import { ADMIN_NAV, itemActive } from "#lib/admin-nav.ts";
 
   export let user: CurrentUser;
 
@@ -143,6 +144,25 @@
         </svg>
         {$_("nav.admin")}
       </a>
+      {#if pathname.startsWith("/admin")}
+        <div
+          class="admin-nav"
+          aria-label={$_("admin.layout.sections")}
+          role="navigation"
+        >
+          {#each ADMIN_NAV as group (group.label)}
+            <div class="admin-group-title">{$_(group.label)}</div>
+            {#each group.items as item (item.href)}
+              <a
+                class="admin-link"
+                class:active={itemActive(item, pathname)}
+                aria-current={itemActive(item, pathname) ? "page" : undefined}
+                href={item.href}>{$_(item.label)}</a
+              >
+            {/each}
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -189,6 +209,32 @@
   }
   .rail-logout:hover { border-color: var(--accent); color: var(--accent); }
 
+  .admin-nav {
+    display: grid;
+    margin: var(--sp-1) 0 0 var(--sp-5);
+    padding-left: var(--sp-2);
+    border-left: 1px solid var(--border-subtle);
+  }
+  .admin-group-title {
+    margin: var(--sp-3) 0 var(--sp-1);
+    padding: 0 var(--sp-2);
+    font-family: var(--font-mono);
+    font-size: var(--ts-xxs);
+    text-transform: uppercase;
+    letter-spacing: var(--ls-uppercase);
+    color: var(--text-faintest);
+  }
+  .admin-group-title:first-child { margin-top: var(--sp-1); }
+  .admin-link {
+    padding: 4px var(--sp-2);
+    border-radius: var(--r-sm);
+    color: var(--text-muted);
+    font-size: var(--ts-sm);
+    text-decoration: none;
+  }
+  .admin-link:hover { background: var(--bg-elevated); color: var(--text-default); }
+  .admin-link.active { color: var(--accent); background: var(--accent-soft); }
+
   @media (max-width: 760px) {
     .rail {
       position: fixed;
@@ -205,6 +251,7 @@
     }
     .rail :global(.rail-section) { flex-direction: row; flex: 1; }
     .rail :global(.rail-section-title),
+    .admin-nav,
     .rail-footer { display: none; }
     .rail :global(.rail-link) {
       flex: 1;

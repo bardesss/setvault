@@ -467,7 +467,6 @@
       "deleted": "Backup deleted",
       "full_export": "Full export",
       "full_export_hint": "A .tar archive with the Postgres dump and every media file. Scheduled backups contain the database only, not media or the secrets key.",
-      "system_link": "Scheduled backups and restore are on the Backups tab.",
       "load_failed": "Failed to load backups"
     },
     "webhooks": {
@@ -616,6 +615,14 @@
     "layout": {
       "title": "Admin",
       "sections": "Admin sections",
+      "group_library": "Library",
+      "group_quality": "Quality",
+      "group_ingest": "Ingest",
+      "group_integrations": "Integrations",
+      "group_system": "System",
+      "item_inbox": "Inbox",
+      "item_notifications": "Notifications",
+      "sub_settings": "Settings",
       "update_available": "Update available.",
       "running_version": "You're running {current}; latest is {latest}.",
       "release_notes": "Release notes →",
@@ -639,8 +646,7 @@
       "tab_tasks": "Tasks",
       "tab_webhooks": "Webhooks",
       "tab_backups": "Backups",
-      "tab_health": "Health",
-      "tab_system": "System"
+      "tab_health": "Health"
     },
     "common": {
       "yes": "yes",
@@ -693,9 +699,6 @@
       "users": "Users",
       "sets": "Sets",
       "monitoring": "Monitoring",
-      "backup": "Backup",
-      "backup_hint": "Downloads a {tar} archive containing a Postgres dump and every file under each configured media root. Streaming starts as soon as {pg_dump} begins producing output.",
-      "download_backup": "Download backup",
       "environment": "Environment",
       "redacted_hint": "Secrets ending in {a}, {b}, {c}, {d}, {e} are redacted.",
       "col_name": "Name",
