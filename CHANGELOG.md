@@ -4,6 +4,21 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0](https://github.com/bardesss/setvault/compare/v0.26.0...v0.27.0) (2026-10-30)
+
+
+### Features
+
+* **admin:** grouped admin navigation in the sidebar ([9537547](https://github.com/bardesss/setvault/commit/95375479c876365a07a35328e1e65230d3002efe))
+* **admin:** toggle the 1001tracklists import from Admin → System ([a95c029](https://github.com/bardesss/setvault/commit/a95c029f74ac68deca34ddaf58891e4199ceab91))
+* **rip:** report real download progress ([0039959](https://github.com/bardesss/setvault/commit/00399595b5ead1968c2bf5037ae5c0889d25f8a3))
+
+
+### Bug Fixes
+
+* **search:** one search input, and track source downloads until ready ([ecb701f](https://github.com/bardesss/setvault/commit/ecb701fd893e835038ca01349d5b820c65288a3f))
+* **sets:** party fills date and venue, unpicked picker text blocks save ([420b1ee](https://github.com/bardesss/setvault/commit/420b1ee9aebd2c70bff7e25bb53c6397af6e6680))
+
 ## [0.26.0](https://github.com/bardesss/setvault/compare/v0.25.1...v0.26.0) (2026-10-28)
 
 
