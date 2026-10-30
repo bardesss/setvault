@@ -4,6 +4,13 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1](https://github.com/bardesss/setvault/compare/v0.27.0...v0.27.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **ui:** library list view and set header cleanup; deflake home e2e ([418f0ef](https://github.com/bardesss/setvault/commit/418f0efc0d00bbf3c5d14be3999b2dea814b6ff1))
+
 ## [0.27.0](https://github.com/bardesss/setvault/compare/v0.26.0...v0.27.0) (2026-10-30)
 
 
