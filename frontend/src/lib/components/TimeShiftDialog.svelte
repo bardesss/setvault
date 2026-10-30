@@ -37,7 +37,7 @@
   on:click={() => dispatch("close")}
   role="presentation"
 ></div>
-<section class="dialog" role="dialog" aria-label={$_("tracklist.time_shift")}>
+<div class="dialog" role="dialog" aria-label={$_("tracklist.time_shift")}>
   <h3>{$_("tracklist.time_shift")}</h3>
   <label>
     {$_("tracklist.shift_after")}
@@ -54,7 +54,7 @@
       {$_("tracklist.apply")}
     </button>
   </footer>
-</section>
+</div>
 
 <style>
   .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: var(--z-overlay); }

@@ -52,7 +52,7 @@
 <svelte:window on:keydown={handleKeydown} />
 
 <div class="backdrop" on:click={() => dispatch("close")} role="presentation"></div>
-<section class="popover" role="dialog" aria-label={$_("resolve.heading")}>
+<div class="popover" role="dialog" aria-label={$_("resolve.heading")}>
   <header>
     <h3>{$_("resolve.heading")}: {entry.raw_label}</h3>
     <button on:click={() => dispatch("close")} aria-label={$_("components.close_lower")}>✕</button>
@@ -80,7 +80,7 @@
       </li>
     {/each}
   </ul>
-</section>
+</div>
 
 <style>
   .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: var(--z-overlay); }
