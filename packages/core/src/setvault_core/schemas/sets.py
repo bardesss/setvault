@@ -47,6 +47,8 @@ class SetSummaryOut(BaseModel):
     artists: list[SetArtistOut]
     tags: list[str]
     created_at: datetime
+    # Same-origin cover image (``/api/sets/<slug>/thumb``), None without one.
+    thumb_url: str | None = None
     venue: VenueRefOut | None = None
 
 

@@ -312,6 +312,13 @@ async def apply_upgrade(
         for f in _AUDIO_FIELDS:
             setattr(target, f, getattr(arrival, f))
             setattr(arrival, f, old[f])
+        # The cover is a path on media_root_id too, so it moves with the
+        # audio. An arrival without one leaves the target its old cover when
+        # that sits on the same root.
+        target.thumb_path, arrival.thumb_path = arrival.thumb_path, target.thumb_path
+        if (target.thumb_path is None and arrival.thumb_path is not None
+                and target.media_root_id == arrival.media_root_id):
+            target.thumb_path, arrival.thumb_path = arrival.thumb_path, None
         await _swap_fingerprints(session, target, arrival)
         # The rip that downloaded the new audio now belongs to the target.
         await session.execute(

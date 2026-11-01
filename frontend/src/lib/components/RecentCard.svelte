@@ -6,10 +6,12 @@
   export let venue: string = "";
   export let year: number | null = null;
   export let isNew: boolean = false;
+  export let thumbUrl: string | null = null;
 </script>
 
 <a class="recent-card" href={`/sets/${slug}`}>
   <div class="recent-cover" aria-hidden="true">
+    {#if thumbUrl}<img src={thumbUrl} alt="" loading="lazy" decoding="async" />{/if}
     {#if isNew}<span class="new-pip">{$_("cards.new")}</span>{/if}
   </div>
   <div class="ttl">{title}</div>
@@ -21,6 +23,13 @@
 </a>
 
 <style>
+  .recent-cover img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
   .new-pip {
     position: absolute;
     top: var(--sp-2);

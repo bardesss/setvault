@@ -35,6 +35,7 @@ interface RecentSet {
   venue?: { name: string } | null;
   date?: string | null;
   created_at?: string;
+  thumb_url?: string | null;
   [k: string]: unknown;
 }
 

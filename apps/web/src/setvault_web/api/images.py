@@ -12,13 +12,13 @@ A resolved-IP guard blocks private/loopback/link-local hosts as defence in depth
 
 from __future__ import annotations
 
-import ipaddress
-import socket
 from typing import Annotated
 from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from setvault_core.services.remote_image import MAX_IMAGE_BYTES as _MAX_BYTES
+from setvault_core.services.remote_image import is_blocked_host as _is_blocked_host
 from setvault_core.services.signed_urls import sign_image_url, verify_image_sig
 
 from setvault_web.config import get_settings
@@ -26,7 +26,6 @@ from setvault_web.deps import current_user
 
 router = APIRouter(prefix="/api/images", tags=["images"])
 
-_MAX_BYTES = 5 * 1024 * 1024
 _TIMEOUT_SECONDS = 10.0
 
 
@@ -37,23 +36,6 @@ def build_proxied_image_url(url: str | None) -> str | None:
         return None
     sig, exp = sign_image_url(secret_key=get_settings().secret_key, url=url)
     return f"/api/images/proxy?url={quote(url, safe='')}&exp={exp}&sig={sig}"
-
-
-def _is_blocked_host(host: str) -> bool:
-    """True if ``host`` resolves to any private/loopback/link-local/reserved
-    address. Unresolvable hosts are treated as blocked (fail closed)."""
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except OSError:
-        return True
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if (
-            ip.is_private or ip.is_loopback or ip.is_link_local
-            or ip.is_reserved or ip.is_multicast or ip.is_unspecified
-        ):
-            return True
-    return False
 
 
 @router.get("/proxy")
