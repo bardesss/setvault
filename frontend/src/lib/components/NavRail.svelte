@@ -113,7 +113,7 @@
       <a class="rail-link" class:active={active("/discoveries")} href="/discoveries">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
           <circle cx="8" cy="8" r="6" />
-          <path d="M8 4v4l2.5 2.5" />
+          <path d="M10.5 5.5l-1.5 3.5-3.5 1.5 1.5-3.5z" />
         </svg>
         {$_("nav.discoveries")}
         {#if pendingCount > 0}<span class="rail-badge" aria-label={$_("discoveries.pending_badge", { values: { count: pendingCount } })}>{pendingCount}</span>{/if}
@@ -125,22 +125,15 @@
       </svg>
       {$_("nav.downloads")}
     </a>
-    <a class="rail-link" class:active={active("/settings")} href="/settings">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
-        <circle cx="8" cy="8" r="2" />
-        <path d="M8 1v3M8 12v3M1 8h3M12 8h3" />
-      </svg>
-      {$_("nav.settings")}
-    </a>
   </div>
 
   {#if user.role === "admin"}
     <div class="rail-section">
       <div class="rail-section-title">{$_("nav.system")}</div>
-      <a class="rail-link" class:active={pathname.startsWith("/admin")} href="/admin/users">
+      <a class="rail-link" class:open={pathname.startsWith("/admin")} href="/admin/users">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
-          <circle cx="8" cy="8" r="2" />
-          <path d="M8 1v3M8 12v3M1 8h3M12 8h3" />
+          <path d="M8 1.5l5 2v4c0 3.2-2.2 5.8-5 7-2.8-1.2-5-3.8-5-7v-4z" />
+          <path d="M5.8 8l1.6 1.6 3-3.2" />
         </svg>
         {$_("nav.admin")}
       </a>
@@ -151,7 +144,12 @@
           role="navigation"
         >
           {#each ADMIN_NAV as group (group.label)}
-            <div class="admin-group-title">{$_(group.label)}</div>
+            <!-- A one-item group's title would only repeat the item. -->
+            {#if group.items.length > 1}
+              <div class="admin-group-title">{$_(group.label)}</div>
+            {:else}
+              <div class="admin-group-gap" aria-hidden="true"></div>
+            {/if}
             {#each group.items as item (item.href)}
               <a
                 class="admin-link"
@@ -167,6 +165,13 @@
   {/if}
 
   <div class="rail-footer">
+    <a class="rail-link" class:active={active("/settings")} href="/settings">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
+        <circle cx="8" cy="8" r="2" />
+        <path d="M8 1v3M8 12v3M1 8h3M12 8h3" />
+      </svg>
+      {$_("nav.settings")}
+    </a>
     <div class="rail-user">{user.display_name || user.email}</div>
     <button class="rail-logout" type="button" on:click={handleLogout}>{$_("nav.sign_out")}</button>
   </div>
@@ -222,9 +227,13 @@
     font-size: var(--ts-xxs);
     text-transform: uppercase;
     letter-spacing: var(--ls-uppercase);
-    color: var(--text-faintest);
+    color: var(--text-faint);
   }
   .admin-group-title:first-child { margin-top: var(--sp-1); }
+  .admin-group-gap { height: var(--sp-2); }
+  .admin-group-gap:first-child { display: none; }
+  /* The section is open; the current page below carries the highlight. */
+  .rail :global(.rail-link.open) { color: var(--text-strong); font-weight: 600; }
   .admin-link {
     padding: 4px var(--sp-2);
     border-radius: var(--r-sm);
@@ -252,7 +261,10 @@
     .rail :global(.rail-section) { flex-direction: row; flex: 1; }
     .rail :global(.rail-section-title),
     .admin-nav,
-    .rail-footer { display: none; }
+    .rail-user,
+    .rail-logout { display: none; }
+    /* Settings stays reachable: its link joins the bar. */
+    .rail-footer { display: contents; }
     .rail :global(.rail-link) {
       flex: 1;
       flex-direction: column;

@@ -108,6 +108,15 @@ def stream_url(live: LiveSet) -> str:
     return f"/api/sets/{live.slug}/stream?v={live.stream_gain_db or 0.0:.1f}"
 
 
+def thumb_url(live: LiveSet) -> str | None:
+    """The set's cover URL, or None without one. ``v`` names the cover file,
+    so a cover replaced by an upgrade is a new URL to the browser cache; the
+    thumb route ignores it."""
+    if not live.thumb_path:
+        return None
+    return f"/api/sets/{live.slug}/thumb?v={Path(live.thumb_path).stem[:8]}"
+
+
 async def _tag_names_for(session: AsyncSession, live_id: uuid.UUID) -> list[str]:
     rows = (
         await session.execute(
@@ -199,6 +208,7 @@ def summary_out(r: LiveSet, tags: list[str]) -> SetSummaryOut:
         artists=_artists_out(r),
         tags=tags,
         created_at=r.created_at,
+        thumb_url=thumb_url(r),
         venue=(
             VenueRefOut(name=r.venue.name, slug=r.venue.slug, kind=r.venue.kind)
             if r.venue is not None else None
@@ -375,6 +385,7 @@ async def show_set(
         description=row.description,
         audio_stream_url=stream_url(row),
         waveform_url=f"/api/sets/{slug}/waveform" if row.waveform_path else None,
+        thumb_url=thumb_url(row),
         normalized_lufs=row.normalized_lufs,
         embed_allowed=row.embed_allowed,
         quality=quality,
@@ -614,6 +625,41 @@ async def waveform(
     return FileResponse(
         Path(root.host_path) / row.waveform_path,
         media_type="application/json",
+    )
+
+
+@router.get("/{slug}/thumb")
+async def thumb(
+    slug: str,
+    session: Annotated[AsyncSession, Depends(db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    sig: str | None = None,
+    exp: int | None = None,
+    session_cookie: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+):
+    row = (
+        await session.execute(
+            select(LiveSet).where(
+                LiveSet.slug == slug, LiveSet.deleted_at.is_(None)
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None or row.thumb_path is None:
+        raise HTTPException(status_code=404, detail="no thumbnail")
+    await _stream_authorize(
+        row, session=session, sig=sig, exp=exp,
+        session_cookie=session_cookie,
+        signer=SessionSigner(settings.secret_key),
+        secret_key=settings.secret_key,
+    )
+    root = await session.get(MediaRoot, row.media_root_id)
+    path = Path(root.host_path) / row.thumb_path
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="no thumbnail")
+    # Always a JPEG we encoded (jobs/thumbnail.py); the URL changes with the file.
+    return FileResponse(
+        path, media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=604800"},
     )
 
 

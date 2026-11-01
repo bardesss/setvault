@@ -18,6 +18,8 @@ export interface SetSummary {
   artists: SetArtist[];
   tags: string[];
   created_at: string;
+  /** Same-origin cover image, or null when the set has none. */
+  thumb_url?: string | null;
   venue: { name: string; slug: string; kind: string | null } | null;
 }
 

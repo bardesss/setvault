@@ -318,7 +318,7 @@ async def _discard_partial_rip(
             if job.live_set_id == live.id:
                 job.live_set_id = None
                 await session.flush()
-            for rel in (live.streaming_path, live.waveform_path):
+            for rel in (live.streaming_path, live.waveform_path, live.thumb_path):
                 if rel and not await path_in_use(
                     session, live.media_root_id, rel, exclude_live_set_id=deleted_id,
                 ):
@@ -414,6 +414,7 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
         from setvault_core.jobs.normalize import normalize_audio
         from setvault_core.jobs.probe import probe_audio
         from setvault_core.jobs.ready import finish_arrival
+        from setvault_core.jobs.thumbnail import store_thumbnail
         from setvault_core.jobs.transcode import transcode_audio
         from setvault_core.jobs.waveform import generate_waveform
 
@@ -453,6 +454,9 @@ async def _run_rip_job(session: AsyncSession, job_id: uuid.UUID) -> None:
                 await _set_status(session, job, "ready", progress_pct=100,
                                   message=early.message)
                 return
+
+        # The platform's cover, kept locally. Best effort: never fails the rip.
+        await store_thumbnail(live_set_id, (job.probed_metadata or {}).get("thumbnail"))
 
         # Measure the original first: transcode applies the gain towards the
         # loudness target (P2a A3).

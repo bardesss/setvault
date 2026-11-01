@@ -25,7 +25,7 @@ from redis import Redis
 from rq import Queue
 from rq_scheduler import Scheduler
 from setvault_core.db import init_engine
-from setvault_core.jobs import size_backfill
+from setvault_core.jobs import size_backfill, thumbnail_backfill
 from setvault_core.jobs.backup import BACKUP_JOB_TIMEOUT
 from setvault_core.jobs.email import SECRET_KEY_ENV
 from setvault_core.jobs.upgrade_search import UPGRADE_QUEUE, UPGRADE_SEARCH_JOB_TIMEOUT
@@ -106,8 +106,21 @@ async def _size_backfill_check(database_url: str, redis: Redis) -> bool:
         await engine.dispose()
 
 
+async def _thumbnail_backfill_check(database_url: str, redis: Redis) -> bool:
+    engine = create_async_engine(
+        database_url, poolclass=NullPool,
+        connect_args={"timeout": SIZE_BACKFILL_CHECK_SECONDS},
+    )
+    try:
+        async with async_sessionmaker(engine)() as s:
+            return await thumbnail_backfill.enqueue_if_needed(s, redis=redis)
+    finally:
+        await engine.dispose()
+
+
 def _queue_size_backfill(database_url: str, redis: Redis) -> None:
-    """Queue the one-off set size backfill while any set lacks a size.
+    """Queue the one-off set size backfill while any set lacks a size, and
+    the cover backfill while a ripped set lacks the cover its rip recorded.
 
     Best effort, and bounded: the check runs in a daemon thread that boot
     waits on for at most SIZE_BACKFILL_CHECK_SECONDS. A failure is logged;
@@ -119,6 +132,11 @@ def _queue_size_backfill(database_url: str, redis: Redis) -> None:
                 logger.info("size backfill queued")
         except Exception:
             logger.exception("queueing the size backfill failed")
+        try:
+            if asyncio.run(_thumbnail_backfill_check(database_url, redis)):
+                logger.info("thumbnail backfill queued")
+        except Exception:
+            logger.exception("queueing the thumbnail backfill failed")
 
     thread = threading.Thread(target=_run, name="size-backfill-check", daemon=True)
     thread.start()

@@ -855,3 +855,38 @@ async def test_rip_trigger_accepts_32_chars(session):
     session.add(job)
     await session.commit()
     assert (await session.get(RipJob, job.id)).trigger == "t" * 20
+
+
+@pytest.mark.asyncio
+async def test_rip_stores_the_probed_thumbnail(session, monkeypatch, tmp_path):
+    """The platform cover the probe recorded is kept with the set."""
+    src = tmp_path / "src.flac"
+    src.write_bytes(b"x")
+    user = await _make_user(session)
+    await _make_root(session, tmp_path)
+    job_id = await _queued_rip(session, user)
+    job = await session.get(RipJob, job_id)
+    job.probed_metadata = {"title": "Rip", "thumbnail": "https://i.ytimg.com/vi/x/hq.jpg"}
+    await session.commit()
+
+    stored: list[tuple[str, str | None]] = []
+
+    async def _store(live_set_id, url):
+        stored.append((live_set_id, url))
+        return True
+
+    async def _ok(live_set_id, **kwargs):
+        return ArrivalResult("publish", "published")
+
+    monkeypatch.setattr("setvault_core.jobs.url_rip_job._download", _fake_download(src))
+    monkeypatch.setattr("setvault_core.jobs.thumbnail.store_thumbnail", _store)
+    for mod, fn in [("probe", "probe_audio"), ("fingerprint", "fingerprint_audio"),
+                    ("transcode", "transcode_audio"), ("normalize", "normalize_audio"),
+                    ("waveform", "generate_waveform"), ("ready", "finish_arrival")]:
+        monkeypatch.setattr(f"setvault_core.jobs.{mod}.{fn}", _ok)
+
+    await _run_rip_job(session, job_id)
+
+    await session.refresh(job)
+    assert job.status == "ready", job.error_text
+    assert stored == [(str(job.live_set_id), "https://i.ytimg.com/vi/x/hq.jpg")]

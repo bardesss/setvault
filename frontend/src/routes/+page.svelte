@@ -124,6 +124,7 @@
           artist={Array.isArray(s.artists) && s.artists.length ? s.artists[0].name : ""}
           venue={s.venue?.name ?? ""}
           isNew={isNewSet(s.created_at)}
+          thumbUrl={s.thumb_url ?? null}
           year={s.date ? new Date(s.date).getFullYear() : null}
         />
       {/each}

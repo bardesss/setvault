@@ -80,60 +80,6 @@
   display: flex; align-items: center; gap: var(--sp-3);
 }
 
-.rail {
-  grid-area: rail;
-  background: var(--bg-surface);
-  border-right: 1px solid var(--border-default);
-  padding: var(--sp-4) var(--sp-2);
-  overflow-y: auto;
-  position: relative;
-  z-index: var(--z-raised);
-}
-.rail-section {
-  margin-bottom: var(--sp-6);
-}
-.rail-section-title {
-  padding: 0 var(--sp-3);
-  margin-bottom: var(--sp-2);
-}
-.rail-link {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: 7px var(--sp-3);
-  border-radius: var(--r-md);
-  color: var(--text-muted);
-  font-size: var(--ts-md);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-default), color var(--dur-fast) var(--ease-default);
-}
-.rail-link:hover { background: var(--bg-elevated); color: var(--text-default); }
-.rail-link.active {
-  background: var(--accent-soft);
-  color: var(--accent);
-  position: relative;
-}
-.rail-link.active::before {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 6px;
-  bottom: 6px;
-  width: 2px;
-  background: var(--accent);
-  box-shadow: var(--accent-glow);
-  border-radius: 2px;
-}
-.rail-link svg { width: 16px; height: 16px; flex-shrink: 0; }
-.rail-link .count {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: var(--ts-xs);
-  color: var(--text-faintest);
-}
-.rail-link.active .count { color: var(--accent); }
-
 .main {
   grid-area: main;
   overflow-y: auto;
@@ -610,7 +556,10 @@
   background: var(--bg-surface);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--sp-4);
+  overflow-y: auto;
+  position: relative;
+  z-index: var(--z-raised);
 }
 .rail-section { display: flex; flex-direction: column; gap: 2px; }
 .rail-section-title {
@@ -618,7 +567,7 @@
   font-size: var(--ts-xxs);
   text-transform: uppercase;
   letter-spacing: var(--ls-uppercase);
-  color: var(--text-faint);
+  color: var(--text-muted);
   padding: var(--sp-2) var(--sp-3) 4px;
 }
 .rail-link {
@@ -633,6 +582,7 @@
   text-decoration: none;
 }
 .rail-link:hover { background: var(--bg-elevated); }
+.rail-link svg { width: 16px; height: 16px; flex-shrink: 0; }
 .rail-link.active {
   background: var(--accent-soft);
   color: var(--accent);
