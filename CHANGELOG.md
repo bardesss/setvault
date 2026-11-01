@@ -4,6 +4,19 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0](https://github.com/bardesss/setvault/compare/v0.27.2...v0.28.0) (2026-11-01)
+
+
+### Features
+
+* cover thumbnails for ripped sets; tidy side menu ([c3f6131](https://github.com/bardesss/setvault/commit/c3f6131745145c36b5394c97b989d88af59287f2))
+* **sets:** store and show cover thumbnails for ripped sets ([e29a1dd](https://github.com/bardesss/setvault/commit/e29a1dd1267d83c49c385202b58f84df376e12aa))
+
+
+### Bug Fixes
+
+* **nav:** tidy the side menu ([17bda48](https://github.com/bardesss/setvault/commit/17bda48c4e5cd4612926e69febd18506ecdf9f31))
+
 ## [0.27.2](https://github.com/bardesss/setvault/compare/v0.27.1...v0.27.2) (2026-10-30)
 
 
