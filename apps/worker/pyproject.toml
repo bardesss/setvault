@@ -5,7 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
   "setvault-core",
   "setvault-ingest-sources",
-  "rq>=1.16",
+  "rq>=3.0.0",
   "redis>=8.1.0",
   "rq-scheduler>=0.13",
 ]
