@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+from collections.abc import Iterable
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,31 +36,39 @@ def _author_for(user: User) -> CommentAuthor:
                          display_name=user.display_name)
 
 
-async def _out(session: AsyncSession, c: Comment) -> CommentOut:
-    # TODO(perf): N+1 — list_comments calls _out per row, so each comment
-    # triggers an author session.get + up to one mention IN-query. Fine for
-    # the small-private-group target (<10 users, threads in the tens). When
-    # threads grow into the hundreds, hydrate authors + mentions in two bulk
-    # queries upstream and pass them in.
-    author = await session.get(User, c.user_id)
-    mentions: list[CommentAuthor] = []
-    if c.mentions_user_ids:
-        mention_rows = (await session.execute(
-            select(User).where(User.id.in_(c.mentions_user_ids))
-        )).scalars().all()
-        mentions = [_author_for(u) for u in mention_rows]
+async def _users_by_id(
+    session: AsyncSession, comments: Iterable[Comment],
+) -> dict[uuid.UUID, User]:
+    """Every author and mentioned user of ``comments``, in one query."""
+    ids: set[uuid.UUID] = set()
+    for c in comments:
+        ids.add(c.user_id)
+        ids.update(c.mentions_user_ids or ())
+    if not ids:
+        return {}
+    rows = (await session.execute(select(User).where(User.id.in_(ids)))).scalars().all()
+    return {u.id: u for u in rows}
+
+
+def _comment_out(c: Comment, users: dict[uuid.UUID, User]) -> CommentOut:
+    mentions = [_author_for(users[uid]) for uid in (c.mentions_user_ids or ())
+                if uid in users]
     return CommentOut(
         id=str(c.id),
         parent_id=str(c.parent_id) if c.parent_id else None,
         position_seconds=c.position_seconds,
         body_html=("" if c.deleted_at else render_markdown_safe(c.body)),
         body_md=("" if c.deleted_at else c.body),
-        author=_author_for(author),
+        author=_author_for(users[c.user_id]),
         mentions=mentions,
         edited_at=c.edited_at,
         deleted_at=c.deleted_at,
         created_at=c.created_at,
     )
+
+
+async def _out(session: AsyncSession, c: Comment) -> CommentOut:
+    return _comment_out(c, await _users_by_id(session, [c]))
 
 
 @router.get("/api/sets/{slug}/comments", response_model=CommentsListOut)
@@ -80,10 +90,8 @@ async def list_comments(
     total = (await session.execute(
         select(func.count()).select_from(Comment).where(Comment.live_set_id == live.id)
     )).scalar_one()
-    items: list[CommentOut] = []
-    for c in rows:
-        items.append(await _out(session, c))
-    return CommentsListOut(items=items, total=total)
+    users = await _users_by_id(session, rows)
+    return CommentsListOut(items=[_comment_out(c, users) for c in rows], total=total)
 
 
 @router.post("/api/sets/{slug}/comments", response_model=CommentOut, status_code=201)
