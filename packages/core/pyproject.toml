@@ -30,7 +30,7 @@ dependencies = [
   # yt-dlp plugin fetching YouTube PO tokens from the bgutil server the image
   # runs on 127.0.0.1:4416. Keep in step with BGUTIL_VERSION in the Dockerfile.
   "bgutil-ytdlp-pot-provider==2.0.2",
-  "watchdog>=4.0",
+  "watchdog>=7.1.0",
 ]
 
 [project.optional-dependencies]
