@@ -36,6 +36,12 @@ updates:
       npm-security:
         applies-to: security-updates
         patterns: ["*"]
+    ignore:
+      # TypeScript 7 drops the JS API svelte-check and SvelteKit need; TS 7
+      # runs via the typescript-7 alias until they support it. See
+      # docs/superpowers/plans/2026-11-12-typescript-7.md (Task 3).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
