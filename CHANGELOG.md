@@ -4,6 +4,13 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1](https://github.com/bardesss/setvault/compare/v0.28.0...v0.28.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **worker:** forward rq 3's extra job-hook arguments ([ee31f7b](https://github.com/bardesss/setvault/commit/ee31f7be27f6676ec53a9893d07533749fbef277))
+
 ## [0.28.0](https://github.com/bardesss/setvault/compare/v0.27.2...v0.28.0) (2026-11-01)
 
 
