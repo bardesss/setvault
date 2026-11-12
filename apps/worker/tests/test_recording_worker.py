@@ -431,7 +431,7 @@ def _perform(worker, queue, job):
     from rq.timeouts import TimerDeathPenalty
 
     worker.death_penalty_class = TimerDeathPenalty  # SIGALRM-free (works on Windows)
-    return worker.perform_job(job, queue)
+    return worker.perform_job(job, queue, worker.prepare_execution(job))
 
 
 def test_real_perform_job_records_success_and_failure(db_url, run_db, e2e_redis):

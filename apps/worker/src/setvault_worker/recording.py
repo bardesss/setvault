@@ -274,7 +274,8 @@ class RecordingWorker(Worker):
                 logger.warning("job recording: could not save row id on %s", job.id,
                                exc_info=True)
 
-    def handle_job_success(self, job, queue, started_job_registry):
+    # rq passes extra arguments (rq 3 added ``execution``); forward them as-is.
+    def handle_job_success(self, job, queue, started_job_registry, *args, **kwargs):
         if not self._quiet(job):
             try:
                 result = getattr(job, "_result", None)
@@ -285,9 +286,10 @@ class RecordingWorker(Worker):
             except Exception:
                 logger.warning("job recording: could not record success of %s", job.id,
                                exc_info=True)
-        return super().handle_job_success(job, queue, started_job_registry)
+        return super().handle_job_success(job, queue, started_job_registry, *args, **kwargs)
 
-    def handle_job_failure(self, job, queue, started_job_registry=None, exc_string=""):
+    def handle_job_failure(self, job, queue, started_job_registry=None, exc_string="",
+                           **kwargs):
         try:
             row_id = None if self._quiet(job) else self._row_id(job)
             self.recorder.ended(job, row_id, status="failed",
@@ -297,4 +299,5 @@ class RecordingWorker(Worker):
                            exc_info=True)
         return super().handle_job_failure(
             job, queue, started_job_registry=started_job_registry, exc_string=exc_string,
+            **kwargs,
         )

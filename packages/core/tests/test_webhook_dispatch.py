@@ -358,7 +358,7 @@ def test_real_rq_retry_round_trip(http, monkeypatch):
             q, webhook_id=wid, event="set.published", set_slug="s", set_id="i", title="t")
         job = q.jobs[0]
 
-        worker.perform_job(job, q)
+        worker.perform_job(job, q, worker.prepare_execution(job))
         job.refresh()
         assert job.get_status() == "scheduled"
         assert job.retries_left == 4
@@ -368,7 +368,7 @@ def test_real_rq_retry_round_trip(http, monkeypatch):
         assert [(d.attempt, d.status_code, d.delivery_id) for d in rows] == [(1, 503, did)]
 
         registry.remove(job)
-        worker.perform_job(job, q)
+        worker.perform_job(job, q, worker.prepare_execution(job))
         job.refresh()
         assert job.retries_left == 3
         assert abs(registry.get_scheduled_time(job).timestamp() - (time.time() + 300)) < 15
@@ -378,7 +378,7 @@ def test_real_rq_retry_round_trip(http, monkeypatch):
 
         registry.remove(job)
         run_job(_disable(wid))
-        worker.perform_job(job, q)
+        worker.perform_job(job, q, worker.prepare_execution(job))
         job.refresh()
         assert job.get_status() == "finished"
         assert job.return_value()["skipped"] is True
