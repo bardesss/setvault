@@ -5,7 +5,7 @@ description = "Metadata enrichment provider plugins for SetVault"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27",
-    "pydantic>=2",
+    "pydantic>=2.14.3",
 ]
 
 [build-system]
