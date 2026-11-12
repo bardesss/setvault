@@ -36,6 +36,13 @@ updates:
       npm-security:
         applies-to: security-updates
         patterns: ["*"]
+    ignore:
+      # TypeScript 7 drops the JS API svelte-check and SvelteKit need; TS 7
+      # runs via the typescript-7 alias (frontend/package.json) until they
+      # support it. Lift this once @sveltejs/kit and svelte-check accept
+      # typescript 7 in their peerDependencies.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
