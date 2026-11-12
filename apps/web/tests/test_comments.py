@@ -17,6 +17,19 @@ async def test_create_and_list_comment(authed_admin_client, seeded_live_set):
 
 
 @pytest.mark.asyncio
+async def test_list_carries_authors_and_mentions(authed_admin_client, seeded_live_set):
+    """The listing loads every author and mentioned user in one go."""
+    slug = seeded_live_set["slug"]
+    for body in ("first", "ping @admin", "third"):
+        r = await authed_admin_client.post(f"/api/sets/{slug}/comments", json={"body": body})
+        assert r.status_code == 201, r.text
+    items = (await authed_admin_client.get(f"/api/sets/{slug}/comments")).json()["items"]
+    assert [i["body_md"] for i in items] == ["first", "ping @admin", "third"]
+    assert {i["author"]["username"] for i in items} == {"admin"}
+    assert [[m["username"] for m in i["mentions"]] for i in items] == [[], ["admin"], []]
+
+
+@pytest.mark.asyncio
 async def test_reply_one_level(authed_admin_client, seeded_live_set):
     slug = seeded_live_set["slug"]
     top = (await authed_admin_client.post(f"/api/sets/{slug}/comments",
