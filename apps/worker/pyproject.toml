@@ -1,6 +1,6 @@
 [project]
 name = "setvault-worker"
-version = "0.28.1"
+version = "0.28.2"
 requires-python = ">=3.12"
 dependencies = [
   "setvault-core",

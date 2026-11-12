@@ -4,6 +4,18 @@ All notable changes to SetVault are documented here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.2](https://github.com/bardesss/setvault/compare/v0.28.1...v0.28.2) (2026-11-12)
+
+
+### Bug Fixes
+
+* **deps:** bump dnspython to 2.9.2 (CPU exhaustion advisory) ([a9ba015](https://github.com/bardesss/setvault/commit/a9ba015596c516b9230fc1f52cc7be7babeb677b))
+
+
+### Performance
+
+* **comments:** load comment authors and mentions in one query ([a5c0cc4](https://github.com/bardesss/setvault/commit/a5c0cc47c6efaf925f5b16acc448280e0d77539e))
+
 ## [0.28.1](https://github.com/bardesss/setvault/compare/v0.28.0...v0.28.1) (2026-11-12)
 
 
