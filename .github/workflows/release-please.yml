@@ -24,6 +24,26 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+      # Release-please bumps the workspace versions in the pyproject files
+      # (extra-files) but can't edit uv.lock, which records them too. Re-lock
+      # on the release branch so a release never leaves uv.lock behind.
+      - uses: actions/checkout@v7
+        if: ${{ steps.release.outputs.pr }}
+        with:
+          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+      # Pinned to a commit: this job's token can write to the repo.
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        if: ${{ steps.release.outputs.pr }}
+      - name: Refresh uv.lock on the release PR
+        if: ${{ steps.release.outputs.pr }}
+        run: |
+          uv lock
+          if git diff --quiet uv.lock; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: refresh uv.lock for the release" uv.lock
+          git push
+
       # Without this, no image is built on release: the tag push from
       # GITHUB_TOKEN can't trigger docker.yml's `on: push: tags`.
       - name: Trigger Docker build for the new tag

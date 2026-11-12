@@ -1540,7 +1540,7 @@ wheels = [
 
 [[package]]
 name = "setvault-core"
-version = "0.28.1"
+version = "0.28.2"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "alembic" },
@@ -1606,7 +1606,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "setvault-ingest-sources"
-version = "0.28.1"
+version = "0.28.2"
 source = { editable = "packages/ingest_sources" }
 dependencies = [
     { name = "httpx" },
@@ -1635,7 +1635,7 @@ dev = [
 
 [[package]]
 name = "setvault-providers"
-version = "0.28.1"
+version = "0.28.2"
 source = { editable = "packages/providers" }
 dependencies = [
     { name = "httpx" },
@@ -1664,7 +1664,7 @@ dev = [
 
 [[package]]
 name = "setvault-web"
-version = "0.28.1"
+version = "0.28.2"
 source = { editable = "apps/web" }
 dependencies = [
     { name = "fastapi" },
@@ -1708,7 +1708,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "setvault-worker"
-version = "0.28.1"
+version = "0.28.2"
 source = { editable = "apps/worker" }
 dependencies = [
     { name = "redis" },
